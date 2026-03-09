@@ -268,11 +268,7 @@ function MessageBubble({ msg }) {
   return (
     <div style={{ display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "10px", marginBottom: "16px", alignItems: "flex-start" }}>
       <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: isUser ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>
-<<<<<<< HEAD
-        {isUser ? "" : "M"}
-=======
-        {isUser ? "" : ""}
->>>>>>> 0ade346dca75b1af109db7fcdbf7a8d5e1e9d1ab
+ {isUser ? "" : "M"}
       </div>
       <div style={{ maxWidth: "75%" }}>
         {!isUser && msg.type && <div style={{ fontSize: "10px", color: typeInfo.color, fontFamily: "'DM Mono', monospace", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{typeInfo.label}</div>}
