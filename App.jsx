@@ -32,18 +32,17 @@ When you detect a misconception, note it subtly and ask a redirecting question:
 - "Let's test that: if that were true, what would happen in [counterexample]?"
 
 RESPONSE FORMAT:
-Respond in structured JSON with these fields:
+You MUST respond with valid JSON only — no markdown, no backticks, no extra text before or after. Use exactly this structure:
 {
-  "message": "Your tutoring response (questions, affirmations, hints)",
+  "message": "Your tutoring response",
   "type": "question|affirmation|hint|redirect|summary",
-  "conceptsDetected": ["array of concepts you detected in student's message"],
-  "misconceptionDetected": null or "description of misconception",
-  "hintLevel": null or 1 or 2 or 3,
-  "progressSummary": null or "brief summary of what student has reasoned so far",
-  "encouragementScore": 1-5
+  "conceptsDetected": ["array of concept strings"],
+  "misconceptionDetected": null,
+  "hintLevel": null,
+  "progressSummary": null,
+  "encouragementScore": 3
 }
-
-Remember: Your value is in making students THINK, not in giving them answers. Every response must move the student one step closer to understanding through their own reasoning.`;
+misconceptionDetected: null or short string. hintLevel: null or 1/2/3. progressSummary: null or short string. encouragementScore: integer 1-5.`;
 
 // ============================================================
 // INITIAL MASTERY STATE
@@ -70,7 +69,53 @@ const STARTER_PROMPTS = [
 ];
 
 // ============================================================
-// API KEY MODAL
+// GROQ API CALL
+// Uses OpenAI-compatible endpoint with llama-3.3-70b-versatile
+// ============================================================
+async function callGroq(messages, apiKey) {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: TUTOR_SYSTEM_PROMPT },
+        ...messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      ],
+      temperature: 0.7,
+      max_tokens: 1000,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const raw = data?.choices?.[0]?.message?.content || "";
+
+  try {
+    const clean = raw.replace(/```json|```/g, "").trim();
+    return JSON.parse(clean);
+  } catch {
+    return {
+      message: raw || "I couldn't process that. Please try again.",
+      type: "question",
+      conceptsDetected: [],
+      misconceptionDetected: null,
+      hintLevel: null,
+      progressSummary: null,
+      encouragementScore: 3,
+    };
+  }
+}
+
+// ============================================================
+// API KEY MODAL — Groq version
 // ============================================================
 function ApiKeyModal({ onSave }) {
   const [key, setKey] = useState("");
@@ -79,23 +124,28 @@ function ApiKeyModal({ onSave }) {
 
   const handleSave = async () => {
     const trimmed = key.trim();
-    if (!trimmed.startsWith("sk-ant-")) {
-      setError("Key should start with sk-ant- — please check and try again.");
+    if (!trimmed) { setError("Please enter your API key."); return; }
+    if (!trimmed.startsWith("gsk_")) {
+      setError("Groq keys start with gsk_ — please check and try again.");
       return;
     }
     setTesting(true);
     setError("");
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": trimmed, "anthropic-version": "2023-06-01" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${trimmed}` },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 10,
+          model: "llama-3.3-70b-versatile",
           messages: [{ role: "user", content: "hi" }],
+          max_tokens: 5,
         }),
       });
-      if (res.status === 401) { setError("Invalid API key. Please check and try again."); setTesting(false); return; }
+      if (res.status === 401) {
+        setError("Invalid API key. Please check and try again.");
+        setTesting(false);
+        return;
+      }
       onSave(trimmed);
     } catch {
       setError("Connection failed. Check your internet and try again.");
@@ -104,109 +154,55 @@ function ApiKeyModal({ onSave }) {
   };
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(2,8,23,0.96)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 1000, backdropFilter: "blur(8px)",
-    }}>
-      <div style={{
-        background: "#0a1628", border: "1px solid #1e3a5f",
-        borderRadius: "20px", padding: "40px", maxWidth: "460px", width: "90%",
-        boxShadow: "0 0 60px #0ea5e922",
-      }}>
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(2,8,23,0.96)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(8px)" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=DM+Mono:wght@400&family=Fraunces:opsz,wght@9..144,700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input{outline:none}`}</style>
+      <div style={{ background: "#0a1628", border: "1px solid #1e3a5f", borderRadius: "20px", padding: "40px", maxWidth: "460px", width: "90%", boxShadow: "0 0 60px #0ea5e922", fontFamily: "'DM Sans', sans-serif" }}>
+        <div style={{ textAlign: "center", marginBottom: "24px" }}>
           <div style={{ fontSize: "44px", marginBottom: "12px" }}>🦉</div>
-          <h1 style={{
-            fontFamily: "'Fraunces', serif", fontSize: "26px", fontWeight: "700",
-            background: "linear-gradient(135deg,#7dd3fc,#c084fc)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            marginBottom: "8px",
-          }}>Welcome to Menya</h1>
-          <p style={{ color: "#64748b", fontSize: "14px", lineHeight: "1.7" }}>
-            Enter your Anthropic API key to begin. Your key stays in memory only — it is never stored or sent anywhere except directly to Anthropic.
-          </p>
+          <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: "26px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</h1>
+          <p style={{ color: "#64748b", fontSize: "14px", lineHeight: "1.7" }}>Enter your free Groq API key to begin. Your key stays in memory only — never stored, never shared.</p>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
+          <div style={{ padding: "6px 16px", background: "#0f2a1a", border: "1px solid #16a34a", borderRadius: "20px", fontSize: "12px", color: "#4ade80", fontFamily: "'DM Mono', monospace" }}>
+            ✓ 100% Free — No credit card required
+          </div>
         </div>
 
         <div style={{ marginBottom: "16px" }}>
-          <label style={{ display: "block", fontSize: "11px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", marginBottom: "8px" }}>
-            ANTHROPIC API KEY
-          </label>
+          <label style={{ display: "block", fontSize: "11px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", marginBottom: "8px" }}>GROQ API KEY</label>
           <input
-            type="password"
-            value={key}
+            type="password" value={key}
             onChange={e => setKey(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSave()}
-            placeholder="sk-ant-api03-..."
-            style={{
-              width: "100%", padding: "12px 16px",
-              background: "#0f172a", border: `1px solid ${error ? "#7f1d1d" : "#1e293b"}`,
-              borderRadius: "10px", color: "#e2e8f0", fontSize: "14px",
-              fontFamily: "'DM Mono', monospace", outline: "none",
-            }}
+            placeholder="gsk_..."
+            style={{ width: "100%", padding: "12px 16px", background: "#0f172a", border: `1px solid ${error ? "#7f1d1d" : "#1e293b"}`, borderRadius: "10px", color: "#e2e8f0", fontSize: "14px", fontFamily: "'DM Mono', monospace" }}
           />
           {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "#f87171" }}>{error}</div>}
         </div>
 
-        <button
-          onClick={handleSave}
-          disabled={!key.trim() || testing}
-          style={{
-            width: "100%", padding: "13px",
-            background: !key.trim() || testing ? "#1e293b" : "linear-gradient(135deg,#0ea5e9,#7c3aed)",
-            border: "none", borderRadius: "10px",
-            color: !key.trim() || testing ? "#475569" : "#fff",
-            fontSize: "14px", fontWeight: "600", cursor: !key.trim() || testing ? "not-allowed" : "pointer",
-            fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s",
-          }}
-        >
+        <button onClick={handleSave} disabled={!key.trim() || testing}
+          style={{ width: "100%", padding: "13px", background: !key.trim() || testing ? "#1e293b" : "linear-gradient(135deg,#0ea5e9,#7c3aed)", border: "none", borderRadius: "10px", color: !key.trim() || testing ? "#475569" : "#fff", fontSize: "14px", fontWeight: "600", cursor: !key.trim() || testing ? "not-allowed" : "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s" }}>
           {testing ? "Verifying key…" : "Start Tutoring →"}
         </button>
 
-        <div style={{ marginTop: "20px", padding: "14px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px" }}>
-          <div style={{ fontSize: "11px", color: "#475569", fontFamily: "'DM Mono', monospace", marginBottom: "6px" }}>HOW TO GET A KEY</div>
-          <ol style={{ fontSize: "12px", color: "#64748b", paddingLeft: "16px", lineHeight: "1.9" }}>
-            <li>Go to <span style={{ color: "#7dd3fc" }}>console.anthropic.com</span></li>
-            <li>Sign up or log in</li>
-            <li>Navigate to API Keys → Create Key</li>
-            <li>Paste it above</li>
+        <div style={{ marginTop: "20px", padding: "16px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px" }}>
+          <div style={{ fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", marginBottom: "8px" }}>HOW TO GET YOUR FREE KEY (2 minutes)</div>
+          <ol style={{ fontSize: "12px", color: "#64748b", paddingLeft: "16px", lineHeight: "2.1" }}>
+            <li>Go to <span style={{ color: "#7dd3fc" }}>console.groq.com</span></li>
+            <li>Sign up with Google or email — free</li>
+            <li>Click <strong style={{ color: "#94a3b8" }}>"API Keys"</strong> in the left sidebar</li>
+            <li>Click <strong style={{ color: "#94a3b8" }}>"Create API Key"</strong></li>
+            <li>Copy the key (starts with <span style={{ color: "#94a3b8" }}>gsk_</span>) and paste above</li>
           </ol>
         </div>
 
         <p style={{ marginTop: "14px", fontSize: "11px", color: "#334155", textAlign: "center", lineHeight: "1.6" }}>
-          🔒 Key is held in memory only. Refreshing the page clears it. This tool is open-source — <span style={{ color: "#475569" }}>view source on GitHub</span>.
+          🔒 Key held in memory only. Refreshing clears it. Free tier: 14,400 requests/day.
         </p>
       </div>
     </div>
   );
-}
-
-// ============================================================
-// CLAUDE API CALL (accepts apiKey param)
-// ============================================================
-async function callClaude(messages, apiKey) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      system: TUTOR_SYSTEM_PROMPT,
-      messages,
-    }),
-  });
-  if (!response.ok) throw new Error(`API error: ${response.status}`);
-  const data = await response.json();
-  const raw = data.content.map(c => c.text || "").join("");
-  try {
-    const clean = raw.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch {
-    return { message: raw, type: "question", conceptsDetected: [], misconceptionDetected: null, hintLevel: null, progressSummary: null, encouragementScore: 3 };
-  }
 }
 
 // ============================================================
@@ -249,11 +245,8 @@ function HintPanel({ hints, onRequestHint, loading }) {
           <span>{h.text}</span>
         </div>
       ))}
-      <button
-        onClick={onRequestHint}
-        disabled={loading || hints.length >= 3}
-        style={{ marginTop: "8px", width: "100%", padding: "10px", background: hints.length >= 3 ? "#1e293b" : "#f59e0b22", border: `1px solid ${hints.length >= 3 ? "#334155" : "#f59e0b55"}`, borderRadius: "8px", color: hints.length >= 3 ? "#475569" : "#f59e0b", fontSize: "13px", cursor: hints.length >= 3 ? "not-allowed" : "pointer", fontFamily: "'DM Mono', monospace", transition: "all 0.2s" }}
-      >
+      <button onClick={onRequestHint} disabled={loading || hints.length >= 3}
+        style={{ marginTop: "8px", width: "100%", padding: "10px", background: hints.length >= 3 ? "#1e293b" : "#f59e0b22", border: `1px solid ${hints.length >= 3 ? "#334155" : "#f59e0b55"}`, borderRadius: "8px", color: hints.length >= 3 ? "#475569" : "#f59e0b", fontSize: "13px", cursor: hints.length >= 3 ? "not-allowed" : "pointer", fontFamily: "'DM Mono', monospace" }}>
         {hints.length >= 3 ? "Maximum hints reached" : loading ? "Thinking…" : `Request Hint ${hints.length + 1} of 3`}
       </button>
     </div>
@@ -270,27 +263,15 @@ function MessageBubble({ msg }) {
         {isUser ? "👤" : "🦉"}
       </div>
       <div style={{ maxWidth: "75%" }}>
-        {!isUser && msg.type && (
-          <div style={{ fontSize: "10px", color: typeInfo.color, fontFamily: "'DM Mono', monospace", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{typeInfo.label}</div>
-        )}
+        {!isUser && msg.type && <div style={{ fontSize: "10px", color: typeInfo.color, fontFamily: "'DM Mono', monospace", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{typeInfo.label}</div>}
         <div style={{ background: isUser ? "#1e293b" : "#0f172a", border: `1px solid ${isUser ? "#334155" : "#1e3a5f"}`, borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 16px", fontSize: "14px", lineHeight: "1.6", color: isUser ? "#cbd5e1" : "#e2e8f0" }}>
           {msg.content}
         </div>
-        {msg.progressSummary && (
-          <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}>
-            📊 {msg.progressSummary}
-          </div>
-        )}
-        {msg.misconceptionDetected && (
-          <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>
-            ⚠️ Misconception detected: {msg.misconceptionDetected}
-          </div>
-        )}
+        {msg.progressSummary && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}>📊 {msg.progressSummary}</div>}
+        {msg.misconceptionDetected && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>⚠️ Misconception detected: {msg.misconceptionDetected}</div>}
         {msg.conceptsDetected?.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", marginTop: "6px", gap: "4px" }}>
-            {msg.conceptsDetected.map((c, i) => (
-              <span key={i} style={{ padding: "2px 8px", background: "#0c4a6e", border: "1px solid #0369a1", borderRadius: "12px", fontSize: "11px", color: "#7dd3fc", fontFamily: "'DM Mono', monospace" }}>{c}</span>
-            ))}
+            {msg.conceptsDetected.map((c, i) => <span key={i} style={{ padding: "2px 8px", background: "#0c4a6e", border: "1px solid #0369a1", borderRadius: "12px", fontSize: "11px", color: "#7dd3fc", fontFamily: "'DM Mono', monospace" }}>{c}</span>)}
           </div>
         )}
       </div>
@@ -336,12 +317,7 @@ export default function AITutor() {
       setReasoningGraph(prev => [...prev, { label: userText.slice(0, 30), type: "formula" }]);
     if (parsed.misconceptionDetected)
       setReasoningGraph(prev => [...prev, { label: parsed.misconceptionDetected.slice(0, 30), type: "misconception" }]);
-    setAnalytics(prev => ({
-      ...prev,
-      totalMessages: prev.totalMessages + 1,
-      conceptsIdentified: prev.conceptsIdentified + (parsed.conceptsDetected?.length || 0),
-      misconceptionsDetected: prev.misconceptionsDetected + (parsed.misconceptionDetected ? 1 : 0),
-    }));
+    setAnalytics(prev => ({ ...prev, totalMessages: prev.totalMessages + 1, conceptsIdentified: prev.conceptsIdentified + (parsed.conceptsDetected?.length || 0), misconceptionsDetected: prev.misconceptionsDetected + (parsed.misconceptionDetected ? 1 : 0) }));
     if (parsed.conceptsDetected?.length > 0) updateMastery(parsed.conceptsDetected, parsed.encouragementScore || 3);
     if (parsed.encouragementScore >= 4) {
       setEncouragement(parsed.encouragementScore === 5 ? "🌟 Excellent reasoning!" : "✨ Great progress!");
@@ -353,18 +329,17 @@ export default function AITutor() {
     if (!text.trim() || loading) return;
     setShowWelcome(false);
     setLoading(true);
-    const userMsg = { role: "user", content: text };
-    const newApiMsgs = [...apiMessages, userMsg];
+    const newApiMsgs = [...apiMessages, { role: "user", content: text }];
     setApiMessages(newApiMsgs);
     setMessages(prev => [...prev, { role: "user", content: text }]);
     setInput("");
     try {
-      const parsed = await callClaude(newApiMsgs, apiKey);
+      const parsed = await callGroq(newApiMsgs, apiKey);
       setApiMessages(prev => [...prev, { role: "assistant", content: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary }]);
       processResponse(parsed, text);
-    } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", type: "question" }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}. Please check your API key.`, type: "question" }]);
     }
     setLoading(false);
   }, [loading, apiMessages, apiKey, processResponse]);
@@ -373,9 +348,9 @@ export default function AITutor() {
     if (loading || hints.length >= 3 || messages.length === 0) return;
     setLoading(true);
     const level = hints.length + 1;
-    const hintMsgs = [...apiMessages, { role: "user", content: `I need a level ${level} hint. Concept reminder (L1), formula recall (L2), or method nudge (L3). Never reveal the answer.` }];
+    const hintMsgs = [...apiMessages, { role: "user", content: `I need a level ${level} hint. Never reveal the answer.` }];
     try {
-      const parsed = await callClaude(hintMsgs, apiKey);
+      const parsed = await callGroq(hintMsgs, apiKey);
       setHints(prev => [...prev, { level, text: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: "hint", hintLevel: level }]);
       setApiMessages(prev => [...prev, { role: "user", content: `I need a level ${level} hint.` }, { role: "assistant", content: parsed.message }]);
@@ -383,6 +358,14 @@ export default function AITutor() {
     } catch {}
     setLoading(false);
   }, [loading, hints, messages, apiMessages, apiKey]);
+
+  const resetKey = () => {
+    if (confirm("Clear your API key and reset the session?")) {
+      setApiKey(null); setMessages([]); setApiMessages([]); setHints([]);
+      setReasoningGraph([]); setShowWelcome(true); setMastery(INITIAL_MASTERY);
+      setAnalytics({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
+    }
+  };
 
   const subjectGroups = {};
   Object.entries(mastery).forEach(([k, v]) => { if (!subjectGroups[v.subject]) subjectGroups[v.subject] = []; subjectGroups[v.subject].push([k, v]); });
@@ -401,7 +384,6 @@ export default function AITutor() {
         @keyframes encouragement-pop{0%{opacity:0;transform:scale(0.8) translateY(-10px)}20%{opacity:1;transform:scale(1.05) translateY(0)}80%{opacity:1;transform:scale(1) translateY(0)}100%{opacity:0;transform:scale(0.95) translateY(-5px)}}
       `}</style>
 
-      {/* Header */}
       <header style={{ borderBottom: "1px solid #1e293b", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#020817", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>🦉</div>
@@ -412,12 +394,10 @@ export default function AITutor() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ fontSize: "12px", color: "#475569", fontFamily: "'DM Mono', monospace" }}>{messages.filter(m => m.role === "user").length} exchanges</div>
-          <button onClick={() => { if (confirm("Clear your API key and reset?")) setApiKey(null); }} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#475569", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>
-            ⚙ Key
-          </button>
-          <div style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", gap: "6px" }}>
+          <button onClick={resetKey} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#475569", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>⚙ Key</button>
+          <div style={{ padding: "4px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "20px", fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", gap: "6px" }}>
             <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", animation: "pulse-glow 2s ease-in-out infinite" }} />
-            Menya Mode
+            Free · Groq
           </div>
         </div>
       </header>
@@ -429,16 +409,13 @@ export default function AITutor() {
       )}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 65px)" }}>
-        {/* Chat */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
           <div style={{ flex: 1, overflowY: "auto", padding: "24px", paddingBottom: "8px" }}>
             {showWelcome && (
               <div style={{ textAlign: "center", padding: "40px 20px", animation: "float-in 0.6s ease" }}>
                 <div style={{ fontSize: "48px", marginBottom: "16px" }}>🦉</div>
                 <div style={{ fontFamily: "'Fraunces', serif", fontSize: "28px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</div>
-                <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>
-                  I won't give you answers — I'll help you discover them. Every question I ask is a step toward your own understanding.
-                </div>
+                <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>I won't give you answers — I'll help you discover them. Every question I ask is a step toward your own understanding.</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "480px", margin: "0 auto" }}>
                   {STARTER_PROMPTS.map((p, i) => (
                     <button key={i} onClick={() => sendMessage(p)}
@@ -446,8 +423,7 @@ export default function AITutor() {
                       onMouseEnter={e => { e.target.style.borderColor = "#334155"; e.target.style.color = "#e2e8f0"; e.target.style.background = "#1e293b"; }}
                       onMouseLeave={e => { e.target.style.borderColor = "#1e293b"; e.target.style.color = "#94a3b8"; e.target.style.background = "#0f172a"; }}
                     >
-                      <span style={{ color: "#475569", marginRight: "10px", fontFamily: "'DM Mono', monospace", fontSize: "11px" }}>{String(i + 1).padStart(2, "0")}</span>
-                      {p}
+                      <span style={{ color: "#475569", marginRight: "10px", fontFamily: "'DM Mono', monospace", fontSize: "11px" }}>{String(i + 1).padStart(2, "0")}</span>{p}
                     </button>
                   ))}
                 </div>
@@ -469,12 +445,9 @@ export default function AITutor() {
 
           <div style={{ padding: "16px 24px 20px", borderTop: "1px solid #1e293b", background: "#020817" }}>
             <div style={{ display: "flex", gap: "10px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "14px", padding: "10px 14px", alignItems: "flex-end" }}>
-              <textarea
-                value={input}
-                onChange={e => setInput(e.target.value)}
+              <textarea value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-                placeholder="Share your thinking, show your work, or ask for guidance…"
-                rows={1}
+                placeholder="Share your thinking, show your work, or ask for guidance…" rows={1}
                 style={{ flex: 1, background: "transparent", border: "none", color: "#e2e8f0", fontSize: "14px", lineHeight: "1.6", fontFamily: "'DM Sans', sans-serif", maxHeight: "120px", overflowY: "auto" }}
               />
               <button onClick={() => sendMessage(input)} disabled={loading || !input.trim()}
@@ -482,13 +455,10 @@ export default function AITutor() {
                 Send →
               </button>
             </div>
-            <div style={{ textAlign: "center", marginTop: "8px", fontSize: "11px", color: "#334155", fontFamily: "'DM Mono', monospace" }}>
-              Menya guides reasoning — never gives direct answers
-            </div>
+            <div style={{ textAlign: "center", marginTop: "8px", fontSize: "11px", color: "#334155", fontFamily: "'DM Mono', monospace" }}>Menya guides reasoning — never gives direct answers</div>
           </div>
         </div>
 
-        {/* Sidebar */}
         <div style={{ width: "300px", borderLeft: "1px solid #1e293b", display: "flex", flexDirection: "column", background: "#030d1a", overflowY: "auto", flexShrink: 0 }}>
           <div style={{ display: "flex", borderBottom: "1px solid #1e293b", background: "#020817", position: "sticky", top: 0, zIndex: 10 }}>
             {["reasoning","mastery","analytics"].map(tab => (
@@ -542,8 +512,11 @@ export default function AITutor() {
                 <div style={{ marginTop: "16px", padding: "14px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px", fontSize: "13px", color: "#94a3b8", lineHeight: "1.7" }}>
                   {analytics.totalMessages === 0
                     ? <span style={{ color: "#334155" }}>Start a problem to generate your learning report.</span>
-                    : <>You've worked through <span style={{ color: "#60a5fa" }}>{analytics.totalMessages}</span> exchanges, identified <span style={{ color: "#4ade80" }}>{analytics.conceptsIdentified}</span> concepts, and used <span style={{ color: "#f59e0b" }}>{analytics.hintsUsed}</span> hints.{analytics.misconceptionsDetected > 0 && <> <span style={{ color: "#f87171" }}>{analytics.misconceptionsDetected}</span> misconceptions were caught and redirected.</>}</>
+                    : <>You've worked through <span style={{ color: "#60a5fa" }}>{analytics.totalMessages}</span> exchanges, identified <span style={{ color: "#4ade80" }}>{analytics.conceptsIdentified}</span> concepts, and used <span style={{ color: "#f59e0b" }}>{analytics.hintsUsed}</span> hints.{analytics.misconceptionsDetected > 0 && <> <span style={{ color: "#f87171" }}>{analytics.misconceptionsDetected}</span> misconceptions were caught.</>}</>
                   }
+                </div>
+                <div style={{ marginTop: "12px", padding: "12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "10px", fontSize: "12px", color: "#4ade80", textAlign: "center" }}>
+                  ✓ Powered by Groq · LLaMA 3.3 70B · Free · 14,400 req/day
                 </div>
               </div>
             )}

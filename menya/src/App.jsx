@@ -158,14 +158,14 @@ function ApiKeyModal({ onSave }) {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=DM+Mono:wght@400&family=Fraunces:opsz,wght@9..144,700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input{outline:none}`}</style>
       <div style={{ background: "#0a1628", border: "1px solid #1e3a5f", borderRadius: "20px", padding: "40px", maxWidth: "460px", width: "90%", boxShadow: "0 0 60px #0ea5e922", fontFamily: "'DM Sans', sans-serif" }}>
         <div style={{ textAlign: "center", marginBottom: "24px" }}>
-          <div style={{ fontSize: "44px", marginBottom: "12px" }}>🦉</div>
+          <div style={{ fontSize: "44px", marginBottom: "12px" }}>M</div>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: "26px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</h1>
           <p style={{ color: "#64748b", fontSize: "14px", lineHeight: "1.7" }}>Enter your free Groq API key to begin. Your key stays in memory only — never stored, never shared.</p>
         </div>
 
         <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
           <div style={{ padding: "6px 16px", background: "#0f2a1a", border: "1px solid #16a34a", borderRadius: "20px", fontSize: "12px", color: "#4ade80", fontFamily: "'DM Mono', monospace" }}>
-            ✓ 100% Free — No credit card required
+             100% Free — No credit card required
           </div>
         </div>
 
@@ -198,7 +198,7 @@ function ApiKeyModal({ onSave }) {
         </div>
 
         <p style={{ marginTop: "14px", fontSize: "11px", color: "#334155", textAlign: "center", lineHeight: "1.6" }}>
-          🔒 Key held in memory only. Refreshing clears it. Free tier: 14,400 requests/day.
+           Key held in memory only. Refreshing clears it. Free tier: 14,400 requests/day.
         </p>
       </div>
     </div>
@@ -260,15 +260,15 @@ function MessageBubble({ msg }) {
   return (
     <div style={{ display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "10px", marginBottom: "16px", alignItems: "flex-start" }}>
       <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: isUser ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>
-        {isUser ? "👤" : "🦉"}
+        {isUser ? "" : "M"}
       </div>
       <div style={{ maxWidth: "75%" }}>
         {!isUser && msg.type && <div style={{ fontSize: "10px", color: typeInfo.color, fontFamily: "'DM Mono', monospace", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{typeInfo.label}</div>}
         <div style={{ background: isUser ? "#1e293b" : "#0f172a", border: `1px solid ${isUser ? "#334155" : "#1e3a5f"}`, borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 16px", fontSize: "14px", lineHeight: "1.6", color: isUser ? "#cbd5e1" : "#e2e8f0" }}>
           {msg.content}
         </div>
-        {msg.progressSummary && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}>📊 {msg.progressSummary}</div>}
-        {msg.misconceptionDetected && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>⚠️ Misconception detected: {msg.misconceptionDetected}</div>}
+        {msg.progressSummary && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}> {msg.progressSummary}</div>}
+        {msg.misconceptionDetected && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}> Misconception detected: {msg.misconceptionDetected}</div>}
         {msg.conceptsDetected?.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", marginTop: "6px", gap: "4px" }}>
             {msg.conceptsDetected.map((c, i) => <span key={i} style={{ padding: "2px 8px", background: "#0c4a6e", border: "1px solid #0369a1", borderRadius: "12px", fontSize: "11px", color: "#7dd3fc", fontFamily: "'DM Mono', monospace" }}>{c}</span>)}
@@ -320,7 +320,7 @@ export default function AITutor() {
     setAnalytics(prev => ({ ...prev, totalMessages: prev.totalMessages + 1, conceptsIdentified: prev.conceptsIdentified + (parsed.conceptsDetected?.length || 0), misconceptionsDetected: prev.misconceptionsDetected + (parsed.misconceptionDetected ? 1 : 0) }));
     if (parsed.conceptsDetected?.length > 0) updateMastery(parsed.conceptsDetected, parsed.encouragementScore || 3);
     if (parsed.encouragementScore >= 4) {
-      setEncouragement(parsed.encouragementScore === 5 ? "🌟 Excellent reasoning!" : "✨ Great progress!");
+      setEncouragement(parsed.encouragementScore === 5 ? "Excellent reasoning!" : " Great progress!");
       setTimeout(() => setEncouragement(null), 3000);
     }
   }, [updateMastery]);
@@ -386,7 +386,7 @@ export default function AITutor() {
 
       <header style={{ borderBottom: "1px solid #1e293b", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#020817", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>🦉</div>
+          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>M</div>
           <div>
             <div style={{ fontFamily: "'Fraunces', serif", fontSize: "20px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Menya</div>
             <div style={{ fontSize: "10px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.12em" }}>AI TUTOR</div>
@@ -413,7 +413,7 @@ export default function AITutor() {
           <div style={{ flex: 1, overflowY: "auto", padding: "24px", paddingBottom: "8px" }}>
             {showWelcome && (
               <div style={{ textAlign: "center", padding: "40px 20px", animation: "float-in 0.6s ease" }}>
-                <div style={{ fontSize: "48px", marginBottom: "16px" }}>🦉</div>
+                <div style={{ fontSize: "48px", marginBottom: "16px" }}>M</div>
                 <div style={{ fontFamily: "'Fraunces', serif", fontSize: "28px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</div>
                 <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>I won't give you answers — I'll help you discover them. Every question I ask is a step toward your own understanding.</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "480px", margin: "0 auto" }}>
@@ -432,7 +432,7 @@ export default function AITutor() {
             {messages.map((msg, i) => <div key={i} style={{ animation: "float-in 0.3s ease" }}><MessageBubble msg={msg} /></div>)}
             {loading && (
               <div style={{ display: "flex", gap: "10px", marginBottom: "16px", alignItems: "center" }}>
-                <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>🦉</div>
+                <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>M</div>
                 <div style={{ padding: "12px 20px", background: "#0f172a", border: "1px solid #1e3a5f", borderRadius: "4px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
                   {[0,1,2].map(d => <div key={d} style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#0ea5e9", animation: `pulse-glow 1.2s ease-in-out infinite ${d * 0.2}s` }} />)}
                 </div>
