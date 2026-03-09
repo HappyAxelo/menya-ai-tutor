@@ -78,7 +78,7 @@ async function callGemini(messages, apiKey) {
   }));
   const lastMessage = messages[messages.length - 1];
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   const body = {
     systemInstruction: { parts: [{ text: TUTOR_SYSTEM_PROMPT }] },
@@ -125,7 +125,7 @@ function ApiKeyModal({ onSave }) {
     setTesting(true);
     setError("");
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${trimmed}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${trimmed}`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
