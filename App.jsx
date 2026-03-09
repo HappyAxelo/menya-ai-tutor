@@ -115,7 +115,7 @@ function ApiKeyModal({ onSave }) {
         boxShadow: "0 0 60px #0ea5e922",
       }}>
         <div style={{ textAlign: "center", marginBottom: "32px" }}>
-          <div style={{ fontSize: "44px", marginBottom: "12px" }}>🦉</div>
+          <div style={{ fontSize: "44px", marginBottom: "12px" }}></div>
           <h1 style={{
             fontFamily: "'Fraunces', serif", fontSize: "26px", fontWeight: "700",
             background: "linear-gradient(135deg,#7dd3fc,#c084fc)",
@@ -434,7 +434,7 @@ export default function AITutor() {
           <div style={{ flex: 1, overflowY: "auto", padding: "24px", paddingBottom: "8px" }}>
             {showWelcome && (
               <div style={{ textAlign: "center", padding: "40px 20px", animation: "float-in 0.6s ease" }}>
-                <div style={{ fontSize: "48px", marginBottom: "16px" }}>🦉</div>
+                <div style={{ fontSize: "48px", marginBottom: "16px" }}></div>
                 <div style={{ fontFamily: "'Fraunces', serif", fontSize: "28px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</div>
                 <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>
                   I won't give you answers — I'll help you discover them. Every question I ask is a step toward your own understanding.
