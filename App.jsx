@@ -154,6 +154,7 @@ function ApiKeyModal({ onSave }) {
   };
 
   return (
+<<<<<<< HEAD
     <div style={{ position: "fixed", inset: 0, background: "rgba(2,8,23,0.96)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(8px)" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=DM+Mono:wght@400&family=Fraunces:opsz,wght@9..144,700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input{outline:none}`}</style>
       <div style={{ background: "#0a1628", border: "1px solid #1e3a5f", borderRadius: "20px", padding: "40px", maxWidth: "460px", width: "90%", boxShadow: "0 0 60px #0ea5e922", fontFamily: "'DM Sans', sans-serif" }}>
@@ -167,6 +168,29 @@ function ApiKeyModal({ onSave }) {
           <div style={{ padding: "6px 16px", background: "#0f2a1a", border: "1px solid #16a34a", borderRadius: "20px", fontSize: "12px", color: "#4ade80", fontFamily: "'DM Mono', monospace" }}>
             ✓ 100% Free — No credit card required
           </div>
+=======
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(2,8,23,0.96)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 1000, backdropFilter: "blur(8px)",
+    }}>
+      <div style={{
+        background: "#0a1628", border: "1px solid #1e3a5f",
+        borderRadius: "20px", padding: "40px", maxWidth: "460px", width: "90%",
+        boxShadow: "0 0 60px #0ea5e922",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+          <div style={{ fontSize: "44px", marginBottom: "12px" }}></div>
+          <h1 style={{
+            fontFamily: "'Fraunces', serif", fontSize: "26px", fontWeight: "700",
+            background: "linear-gradient(135deg,#7dd3fc,#c084fc)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            marginBottom: "8px",
+          }}>Welcome to Menya</h1>
+          <p style={{ color: "#64748b", fontSize: "14px", lineHeight: "1.7" }}>
+            Enter your Anthropic API key to begin. Your key stays in memory only — it is never stored or sent anywhere except directly to Anthropic.
+          </p>
+>>>>>>> 0ade346dca75b1af109db7fcdbf7a8d5e1e9d1ab
         </div>
 
         <div style={{ marginBottom: "16px" }}>
@@ -198,7 +222,11 @@ function ApiKeyModal({ onSave }) {
         </div>
 
         <p style={{ marginTop: "14px", fontSize: "11px", color: "#334155", textAlign: "center", lineHeight: "1.6" }}>
+<<<<<<< HEAD
           🔒 Key held in memory only. Refreshing clears it. Free tier: 14,400 requests/day.
+=======
+            Key is held in memory only. Refreshing the page clears it. This tool is open-source — <span style={{ color: "#475569" }}>view source on GitHub</span>.
+>>>>>>> 0ade346dca75b1af109db7fcdbf7a8d5e1e9d1ab
         </p>
       </div>
     </div>
@@ -260,15 +288,28 @@ function MessageBubble({ msg }) {
   return (
     <div style={{ display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "10px", marginBottom: "16px", alignItems: "flex-start" }}>
       <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: isUser ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>
-        {isUser ? "👤" : "🦉"}
+        {isUser ? "" : ""}
       </div>
       <div style={{ maxWidth: "75%" }}>
         {!isUser && msg.type && <div style={{ fontSize: "10px", color: typeInfo.color, fontFamily: "'DM Mono', monospace", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{typeInfo.label}</div>}
         <div style={{ background: isUser ? "#1e293b" : "#0f172a", border: `1px solid ${isUser ? "#334155" : "#1e3a5f"}`, borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 16px", fontSize: "14px", lineHeight: "1.6", color: isUser ? "#cbd5e1" : "#e2e8f0" }}>
           {msg.content}
         </div>
+<<<<<<< HEAD
         {msg.progressSummary && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}>📊 {msg.progressSummary}</div>}
         {msg.misconceptionDetected && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>⚠️ Misconception detected: {msg.misconceptionDetected}</div>}
+=======
+        {msg.progressSummary && (
+          <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}>
+             {msg.progressSummary}
+          </div>
+        )}
+        {msg.misconceptionDetected && (
+          <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>
+             Misconception detected: {msg.misconceptionDetected}
+          </div>
+        )}
+>>>>>>> 0ade346dca75b1af109db7fcdbf7a8d5e1e9d1ab
         {msg.conceptsDetected?.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", marginTop: "6px", gap: "4px" }}>
             {msg.conceptsDetected.map((c, i) => <span key={i} style={{ padding: "2px 8px", background: "#0c4a6e", border: "1px solid #0369a1", borderRadius: "12px", fontSize: "11px", color: "#7dd3fc", fontFamily: "'DM Mono', monospace" }}>{c}</span>)}
@@ -320,7 +361,7 @@ export default function AITutor() {
     setAnalytics(prev => ({ ...prev, totalMessages: prev.totalMessages + 1, conceptsIdentified: prev.conceptsIdentified + (parsed.conceptsDetected?.length || 0), misconceptionsDetected: prev.misconceptionsDetected + (parsed.misconceptionDetected ? 1 : 0) }));
     if (parsed.conceptsDetected?.length > 0) updateMastery(parsed.conceptsDetected, parsed.encouragementScore || 3);
     if (parsed.encouragementScore >= 4) {
-      setEncouragement(parsed.encouragementScore === 5 ? "🌟 Excellent reasoning!" : "✨ Great progress!");
+      setEncouragement(parsed.encouragementScore === 5 ? " Excellent reasoning!" : "Great progress!");
       setTimeout(() => setEncouragement(null), 3000);
     }
   }, [updateMastery]);
@@ -413,7 +454,7 @@ export default function AITutor() {
           <div style={{ flex: 1, overflowY: "auto", padding: "24px", paddingBottom: "8px" }}>
             {showWelcome && (
               <div style={{ textAlign: "center", padding: "40px 20px", animation: "float-in 0.6s ease" }}>
-                <div style={{ fontSize: "48px", marginBottom: "16px" }}>🦉</div>
+                <div style={{ fontSize: "48px", marginBottom: "16px" }}></div>
                 <div style={{ fontFamily: "'Fraunces', serif", fontSize: "28px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</div>
                 <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>I won't give you answers — I'll help you discover them. Every question I ask is a step toward your own understanding.</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "480px", margin: "0 auto" }}>
