@@ -173,7 +173,7 @@ function ApiKeyModal({ onSave }) {
         </div>
 
         <p style={{ marginTop: "14px", fontSize: "11px", color: "#334155", textAlign: "center", lineHeight: "1.6" }}>
-          🔒 Key is held in memory only. Refreshing the page clears it. This tool is open-source — <span style={{ color: "#475569" }}>view source on GitHub</span>.
+            Key is held in memory only. Refreshing the page clears it. This tool is open-source — <span style={{ color: "#475569" }}>view source on GitHub</span>.
         </p>
       </div>
     </div>
@@ -267,7 +267,7 @@ function MessageBubble({ msg }) {
   return (
     <div style={{ display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "10px", marginBottom: "16px", alignItems: "flex-start" }}>
       <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: isUser ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>
-        {isUser ? "👤" : "🦉"}
+        {isUser ? "" : ""}
       </div>
       <div style={{ maxWidth: "75%" }}>
         {!isUser && msg.type && (
@@ -278,12 +278,12 @@ function MessageBubble({ msg }) {
         </div>
         {msg.progressSummary && (
           <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}>
-            📊 {msg.progressSummary}
+             {msg.progressSummary}
           </div>
         )}
         {msg.misconceptionDetected && (
           <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>
-            ⚠️ Misconception detected: {msg.misconceptionDetected}
+             Misconception detected: {msg.misconceptionDetected}
           </div>
         )}
         {msg.conceptsDetected?.length > 0 && (
@@ -344,7 +344,7 @@ export default function AITutor() {
     }));
     if (parsed.conceptsDetected?.length > 0) updateMastery(parsed.conceptsDetected, parsed.encouragementScore || 3);
     if (parsed.encouragementScore >= 4) {
-      setEncouragement(parsed.encouragementScore === 5 ? "🌟 Excellent reasoning!" : "✨ Great progress!");
+      setEncouragement(parsed.encouragementScore === 5 ? " Excellent reasoning!" : "Great progress!");
       setTimeout(() => setEncouragement(null), 3000);
     }
   }, [updateMastery]);
