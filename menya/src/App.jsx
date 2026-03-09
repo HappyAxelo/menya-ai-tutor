@@ -32,7 +32,7 @@ When you detect a misconception, note it subtly and ask a redirecting question:
 - "Let's test that: if that were true, what would happen in [counterexample]?"
 
 RESPONSE FORMAT:
-You MUST respond with valid JSON only — no markdown, no backticks, no extra text. Use exactly this structure:
+You MUST respond with valid JSON only — no markdown, no backticks, no extra text before or after. Use exactly this structure:
 {
   "message": "Your tutoring response",
   "type": "question|affirmation|hint|redirect|summary",
@@ -42,7 +42,7 @@ You MUST respond with valid JSON only — no markdown, no backticks, no extra te
   "progressSummary": null,
   "encouragementScore": 3
 }
-misconceptionDetected: null or a short string. hintLevel: null or 1/2/3. progressSummary: null or short string. encouragementScore: integer 1-5.`;
+misconceptionDetected: null or short string. hintLevel: null or 1/2/3. progressSummary: null or short string. encouragementScore: integer 1-5.`;
 
 // ============================================================
 // INITIAL MASTERY STATE
@@ -69,30 +69,25 @@ const STARTER_PROMPTS = [
 ];
 
 // ============================================================
-// GEMINI API CALL
+// GROQ API CALL
+// Uses OpenAI-compatible endpoint with llama-3.3-70b-versatile
 // ============================================================
-async function callGemini(messages, apiKey) {
-  const history = messages.slice(0, -1).map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-  const lastMessage = messages[messages.length - 1];
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-  const body = {
-    systemInstruction: { parts: [{ text: TUTOR_SYSTEM_PROMPT }] },
-    contents: [
-      ...history,
-      { role: "user", parts: [{ text: lastMessage.content }] },
-    ],
-    generationConfig: { temperature: 0.7, maxOutputTokens: 1000 },
-  };
-
-  const response = await fetch(url, {
+async function callGroq(messages, apiKey) {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: TUTOR_SYSTEM_PROMPT },
+        ...messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      ],
+      temperature: 0.7,
+      max_tokens: 1000,
+    }),
   });
 
   if (!response.ok) {
@@ -101,18 +96,26 @@ async function callGemini(messages, apiKey) {
   }
 
   const data = await response.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const raw = data?.choices?.[0]?.message?.content || "";
 
   try {
     const clean = raw.replace(/```json|```/g, "").trim();
     return JSON.parse(clean);
   } catch {
-    return { message: raw || "I couldn't process that. Please try again.", type: "question", conceptsDetected: [], misconceptionDetected: null, hintLevel: null, progressSummary: null, encouragementScore: 3 };
+    return {
+      message: raw || "I couldn't process that. Please try again.",
+      type: "question",
+      conceptsDetected: [],
+      misconceptionDetected: null,
+      hintLevel: null,
+      progressSummary: null,
+      encouragementScore: 3,
+    };
   }
 }
 
 // ============================================================
-// API KEY MODAL — Gemini version
+// API KEY MODAL — Groq version
 // ============================================================
 function ApiKeyModal({ onSave }) {
   const [key, setKey] = useState("");
@@ -122,16 +125,23 @@ function ApiKeyModal({ onSave }) {
   const handleSave = async () => {
     const trimmed = key.trim();
     if (!trimmed) { setError("Please enter your API key."); return; }
+    if (!trimmed.startsWith("gsk_")) {
+      setError("Groq keys start with gsk_ — please check and try again.");
+      return;
+    }
     setTesting(true);
     setError("");
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${trimmed}`;
-      const res = await fetch(url, {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "hi" }] }], generationConfig: { maxOutputTokens: 5 } }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${trimmed}` },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 5,
+        }),
       });
-      if (res.status === 400 || res.status === 403) {
+      if (res.status === 401) {
         setError("Invalid API key. Please check and try again.");
         setTesting(false);
         return;
@@ -150,7 +160,7 @@ function ApiKeyModal({ onSave }) {
         <div style={{ textAlign: "center", marginBottom: "24px" }}>
           <div style={{ fontSize: "44px", marginBottom: "12px" }}>🦉</div>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: "26px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</h1>
-          <p style={{ color: "#64748b", fontSize: "14px", lineHeight: "1.7" }}>Enter your free Google Gemini API key to begin. Your key stays in memory only — never stored, never shared.</p>
+          <p style={{ color: "#64748b", fontSize: "14px", lineHeight: "1.7" }}>Enter your free Groq API key to begin. Your key stays in memory only — never stored, never shared.</p>
         </div>
 
         <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
@@ -160,12 +170,12 @@ function ApiKeyModal({ onSave }) {
         </div>
 
         <div style={{ marginBottom: "16px" }}>
-          <label style={{ display: "block", fontSize: "11px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", marginBottom: "8px" }}>GOOGLE GEMINI API KEY</label>
+          <label style={{ display: "block", fontSize: "11px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", marginBottom: "8px" }}>GROQ API KEY</label>
           <input
             type="password" value={key}
             onChange={e => setKey(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSave()}
-            placeholder="AIzaSy..."
+            placeholder="gsk_..."
             style={{ width: "100%", padding: "12px 16px", background: "#0f172a", border: `1px solid ${error ? "#7f1d1d" : "#1e293b"}`, borderRadius: "10px", color: "#e2e8f0", fontSize: "14px", fontFamily: "'DM Mono', monospace" }}
           />
           {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "#f87171" }}>{error}</div>}
@@ -179,16 +189,16 @@ function ApiKeyModal({ onSave }) {
         <div style={{ marginTop: "20px", padding: "16px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px" }}>
           <div style={{ fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", marginBottom: "8px" }}>HOW TO GET YOUR FREE KEY (2 minutes)</div>
           <ol style={{ fontSize: "12px", color: "#64748b", paddingLeft: "16px", lineHeight: "2.1" }}>
-            <li>Go to <span style={{ color: "#7dd3fc" }}>aistudio.google.com</span></li>
-            <li>Sign in with your Google account</li>
-            <li>Click <strong style={{ color: "#94a3b8" }}>"Get API Key"</strong> in the left sidebar</li>
+            <li>Go to <span style={{ color: "#7dd3fc" }}>console.groq.com</span></li>
+            <li>Sign up with Google or email — free</li>
+            <li>Click <strong style={{ color: "#94a3b8" }}>"API Keys"</strong> in the left sidebar</li>
             <li>Click <strong style={{ color: "#94a3b8" }}>"Create API Key"</strong></li>
-            <li>Copy the key and paste it above</li>
+            <li>Copy the key (starts with <span style={{ color: "#94a3b8" }}>gsk_</span>) and paste above</li>
           </ol>
         </div>
 
         <p style={{ marginTop: "14px", fontSize: "11px", color: "#334155", textAlign: "center", lineHeight: "1.6" }}>
-          🔒 Key held in memory only. Refreshing clears it. Free tier: 1,500 requests/day.
+          🔒 Key held in memory only. Refreshing clears it. Free tier: 14,400 requests/day.
         </p>
       </div>
     </div>
@@ -324,7 +334,7 @@ export default function AITutor() {
     setMessages(prev => [...prev, { role: "user", content: text }]);
     setInput("");
     try {
-      const parsed = await callGemini(newApiMsgs, apiKey);
+      const parsed = await callGroq(newApiMsgs, apiKey);
       setApiMessages(prev => [...prev, { role: "assistant", content: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary }]);
       processResponse(parsed, text);
@@ -340,7 +350,7 @@ export default function AITutor() {
     const level = hints.length + 1;
     const hintMsgs = [...apiMessages, { role: "user", content: `I need a level ${level} hint. Never reveal the answer.` }];
     try {
-      const parsed = await callGemini(hintMsgs, apiKey);
+      const parsed = await callGroq(hintMsgs, apiKey);
       setHints(prev => [...prev, { level, text: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: "hint", hintLevel: level }]);
       setApiMessages(prev => [...prev, { role: "user", content: `I need a level ${level} hint.` }, { role: "assistant", content: parsed.message }]);
@@ -349,7 +359,13 @@ export default function AITutor() {
     setLoading(false);
   }, [loading, hints, messages, apiMessages, apiKey]);
 
-  const resetKey = () => { if (confirm("Clear your API key and reset the session?")) { setApiKey(null); setMessages([]); setApiMessages([]); setHints([]); setReasoningGraph([]); setShowWelcome(true); setMastery(INITIAL_MASTERY); setAnalytics({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 }); } };
+  const resetKey = () => {
+    if (confirm("Clear your API key and reset the session?")) {
+      setApiKey(null); setMessages([]); setApiMessages([]); setHints([]);
+      setReasoningGraph([]); setShowWelcome(true); setMastery(INITIAL_MASTERY);
+      setAnalytics({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
+    }
+  };
 
   const subjectGroups = {};
   Object.entries(mastery).forEach(([k, v]) => { if (!subjectGroups[v.subject]) subjectGroups[v.subject] = []; subjectGroups[v.subject].push([k, v]); });
@@ -381,7 +397,7 @@ export default function AITutor() {
           <button onClick={resetKey} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#475569", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>⚙ Key</button>
           <div style={{ padding: "4px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "20px", fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", gap: "6px" }}>
             <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", animation: "pulse-glow 2s ease-in-out infinite" }} />
-            Free · Gemini
+            Free · Groq
           </div>
         </div>
       </header>
@@ -500,7 +516,7 @@ export default function AITutor() {
                   }
                 </div>
                 <div style={{ marginTop: "12px", padding: "12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "10px", fontSize: "12px", color: "#4ade80", textAlign: "center" }}>
-                  ✓ Powered by Gemini 2.0 Flash · Free · 1,500 req/day
+                  ✓ Powered by Groq · LLaMA 3.3 70B · Free · 14,400 req/day
                 </div>
               </div>
             )}
