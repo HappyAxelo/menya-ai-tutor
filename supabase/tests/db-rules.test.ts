@@ -273,3 +273,19 @@ describe("unit economics", () => {
     assert.equal(Number(r.gross_margin_pct), 90);
   });
 });
+
+describe("migrations", () => {
+  test("rollback script removes everything and the migrations re-apply cleanly", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const { join, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const scratch = await freshDb();
+    await scratch.exec(readFileSync(join(root, "rollback", "20261024_menya_all.down.sql"), "utf8"));
+    const left = await scratch.query<any>("select count(*)::int as n from pg_tables where schemaname = 'public'");
+    assert.equal(left.rows[0].n, 0);
+    for (const f of readdirSync(join(root, "migrations")).sort()) await scratch.exec(readFileSync(join(root, "migrations", f), "utf8"));
+    const plans = await scratch.query<any>("select count(*)::int as n from public.plans");
+    assert.equal(plans.rows[0].n, 3);
+  });
+});

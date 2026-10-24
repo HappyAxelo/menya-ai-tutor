@@ -74,9 +74,9 @@ async function postGroq(body, apiKey) {
 
 // messages: [{ role: "user" | "assistant", content }]
 // onWait(seconds) is called while waiting out a rate limit.
-export async function callTutor(messages, apiKey, { language = "auto", onWait } = {}) {
+export async function callTutor(messages, apiKey, { language = "auto", onWait, model = MODEL } = {}) {
   const body = {
-    model: MODEL,
+    model,
     messages: [
       { role: "system", content: buildSystemPrompt(language) },
       ...messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),

@@ -2,9 +2,8 @@
 -- Menya core schema: plans, entitlements, subscriptions,
 -- organizations, usage metering, quotas, billing events, audit.
 --
--- Rollback: this is the first migration, so rolling back means
--- dropping the objects it creates. See supabase/rollback/
--- 20261024000000_menya_core.down.sql (run manually, destroys data).
+-- Rollback: supabase/rollback/20261024_menya_all.down.sql drops every
+-- object these migrations create (run manually; destroys data).
 --
 -- Security model:
 --   * Every table has RLS enabled.
