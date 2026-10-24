@@ -2,6 +2,32 @@ import { useState } from "react";
 import { supabase } from "../lib/backend.js";
 import { C, mono, serif, Button, Field, inputStyle, Notice } from "./ui.jsx";
 
+// Only when the app points at the local development backend
+// (supabase/dev/local-server.ts). Never shown against a real Supabase project.
+const LOCAL_DEMO = /^http:\/\/localhost(:\d+)?$/.test(import.meta.env.VITE_SUPABASE_URL ?? "");
+const DEMO_USERS = [
+  { label: "Demo learner", id: "00000000-0000-4000-8000-000000000001", email: "learner@menya.local" },
+  { label: "Demo admin (platform + university)", id: "00000000-0000-4000-8000-000000000002", email: "admin@menya.local" },
+];
+
+function LocalDemoLogin() {
+  const signIn = (u) => {
+    const session = { access_token: `local_${u.id}`, refresh_token: "local", token_type: "bearer", expires_in: 86400,
+      expires_at: Math.floor(Date.now() / 1000) + 86400,
+      user: { id: u.id, email: u.email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {} } };
+    try { localStorage.setItem("sb-localhost-auth-token", JSON.stringify(session)); } catch { /* storage blocked */ }
+    window.location.reload();
+  };
+  return (
+    <div style={{ marginTop: "18px", paddingTop: "16px", borderTop: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: "11px", color: C.amber, fontFamily: mono, marginBottom: "8px", textAlign: "center" }}>LOCAL DEMO BACKEND</div>
+      {DEMO_USERS.map(u => (
+        <Button key={u.id} variant="ghost" onClick={() => signIn(u)} style={{ width: "100%", marginBottom: "8px" }}>Sign in as {u.label}</Button>
+      ))}
+    </div>
+  );
+}
+
 // Passwordless sign-in: Supabase emails a one-time link. No passwords are
 // stored by Menya.
 export default function AuthScreen({ inviteToken }) {
@@ -45,6 +71,7 @@ export default function AuthScreen({ inviteToken }) {
         <p style={{ marginTop: "18px", fontSize: "11px", color: C.faint, textAlign: "center", lineHeight: 1.6, fontFamily: mono }}>
           Free plan included. No card needed.
         </p>
+        {LOCAL_DEMO && <LocalDemoLogin />}
       </div>
     </div>
   );
