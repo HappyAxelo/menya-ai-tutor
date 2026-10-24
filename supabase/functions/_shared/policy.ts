@@ -27,7 +27,25 @@ export interface PolicyOptions {
   hintsUsed?: number;             // hints already given for the current problem
   depth?: "standard" | "detailed"; // detailed = Pro/Professional explanations
   privateFields?: boolean;        // ask for finalAnswer/difficulty (server only)
+  level?: LearnerLevel;           // learner's own setting
+  style?: ReplyStyle;             // learner's own setting
 }
+
+export type LearnerLevel = "secondary" | "undergraduate" | "postgraduate";
+export type ReplyStyle = "concise" | "balanced" | "detailed";
+export const LEARNER_LEVELS: LearnerLevel[] = ["secondary", "undergraduate", "postgraduate"];
+export const REPLY_STYLES: ReplyStyle[] = ["concise", "balanced", "detailed"];
+
+const LEVEL_TEXT: Record<LearnerLevel, string> = {
+  secondary: "a secondary-school student: use everyday words, concrete numbers and simple examples, and define any technical term you use",
+  undergraduate: "an undergraduate student: use standard university terminology and notation",
+  postgraduate: "a postgraduate student: be rigorous and precise, use advanced terminology freely, and connect ideas to theory",
+};
+const STYLE_TEXT: Record<ReplyStyle, string> = {
+  concise: "Keep replies very short: one or two sentences plus your question.",
+  balanced: "",
+  detailed: "The learner prefers fuller replies: you may use up to six sentences, adding a short worked illustration of the idea (never of the answer to their problem).",
+};
 
 export const BASE_POLICY = `You are Menya, a Socratic tutor for undergraduates. You help students understand, by leading them to answers with accurate, specific hints rather than handing answers over.
 
@@ -101,6 +119,12 @@ export function buildSystemPrompt(opts: PolicyOptions = {}): string {
   const parts = [BASE_POLICY];
   parts.push(opts.workedSolutions === false ? WORKED_SOLUTIONS_OFF : WORKED_SOLUTIONS_ON);
   if (opts.depth === "detailed") parts.push(DETAILED);
+  if (opts.level && LEVEL_TEXT[opts.level]) parts.push(`
+LEARNER LEVEL
+- The learner is ${LEVEL_TEXT[opts.level]}.`);
+  if (opts.style && STYLE_TEXT[opts.style]) parts.push(`
+REPLY LENGTH
+- ${STYLE_TEXT[opts.style]}`);
   if (opts.privateFields) parts.push(PRIVATE_FIELDS);
   parts.push(OUTPUT);
   if (opts.language && opts.language !== "auto") {

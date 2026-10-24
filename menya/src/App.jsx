@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, lazy, Suspense } from "react";
 import {
   ArrowUp, BarChart3, BookOpen, Check, CheckCircle2, ChevronDown, Code2, Copy, Gauge, Globe, GraduationCap,
-  HelpCircle, KeyRound, Lightbulb, Moon, RotateCcw, Sigma, Sparkles, SquarePen, Sun, TriangleAlert, X, Zap, Flag,
+  HelpCircle, Lightbulb, Moon, RotateCcw, Sigma, Sparkles, SquarePen, Sun, TriangleAlert, X, Zap, Flag,
+  Settings as SettingsIcon, Crown,
 } from "lucide-react";
+import { useSettings, effectiveTheme } from "./settings.js";
+import SettingsPanel from "./SettingsPanel.jsx";
+import PlansView from "./PlansView.jsx";
 import { callTutor, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
 // The Markdown + maths renderer is a separate download, fetched while the
 // first reply is being prepared, so the first screen stays light.
@@ -51,27 +55,11 @@ const SUBJECT_COLORS = { EE: "#f59e0b", Math: "#60a5fa", Physics: "#34d399", CS:
 const NODE_COLORS = { concept: "#34d399", formula: "#60a5fa", step: "#f59e0b", assumption: "#a78bfa", misconception: "#f87171" };
 
 // ============================================================
-// THEME (per-viewer preference; storage may be unavailable)
-// ============================================================
-function useTheme() {
-  const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem("menya-theme") || null; } catch { return null; }
-  });
-  useEffect(() => {
-    if (theme) document.documentElement.setAttribute("data-theme", theme);
-    else document.documentElement.removeAttribute("data-theme");
-    try { theme ? localStorage.setItem("menya-theme", theme) : localStorage.removeItem("menya-theme"); } catch { /* ignore */ }
-  }, [theme]);
-  const systemDark = typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
-  const effective = theme ?? (systemDark ? "dark" : "light");
-  return [effective, () => setTheme(effective === "dark" ? "light" : "dark")];
-}
-
-// ============================================================
 // API KEY SCREEN — developer mode (own Groq key)
 // ============================================================
 function ApiKeyModal({ onSave }) {
   const [key, setKey] = useState("");
+  const [showPlans, setShowPlans] = useState(false);
   const [error, setError] = useState("");
   const [testing, setTesting] = useState(false);
 
@@ -118,7 +106,11 @@ function ApiKeyModal({ onSave }) {
         <p style={{ marginTop: 14, fontSize: 12, color: "var(--faint)", textAlign: "center", lineHeight: 1.6 }}>
           Your key stays in this tab's memory only and goes straight to Groq. Refreshing clears it.
         </p>
+        <div style={{ textAlign: "center", marginTop: 10 }}>
+          <button className="mn-btn" onClick={() => setShowPlans(true)}><Crown size={15} />See Free, Pro &amp; Professional plans</button>
+        </div>
       </div>
+      {showPlans && <PlansView onClose={() => setShowPlans(false)} />}
     </div>
   );
 }
@@ -144,7 +136,7 @@ function useReveal(text, animate) {
   return count === Infinity ? text : tokens.current.slice(0, count).join("");
 }
 
-function AssistantMessage({ msg, animate, latest, onHint, canHint }) {
+function AssistantMessage({ msg, animate, latest, onHint, canHint, showTags }) {
   const shown = useReveal(msg.content, animate);
   const done = shown === msg.content;
   const [copied, setCopied] = useState(false);
@@ -181,7 +173,7 @@ function AssistantMessage({ msg, animate, latest, onHint, canHint }) {
                 {msg.upgradeTo ? "Compare plans" : "View your plan"}
               </button>
             )}
-            {msg.conceptsDetected?.length > 0 && (
+            {showTags && msg.conceptsDetected?.length > 0 && (
               <div className="mn-tags">{msg.conceptsDetected.map((c, i) => <span key={i} className="mn-tag-chip">{c}</span>)}</div>
             )}
             {msg.advanced && <div className="mn-advanced"><Sparkles size={12} /> Advanced reasoning used</div>}
@@ -272,7 +264,7 @@ function ProgressDrawer({ onClose, tab, setTab, reasoningGraph, subjectGroups, a
 // ============================================================
 // client: backend tutor client (commercial mode). Without it the app runs in
 // developer mode and asks for the developer's own Groq key.
-export default function AITutor({ client = null, headerExtras = null, onUsage = null }) {
+export default function AITutor({ client = null, headerExtras = null, onUsage = null, account = null, onNavigate = null }) {
   const [apiKey, setApiKey] = useState(null);
   const [messages, setMessages] = useState([]);
   const [apiMessages, setApiMessages] = useState([]);
@@ -284,13 +276,19 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const [activeTab, setSideTab] = useState("reasoning");
   const [analytics, setAnalytics] = useState({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
   const [encouragement, setEncouragement] = useState(null);
-  const [language, setLanguage] = useState("auto");
   const [lastLanguage, setLastLanguage] = useState(null);
   const [waitSeconds, setWaitSeconds] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [animateIndex, setAnimateIndex] = useState(-1);
   const [loadingKind, setLoadingKind] = useState("message");
-  const [theme, toggleTheme] = useTheme();
+  const [settings, updateSettings, resetSettings] = useSettings();
+  const [showSettings, setShowSettings] = useState(false);
+  const [showPlans, setShowPlans] = useState(false);
+  const language = settings.language;
+  const setLanguage = (l) => updateSettings({ language: l });
+  const theme = effectiveTheme(settings.theme);
+  const toggleTheme = () => updateSettings({ theme: theme === "dark" ? "light" : "dark" });
+  const tutorPrefs = { learnerLevel: settings.level, style: settings.style };
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -349,12 +347,12 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     try {
       let parsed, advanced = false;
       if (client) {
-        const r = await client.send({ text, language });
+        const r = await client.send({ text, language, ...tutorPrefs });
         if (!r.ok) throw Object.assign(new Error(r.message), { limit: r.isLimit ? r : null });
         parsed = r.reply; advanced = r.advanced;
         onUsage?.(r.quota);
       } else {
-        parsed = await callTutor(newApiMsgs, apiKey, { language, onWait: setWaitSeconds });
+        parsed = await callTutor(newApiMsgs, apiKey, { language, onWait: setWaitSeconds, ...tutorPrefs });
       }
       if (parsed.language) setLastLanguage(parsed.language);
       setApiMessages(prev => [...prev, { role: "assistant", content: parsed.message }]);
@@ -365,7 +363,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     }
     setLoading(false);
     inputRef.current?.focus();
-  }, [loading, apiMessages, apiKey, processResponse, language, client, onUsage, pushAssistant]);
+  }, [loading, apiMessages, apiKey, processResponse, language, client, onUsage, pushAssistant, settings.level, settings.style]);
 
   const requestHint = useCallback(async () => {
     if (loading || hints.length >= 3 || messages.length === 0) return;
@@ -375,12 +373,12 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     try {
       let parsed;
       if (client) {
-        const r = await client.hint({ language });
+        const r = await client.hint({ language, ...tutorPrefs });
         if (!r.ok) throw Object.assign(new Error(r.message), { limit: r.isLimit ? r : null });
         parsed = r.reply;
         onUsage?.(r.quota);
       } else {
-        parsed = await callTutor([...apiMessages, request], apiKey, { language, onWait: setWaitSeconds });
+        parsed = await callTutor([...apiMessages, request], apiKey, { language, onWait: setWaitSeconds, ...tutorPrefs });
       }
       if (parsed.language) setLastLanguage(parsed.language);
       setHints(prev => [...prev, { level, text: parsed.message }]);
@@ -391,7 +389,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       pushAssistant(failureMessage(err));
     }
     setLoading(false);
-  }, [loading, hints, messages, apiMessages, apiKey, language, lastLanguage, client, onUsage, pushAssistant]);
+  }, [loading, hints, messages, apiMessages, apiKey, language, lastLanguage, client, onUsage, pushAssistant, settings.level, settings.style]);
 
   // Clears the conversation (and the 3-hint budget) but keeps mastery and analytics.
   const newProblem = () => {
@@ -408,6 +406,26 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       setAnalytics({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
     }
   };
+
+  const exportConversation = () => {
+    const label = m => m.role === "user" ? "You" : `Menya${m.type === "hint" ? ` (hint ${m.hintLevel || 1} of 3)` : ""}`;
+    const md = `# Menya conversation\n\n_${new Date().toLocaleString()}_\n\n` +
+      messages.map(m => `**${label(m)}:**\n\n${m.content}\n`).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
+    a.download = `menya-conversation-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const clearEverything = () => {
+    if (!confirm("Clear this conversation and your progress in this tab?")) return;
+    newProblem();
+    setMastery(INITIAL_MASTERY);
+    setAnalytics({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
+  };
+
+  const openPlans = () => { setShowSettings(false); onNavigate ? onNavigate("pricing") : setShowPlans(true); };
 
   const subjectGroups = {};
   Object.entries(mastery).forEach(([k, v]) => { if (!subjectGroups[v.subject]) subjectGroups[v.subject] = []; subjectGroups[v.subject].push([k, v]); });
@@ -443,15 +461,14 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
             <BarChart3 size={16} /><span className="mn-hide-sm">Progress</span>
             {reasoningGraph.length > 0 && <span className="mn-badge">{reasoningGraph.length}</span>}
           </button>
-          <button className="mn-btn icon" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title="Theme">
+          <button className="mn-btn icon mn-hide-sm" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title="Theme">
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-          {client ? headerExtras : (
-            <>
-              <button className="mn-btn icon" onClick={resetKey} aria-label="Change API key" title="Change API key"><KeyRound size={16} /></button>
-              <span className="mn-pill mn-hide-sm"><span className="dot" />Developer mode</span>
-            </>
+          {!client && (
+            <button className="mn-btn" onClick={openPlans} title="Plans"><Crown size={16} /><span className="mn-hide-sm">Plans</span></button>
           )}
+          <button className="mn-btn icon" onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings"><SettingsIcon size={16} /></button>
+          {client && headerExtras}
         </div>
       </header>
 
@@ -481,7 +498,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
 
             {messages.map((msg, i) => msg.role === "user"
               ? <div key={i} className="mn-msg user"><div className="mn-user-bubble" dir="auto">{msg.content}</div></div>
-              : <AssistantMessage key={i} msg={msg} animate={i === animateIndex} latest={i === lastAssistant} onHint={requestHint} canHint={canHint} />)}
+              : <AssistantMessage key={i} msg={msg} animate={settings.animate && i === animateIndex} latest={i === lastAssistant} onHint={requestHint} canHint={canHint} showTags={settings.showTags} />)}
 
             {loading && (
               <div className="mn-thinking" role="status">
@@ -497,7 +514,11 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         <div className="mn-composer-wrap">
           <form className="mn-composer" onSubmit={e => { e.preventDefault(); sendMessage(input); }}>
             <textarea ref={inputRef} dir="auto" rows={1} value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendMessage(input); } }}
+              onKeyDown={e => {
+                if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                const send = settings.enterToSend ? !e.shiftKey : (e.ctrlKey || e.metaKey);
+                if (send) { e.preventDefault(); sendMessage(input); }
+              }}
               placeholder={messages.length ? "Share your next step or your answer…" : "Ask about any problem, in any language…"}
               aria-label="Message Menya" />
             <div className="mn-composer-row">
@@ -507,12 +528,22 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
                 <span className="pips" aria-hidden="true">{[0, 1, 2].map(i => <i key={i} className={i < hints.length ? "used" : ""} />)}</span>
               </button>
               <span className="spacer" />
-              <span className="mn-kbd mn-hide-sm">Shift + Enter for a new line</span>
+              <span className="mn-kbd mn-hide-sm">{settings.enterToSend ? "Shift + Enter for a new line" : "Ctrl + Enter to send"}</span>
               <button type="submit" className="mn-send" disabled={loading || !input.trim()} aria-label="Send message"><ArrowUp size={18} strokeWidth={2.5} /></button>
             </div>
           </form>
           <div className="mn-footnote">Menya guides you to answers instead of handing them over. {client ? "Your progress is saved to your account." : "Developer mode · your own Groq key."}</div>
         </div>
+
+        {showSettings && (
+          <SettingsPanel settings={settings} update={updateSettings} reset={resetSettings}
+            mode={client ? "commercial" : "dev"} account={account} hasConversation={messages.length > 0}
+            onClose={() => setShowSettings(false)} onPlans={openPlans}
+            onAccount={() => { setShowSettings(false); onNavigate?.("account"); }}
+            onExport={exportConversation} onClear={clearEverything}
+            onForgetKey={() => { setShowSettings(false); resetKey(); }} />
+        )}
+        {showPlans && <PlansView onClose={() => setShowPlans(false)} />}
 
         {showSidebar && (
           <ProgressDrawer onClose={() => setShowSidebar(false)} tab={activeTab} setTab={setSideTab}

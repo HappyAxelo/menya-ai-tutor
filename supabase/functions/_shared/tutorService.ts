@@ -6,7 +6,7 @@
 // ============================================================
 import {
   buildResponseSchema, buildSystemPrompt, hintRequest, hintsUsedNote, parseTutorJson, publicReply,
-  REWRITE_REQUEST, type TutorReply,
+  REWRITE_REQUEST, LEARNER_LEVELS, REPLY_STYLES, type LearnerLevel, type ReplyStyle, type TutorReply,
 } from "./policy.ts";
 import { revealsAnswer } from "./answerGuard.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
@@ -19,6 +19,8 @@ export interface TutorInput {
   action: "message" | "hint";
   message?: string;
   language?: string;
+  learnerLevel?: LearnerLevel;
+  style?: ReplyStyle;
 }
 
 export interface TutorDeps {
@@ -54,10 +56,14 @@ export function validateInput(raw: unknown, maxChars: number): TutorInput | stri
     if (b.message.length > maxChars) return "message_too_long";
   }
   if (b.language != null && (typeof b.language !== "string" || !/^[\p{L} ()-]{2,40}$/u.test(b.language))) return "invalid_language";
+  if (b.learnerLevel != null && !LEARNER_LEVELS.includes(b.learnerLevel as LearnerLevel)) return "invalid_level";
+  if (b.style != null && !REPLY_STYLES.includes(b.style as ReplyStyle)) return "invalid_style";
   return {
     requestId: b.requestId, sessionId: (b.sessionId as string) ?? null, action,
     message: typeof b.message === "string" ? b.message.trim() : undefined,
     language: (b.language as string) ?? "auto",
+    learnerLevel: (b.learnerLevel as LearnerLevel) ?? undefined,
+    style: (b.style as ReplyStyle) ?? undefined,
   };
 }
 
@@ -135,7 +141,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   }
 
   const system = buildSystemPrompt({
-    language: input.language, workedSolutions: ent.worked_solutions, privateFields: true,
+    language: input.language, workedSolutions: ent.worked_solutions, privateFields: true, level: input.learnerLevel, style: input.style,
     depth: ent.analytics_level === "enhanced" ? "detailed" : "standard",
   });
   const schema = buildResponseSchema(true);

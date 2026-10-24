@@ -5,8 +5,8 @@
 // ============================================================
 import { buildResponseSchema, buildSystemPrompt as buildPolicyPrompt, hintRequest, parseTutorJson } from "../../supabase/functions/_shared/policy.ts";
 
-export function buildSystemPrompt(language = "auto") {
-  return buildPolicyPrompt({ language, workedSolutions: true });
+export function buildSystemPrompt(language = "auto", { learnerLevel, style } = {}) {
+  return buildPolicyPrompt({ language, workedSolutions: true, level: learnerLevel, style });
 }
 
 // gpt-oss-120b reasons privately before answering, which lets it solve the
@@ -74,11 +74,11 @@ async function postGroq(body, apiKey) {
 
 // messages: [{ role: "user" | "assistant", content }]
 // onWait(seconds) is called while waiting out a rate limit.
-export async function callTutor(messages, apiKey, { language = "auto", onWait, model = MODEL } = {}) {
+export async function callTutor(messages, apiKey, { language = "auto", onWait, model = MODEL, learnerLevel, style } = {}) {
   const body = {
     model,
     messages: [
-      { role: "system", content: buildSystemPrompt(language) },
+      { role: "system", content: buildSystemPrompt(language, { learnerLevel, style }) },
       ...messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
     ],
     temperature: 0.4,

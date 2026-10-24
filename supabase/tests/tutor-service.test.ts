@@ -210,6 +210,17 @@ describe("tutor pipeline", () => {
     assert.equal(groq.calls.length, 0, "no model call when over quota");
   });
 
+  test("learner level and reply style reach the model's instructions", async () => {
+    const u = await createUser(db);
+    const groq = fakeProvider("groq", () => reply());
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    await handleTutor(deps, u, ask("hi", { learnerLevel: "secondary", style: "concise" }));
+    assert.match(groq.calls[0].req.system, /secondary-school student/);
+    assert.match(groq.calls[0].req.system, /one or two sentences/);
+    assert.equal((await handleTutor(deps, u, ask("hi", { learnerLevel: "phd" }))).body.error, "invalid_level");
+    assert.equal((await handleTutor(deps, u, ask("hi", { style: "essay" }))).body.error, "invalid_style");
+  });
+
   test("input validation", async () => {
     const u = await createUser(db);
     const deps = { repo: pgRepo(db), providers: {}, sleep: noSleep };

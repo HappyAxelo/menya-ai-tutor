@@ -119,7 +119,7 @@ export default function CommercialApp() {
       )}
       {/* The tutor stays mounted so a conversation survives visiting other pages. */}
       <div style={{ display: page === "tutor" ? "block" : "none" }}>
-        <AITutor client={client} headerExtras={nav} onUsage={onUsage} />
+        <AITutor client={client} headerExtras={nav} onUsage={onUsage} account={account} onNavigate={setPage} />
       </div>
       {page !== "tutor" && (
         <ErrorBoundary key={page} onReset={back}>

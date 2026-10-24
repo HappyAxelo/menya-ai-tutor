@@ -79,8 +79,8 @@ export function backendTutorClient() {
     return { ok: true, reply: r.data.reply, quota: r.data.quota, advanced: r.data.advancedReasoning, hintsUsed: r.data.hintsUsed };
   };
   return {
-    send: ({ text, language }) => call({ action: "message", message: text, language }),
-    hint: ({ language }) => call({ action: "hint", language }),
+    send: ({ text, language, learnerLevel, style }) => call({ action: "message", message: text, language, learnerLevel, style }),
+    hint: ({ language, learnerLevel, style }) => call({ action: "hint", language, learnerLevel, style }),
     newProblem: () => { sessionId = null; },
   };
 }
