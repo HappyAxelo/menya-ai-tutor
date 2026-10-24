@@ -1,0 +1,16 @@
+# Supabase CLI project config (only the settings Menya relies on).
+project_id = "menya-ai-tutor"
+
+[functions.api]
+# The API verifies JWTs itself so that payment webhooks and public routes
+# (plans, quote requests, health) can reach it without a user token.
+verify_jwt = false
+import_map = "./functions/deno.json"
+
+[auth]
+site_url = "http://localhost:5173/menya-ai-tutor/"
+additional_redirect_urls = ["http://localhost:5173/menya-ai-tutor/"]
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
