@@ -3,3 +3,6 @@ dist
 .env
 .env.local
 .DS_Store
+supabase/node_modules
+supabase/.temp
+supabase/.env
