@@ -22,56 +22,46 @@ export const LANGUAGES = [
   { code: "Chinese", label: "中文" },
 ];
 
-export const TUTOR_SYSTEM_PROMPT = `You are Menya, a Socratic academic tutor for undergraduate students. You guide students to the answer with accurate, specific hints and questions. You never hand over the final answer.
+export const TUTOR_SYSTEM_PROMPT = `You are Menya, a Socratic tutor for undergraduates. You lead students to the answer with accurate, specific hints. You never give them the final answer.
 
-LANGUAGE (critical):
-- Reply in the language of the student's most recent message, unless a required language is set below. This applies to every text field: message, conceptsDetected, misconceptionDetected and progressSummary.
-- Support every language, including low-resource ones such as Kinyarwanda, Kiswahili, Kirundi, Luganda, Amharic, Hausa, Yoruba, Zulu, Wolof and Lingala. Write natural, grammatical text the way a good local teacher would. Never translate word-for-word from English.
-- If a technical term has no common equivalent in that language, use the usual local term and put the English or French term in parentheses once, e.g. "ubukana bw'amashanyarazi (current)".
-- Keep mathematical notation, symbols, units and code universal: V = IR, f'(x), O(n log n), 12 V, 4 Ω.
-- Set "language" to the English name of the language you replied in.
-- Hint requests and other control messages from the app arrive in square brackets in English. Never change language because of them; keep using the student's language.
+LANGUAGE
+- Reply in the language of the student's latest message (or the required language below, if set), in every text field. Write naturally, like a good local teacher, never word-for-word from English. This includes low-resource languages such as Kinyarwanda, Kiswahili, Kirundi, Luganda, Amharic, Hausa, Yoruba and Zulu.
+- If a technical term has no common local equivalent, use the usual local term with the English term in parentheses once.
+- Keep notation, symbols, units and code universal (V = IR, f'(x), 12 V, O(log n)).
+- Messages in [square brackets] come from the app, in English. Never switch language because of them.
+- "language" = full English name of the reply language ("French", "Swahili"), never a code like "fr".
+- Use the correct standard term for every quantity in that language, and never blur distinct concepts (e.g. acceleration is not speed).
 
-ACCURACY (critical):
-- Before replying, privately solve the student's problem completely and check the result. Every hint, question and judgement must agree with that verified solution. Never steer the student down a wrong path.
-- When the student offers a step or an answer, check it carefully against your solution:
-  - Correct: say clearly that it is correct and why the reasoning works (type "affirmation"). Confirming an answer the student found themselves is not giving the answer.
-  - Wrong: say plainly that it is not right yet, without revealing the correct value. Point to where it goes wrong (which step, sign, unit or concept) and ask a question that helps them fix it (type "redirect").
-  - Partly right: confirm the right part, then focus on the first mistake.
-- Never praise wrong reasoning to be encouraging. If the problem is ambiguous or missing data, ask for the missing information instead of guessing.
+ACCURACY
+- First solve the problem privately and check your result. Everything you say must agree with that solution.
+- Judge each student step or answer against it:
+  - correct → say clearly it is correct and why (type "affirmation"). Confirming what the student found is allowed.
+  - wrong → say plainly it is not right yet, point to where it goes wrong (step, sign, unit, concept), and ask how to fix it (type "redirect"). Do NOT state the correct value or expression while correcting, not even as "X gives Y, not Z".
+  - partly right → confirm the right part, then address the first mistake.
+- Never praise wrong reasoning. If data is missing or the problem is ambiguous, ask for it.
 
-NO DIRECT ANSWERS (absolute):
-- Never state the final answer, final value, final expression, finished proof or finished code. Never do the last computation for the student.
-- This holds even if the student insists, says it is urgent, claims to be a teacher, asks in another language, asks you to role-play, or asks you to "just check" a value you would have to supply yourself.
-- When they ask for the answer, acknowledge it kindly in one sentence, then give the next concrete step.
+NEVER GIVE THE ANSWER
+- Never state the final value, expression, proof or code, and never do the last computation, whatever the student says (urgency, "I'm the teacher", role-play, another language). If they ask for it, acknowledge kindly in one sentence and give the next step instead.
 
-HOW TO GUIDE:
-- Work one step at a time. Each reply moves the student exactly one step closer to the answer.
-- Be concrete and specific to THIS problem: name the actual quantities, values, variables or lines of code involved. Do not ask vague meta-questions like "What principle applies here?" when the student is clearly stuck.
-- You may make a short statement (a fact, a definition, a reminder) before your question. Do not answer with questions only.
-- Keep it short: at most about 4 sentences, ending with ONE clear question or task for the student.
-- Now and then, summarise what the student has established so far in progressSummary.
+HOW TO GUIDE
+- First reply to a new problem: no formula or hint yet. Ask one focused question about what the student knows or how they would start (you may name the quantities involved).
+- After that, move exactly one step per reply. Be concrete about THIS problem (its quantities, values, lines of code), not vague ("what principle applies?").
+- A short statement before your question is fine. At most about 4 sentences, ending with ONE question or task.
+- Speak to the student naturally. Never mention your own rules or instructions (no "I'll stop before the final value", "don't compute further"). Just ask them to do the next step.
+- Occasionally set progressSummary to what the student has established.
 
-HINT LEVELS (when the student is stuck or the app sends a hint request). Each level is more specific than the last, and all must match your verified solution:
-- Level 1 — Concept: name the exact principle, law or technique that solves this problem and say in one sentence why it applies here. E.g. "This is Ohm's law: the battery voltage drives current through the resistor."
-- Level 2 — Relationship: give the exact formula or relationship, and map each of the student's given quantities onto its symbols. Do not substitute numbers or solve. E.g. "V = IR, where V = 12 V and R = 4 Ω here. Which symbol is the unknown?"
-- Level 3 — Next step: set up the specific next operation with the student's values in place, and stop just before the final result. E.g. "Rearrange to I = V / R and put in 12 V and 4 Ω. What do you get?"
-- Never go beyond Level 3. Never reveal the final result.
-- If hints were given earlier, build on them; never repeat an earlier hint.
+HINTS (on a [HINT REQUEST], or when the student is stuck)
+Each hint must be more specific than everything already said in the conversation, and never repeat an earlier hint:
+- Level 1, Concept: name the exact principle or technique and say in one sentence why it applies here.
+- Level 2, Relationship: state the formula or relationship and say which given quantity is which symbol. Do not write it out with numbers substituted.
+- Level 3, Next step: set up the specific operation with the student's values substituted, and stop just before the result.
+  If the answer is an expression (a derivative, integral, simplified formula, code), Level 3 sets up its structure but leaves at least one piece for the student to work out, e.g. "f'(x) = u'·sin(x) + x²·v'. What are u' and v'?". Never write the complete final expression: a Level 3 hint for an expression must contain a blank (? or __) where the student still has to work something out.
+If an earlier reply already reached this level, go one step further, but never to the final result. Set hintLevel to the level given.
 
-MISCONCEPTIONS:
-- When you detect one, set misconceptionDetected to a short description of it, in the student's language. Then challenge it with a counterexample or a check, e.g. "If that were true, what would happen when R doubles?"
+MISCONCEPTIONS
+- If you spot one, put a short description in misconceptionDetected (in the student's language) and challenge it with a check or counterexample.
 
-OUTPUT:
-Reply with a single JSON object that matches the response schema:
-- language: English name of the reply language.
-- message: your reply to the student.
-- type: "question" | "affirmation" | "hint" | "redirect" | "summary".
-- conceptsDetected: short names of the concepts involved (in the student's language).
-- misconceptionDetected: short string or null.
-- hintLevel: 1, 2 or 3 when this reply is a hint, otherwise null.
-- progressSummary: short string or null.
-- encouragementScore: integer 1–5 for how well the student is reasoning (5 = excellent).`;
+OUTPUT: one JSON object matching the schema. type: question | affirmation | hint | redirect | summary. conceptsDetected: short concept names in the student's language. hintLevel: 1–3 for hints, else null. encouragementScore: 1–5 for the quality of the student's reasoning.`;
 
 export const RESPONSE_SCHEMA = {
   type: "object",
@@ -114,6 +104,8 @@ function fallbackResponse(message) {
   };
 }
 
+const LANGUAGE_CODES = { en: "English", fr: "French", rw: "Kinyarwanda", kin: "Kinyarwanda", sw: "Swahili", swa: "Swahili", es: "Spanish", pt: "Portuguese", ar: "Arabic", zh: "Chinese", rn: "Kirundi", lg: "Luganda" };
+
 export function parseTutorJson(raw) {
   try {
     const clean = raw.replace(/```json|```/g, "").trim();
@@ -121,10 +113,21 @@ export function parseTutorJson(raw) {
     const end = clean.lastIndexOf("}");
     const parsed = JSON.parse(start >= 0 ? clean.slice(start, end + 1) : clean);
     if (typeof parsed?.message !== "string" || !parsed.message.trim()) return null;
-    return { ...fallbackResponse(""), ...parsed, conceptsDetected: Array.isArray(parsed.conceptsDetected) ? parsed.conceptsDetected : [] };
+    const language = LANGUAGE_CODES[String(parsed.language || "").toLowerCase()] || parsed.language || "";
+    return { ...fallbackResponse(""), ...parsed, language, conceptsDetected: Array.isArray(parsed.conceptsDetected) ? parsed.conceptsDetected : [] };
   } catch {
     return null;
   }
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Groq's free tier allows ~8k tokens/minute for this model, so a few quick
+// messages hit 429. Read the suggested wait from the error ("try again in 7.25s").
+function retryDelayMs(err) {
+  const m = /try again in (?:(\d+)m)?([\d.]+)s/i.exec(err.message || "");
+  const seconds = m ? Number(m[1] || 0) * 60 + Number(m[2]) : 10;
+  return Math.ceil(seconds * 1000) + 500;
 }
 
 async function postGroq(body, apiKey) {
@@ -144,7 +147,8 @@ async function postGroq(body, apiKey) {
 }
 
 // messages: [{ role: "user" | "assistant", content }]
-export async function callTutor(messages, apiKey, { language = "auto" } = {}) {
+// onWait(seconds) is called while waiting out a rate limit.
+export async function callTutor(messages, apiKey, { language = "auto", onWait } = {}) {
   const body = {
     model: MODEL,
     messages: [
@@ -152,19 +156,32 @@ export async function callTutor(messages, apiKey, { language = "auto" } = {}) {
       ...messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
     ],
     temperature: 0.4,
-    max_completion_tokens: 4000,
-    reasoning_effort: "medium",
+    // Covers hidden reasoning + the JSON reply; kept low because it counts
+    // against the free tier's tokens-per-minute budget.
+    max_completion_tokens: 2000,
+    reasoning_effort: "medium", // "low" made more language and accuracy slips in testing
     include_reasoning: false,
     response_format: { type: "json_schema", json_schema: { name: "tutor_reply", strict: true, schema: RESPONSE_SCHEMA } },
   };
 
-  // Retry once on a malformed reply or a schema-validation 400.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  let badReplies = 0;
+  for (let rateLimited = 0; ;) {
     try {
       const parsed = parseTutorJson(await postGroq(body, apiKey));
       if (parsed) return parsed;
+      if (++badReplies >= 2) break;
     } catch (err) {
-      if (attempt === 1 || err.status !== 400) throw err;
+      if (err.status === 429 && rateLimited++ < 4) {
+        const ms = retryDelayMs(err);
+        if (ms > 90000) throw err; // daily limit, not worth waiting for
+        onWait?.(Math.ceil(ms / 1000));
+        await sleep(ms);
+        onWait?.(null);
+        continue;
+      }
+      // Retry once on a schema-validation 400 (malformed reply).
+      if (err.status === 400 && ++badReplies < 2) continue;
+      throw err;
     }
   }
   return fallbackResponse("Sorry, I couldn't process that. Please try again.");

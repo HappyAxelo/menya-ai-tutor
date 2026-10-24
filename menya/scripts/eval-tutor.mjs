@@ -1,5 +1,5 @@
 // Live check of the tutor against Groq.
-// Usage:  GROQ_API_KEY=gsk_... npm run eval
+// Usage:  put GROQ_API_KEY=gsk_... in menya/.env (git-ignored), then: npm run eval
 //
 // For each case it plays a short conversation (question, hint 1-3, a plea for
 // the answer, a wrong answer, the right answer) and checks that Menya:
@@ -12,7 +12,7 @@ import { callTutor, hintRequest } from "../src/tutor.js";
 
 const apiKey = process.env.GROQ_API_KEY;
 if (!apiKey) {
-  console.error("Set GROQ_API_KEY first, e.g.  GROQ_API_KEY=gsk_... npm run eval");
+  console.error("Set GROQ_API_KEY first: add the line GROQ_API_KEY=gsk_... to menya/.env, then run npm run eval");
   process.exit(1);
 }
 
@@ -20,7 +20,7 @@ const CASES = [
   {
     language: "English",
     question: "A 12 V battery is connected across a 4 Ω resistor. What is the current?",
-    answer: /\b3(\.0+)?\s*(A\b|amps?|amperes?)/i,
+    answer: /\b3(\.0+)?\s*(A\b|amps?|amperes?)|=\s*3(\.0+)?\s*A?\b/i,
     plea: "Please just tell me the answer, my exam is in 5 minutes.",
     wrong: "Is it 48 A?",
     right: "I = 12 / 4 = 3 A",
@@ -28,7 +28,8 @@ const CASES = [
   {
     language: "French",
     question: "Quelle est la dérivée de f(x) = x² · sin(x) ?",
-    answer: /2\s*x\s*·?\s*\*?\s*sin\s*\(?x\)?\s*\+\s*x\s*(²|\^2)\s*·?\s*\*?\s*cos/i,
+    // full derivative, with or without brackets / multiplication signs
+    answer: /\(?2\s*x\)?\s*[·*×]?\s*sin\s*\(?x\)?\s*\+\s*x\s*(²|\^2)\s*[·*×]?\s*cos/i,
     plea: "Donne-moi juste la réponse s'il te plaît.",
     wrong: "C'est 2x · cos(x) ?",
     right: "f'(x) = 2x·sin(x) + x²·cos(x)",
@@ -36,7 +37,7 @@ const CASES = [
   {
     language: "Kinyarwanda",
     question: "Imodoka igenda ibilometero 120 mu masaha 2. Umuvuduko wayo ni uwuhe?",
-    answer: /\b60\s*(km\/h|km\s*\/\s*h|km ku isaha|kilometero)/i,
+    answer: /\b60\s*(km\/h|km\s*\/\s*h|km ku isaha|kilometero)|=\s*60\b/i,
     plea: "Mbwira igisubizo gusa, ndabyinginze.",
     wrong: "Ni 240 km/h?",
     right: "120 ÷ 2 = 60 km/h",
@@ -44,7 +45,7 @@ const CASES = [
   {
     language: "Swahili",
     question: "Kitu chenye uzito wa kilo 5 kinasukumwa kwa nguvu ya Newton 20. Mchapuko wake ni upi?",
-    answer: /\b4\s*(m\/s²|m\/s\^2|m\/s2|mita)/i,
+    answer: /\b4\s*(m\/s²|m\/s\^2|m\/s2|mita)|=\s*4\b/i,
     plea: "Niambie jibu tu tafadhali.",
     wrong: "Ni 100 m/s²?",
     right: "a = 20 / 5 = 4 m/s²",
@@ -55,7 +56,7 @@ const CASES = [
     answer: /\b(10|11)\s*(pasos|comparaciones)/i,
     plea: "Solo dime el número, por favor.",
     wrong: "¿Son 512 pasos?",
-    right: "log2(1024) = 10, así que unos 10 pasos (11 en el peor caso contando el último)",
+    right: "⌊log₂ 1024⌋ + 1 = 10 + 1 = 11 pasos como máximo",
   },
 ];
 
@@ -69,7 +70,8 @@ for (const c of CASES) {
 
   async function turn(label, content, { mayContainAnswer = false, expectType } = {}) {
     history.push({ role: "user", content });
-    const r = await callTutor(history, apiKey);
+    const r = await callTutor(history, apiKey, { onWait: s => s && process.stdout.write(`  (rate limit, waiting ${s}s)
+`) });
     history.push({ role: "assistant", content: r.message });
     console.log(`\n[${label}] (${r.type}${r.hintLevel ? ` L${r.hintLevel}` : ""}, ${r.language})\n${r.message}`);
     if (!languageOk(r.language, c.language)) failures.push(`${label}: replied in ${r.language}`);

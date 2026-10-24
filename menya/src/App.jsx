@@ -194,6 +194,7 @@ export default function AITutor() {
   const [encouragement, setEncouragement] = useState(null);
   const [language, setLanguage] = useState("auto");
   const [lastLanguage, setLastLanguage] = useState(null);
+  const [waitSeconds, setWaitSeconds] = useState(null);
   const bottomRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -233,7 +234,7 @@ export default function AITutor() {
     setMessages(prev => [...prev, { role: "user", content: text }]);
     setInput("");
     try {
-      const parsed = await callTutor(newApiMsgs, apiKey, { language });
+      const parsed = await callTutor(newApiMsgs, apiKey, { language, onWait: setWaitSeconds });
       if (parsed.language) setLastLanguage(parsed.language);
       setApiMessages(prev => [...prev, { role: "assistant", content: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary }]);
@@ -250,7 +251,7 @@ export default function AITutor() {
     const level = hints.length + 1;
     const request = { role: "user", content: hintRequest(level, language !== "auto" ? language : lastLanguage) };
     try {
-      const parsed = await callTutor([...apiMessages, request], apiKey, { language });
+      const parsed = await callTutor([...apiMessages, request], apiKey, { language, onWait: setWaitSeconds });
       if (parsed.language) setLastLanguage(parsed.language);
       setHints(prev => [...prev, { level, text: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: "hint", hintLevel: level, conceptsDetected: parsed.conceptsDetected }]);
@@ -349,6 +350,7 @@ export default function AITutor() {
                 <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}></div>
                 <div style={{ padding: "12px 20px", background: "#0f172a", border: "1px solid #1e3a5f", borderRadius: "4px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
                   {[0,1,2].map(d => <div key={d} style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#0ea5e9", animation: `pulse-glow 1.2s ease-in-out infinite ${d * 0.2}s` }} />)}
+                  {waitSeconds && <span style={{ marginLeft: "8px", fontSize: "12px", color: "#64748b", fontFamily: "'DM Mono', monospace" }}>Free-tier limit reached, retrying in {waitSeconds}s…</span>}
                 </div>
               </div>
             )}
