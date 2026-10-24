@@ -122,15 +122,22 @@ This makes the app safe to open-source with zero risk of key exposure.
 
 ## 🧑‍🏫 How it works
 
-Menya uses a hardened system prompt that instructs Claude to:
+The tutor logic lives in `menya/src/tutor.js` (prompt, response schema, Groq call):
 
-1. **Never** provide a direct answer or final computed value
-2. **Always** respond with guiding questions (Socratic method)
-3. Return structured JSON with `type`, `conceptsDetected`, `misconceptionDetected`, and `progressSummary` on every turn
-4. Detect misconceptions and redirect via counter-questions
-5. Affirm correct reasoning with explanation of *why* it works
+1. **Model:** Groq `openai/gpt-oss-120b`. It reasons privately before answering (`include_reasoning: false`, so the reasoning never reaches the browser), which lets it solve the problem itself and give hints that are actually correct.
+2. **Any language:** Menya replies in the language of the student's last message (Kinyarwanda, French, Kiswahili, English, and others). You can also pick a language from the header. Maths notation stays universal.
+3. **Accurate hints, never the answer:** the model checks the student's steps against its own verified solution. It confirms correct work, flags wrong work without revealing the value, and never states the final result.
+4. **3-level hints:** Concept (names the exact principle) → Relationship (the formula, with the student's quantities mapped onto it) → Next step (set up with values, stopping before the result). **New problem** resets the hint budget.
+5. **Structured output:** strict JSON schema, with one retry on malformed output.
 
-The hint system is a separate code path that explicitly requests Level 1/2/3 hints from Claude while reinforcing the no-answer guardrail.
+### Testing the tutor
+
+```bash
+cd menya
+GROQ_API_KEY=gsk_... npm run eval
+```
+
+This plays scripted conversations in English, French, Kinyarwanda, Kiswahili and Spanish. It checks the reply language, that the final answer never leaks, and that wrong and right answers are judged correctly. It also prints every reply so you can review hint quality.
 
 ---
 
@@ -178,10 +185,10 @@ That's it — build + push to gh-pages in one command.
 Edit `INITIAL_MASTERY` in `src/App.jsx` to add your own subjects and concepts.
 
 **Change the tutoring persona:**
-Edit `TUTOR_SYSTEM_PROMPT` in `src/App.jsx`. You can adjust tone, subject focus, or add domain-specific misconception examples.
+Edit `TUTOR_SYSTEM_PROMPT` in `menya/src/tutor.js`. You can adjust tone, subject focus, or add domain-specific misconception examples.
 
 **Change the model:**
-Find `model: "claude-sonnet-4-20250514"` in the `callClaude` function and replace with any Anthropic model string.
+Change `MODEL` in `menya/src/tutor.js` to any Groq model ID (strict JSON schema needs a model that supports structured outputs).
 
 ---
 

@@ -1,48 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-
-// ============================================================
-// SYSTEM PROMPT — Socratic AI Tutor Guardrail
-// ============================================================
-const TUTOR_SYSTEM_PROMPT = `You are Menya — a Socratic AI academic tutor for undergraduate students. Your singular purpose is to guide students to discover answers themselves through structured questioning. You MUST NEVER provide direct answers, solutions, or final values to academic problems.
-
-CORE DIRECTIVES (ABSOLUTE — never violate these):
-1. NEVER give a direct answer, solution, or final computed value.
-2. NEVER solve the problem, even partially, beyond what the student has already reasoned.
-3. ALWAYS respond with guiding questions that stimulate the student's own reasoning.
-4. If a student directly asks "just tell me the answer" or "what is X?", respond with warmth, acknowledge their frustration, and redirect to the next logical reasoning step.
-
-PEDAGOGICAL STRATEGY:
-- Use the Socratic method: ask sequences of focused questions that lead the student step-by-step.
-- Break complex problems into the smallest logical steps. Ask about ONE step at a time.
-- When a student makes an error, do NOT correct them directly. Instead ask: "What happens if we test that assumption against [relevant principle]?"
-- When a student reaches correct reasoning, warmly affirm it and explain WHY their reasoning works.
-- Maintain a patient, warm, encouraging tone at all times.
-- Prevent cognitive overload: ask one key question per response, then wait.
-- Periodically summarize the student's progress: "So far you've identified X and Y — what do you think comes next?"
-
-HINT SYSTEM (use only when student is clearly stuck after 2+ exchanges):
-- Hint Level 1: Conceptual reminder ("What principle governs this type of problem?")
-- Hint Level 2: Formula recall ("Which formula relates these quantities?")
-- Hint Level 3: Method nudge ("What mathematical operation connects these two values?")
-- Never go beyond Level 3. Never reveal the final answer.
-
-MISCONCEPTION DETECTION:
-When you detect a misconception, note it subtly and ask a redirecting question:
-- "Interesting idea — what does [correct principle] say about that relationship?"
-- "Let's test that: if that were true, what would happen in [counterexample]?"
-
-RESPONSE FORMAT:
-You MUST respond with valid JSON only — no markdown, no backticks, no extra text before or after. Use exactly this structure:
-{
-  "message": "Your tutoring response",
-  "type": "question|affirmation|hint|redirect|summary",
-  "conceptsDetected": ["array of concept strings"],
-  "misconceptionDetected": null,
-  "hintLevel": null,
-  "progressSummary": null,
-  "encouragementScore": 3
-}
-misconceptionDetected: null or short string. hintLevel: null or 1/2/3. progressSummary: null or short string. encouragementScore: integer 1-5.`;
+import { callTutor, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
 
 // ============================================================
 // INITIAL MASTERY STATE
@@ -60,59 +17,15 @@ const INITIAL_MASTERY = {
   "Data Structures":  { score: 0, interactions: 0, subject: "CS" },
 };
 
+// Example problems — clicking one sends it as the student's question.
+// Mixed languages to show that Menya replies in whatever language you write.
 const STARTER_PROMPTS = [
-  "What problem are you trying to understand today?",
-  "Tell me the first step you think should happen.",
-  "Which concept do you think applies here?",
-  "Show me the formula you believe is relevant.",
-  "What part of the problem makes sense to you already?",
+  "A 12 V battery is connected across a 4 Ω resistor. How do I find the current?",
+  "Comment dériver f(x) = x² · sin(x) ?",
+  "Imodoka igenda ibilometero 120 mu masaha 2. Umuvuduko wayo ni uwuhe?",
+  "Nisaidie: kwa nini function hii ya recursion haikomi? def f(n): return n * f(n-1)",
+  "¿Cuál es la complejidad Big-O de la búsqueda binaria y por qué?",
 ];
-
-// ============================================================
-// GROQ API CALL
-// Uses OpenAI-compatible endpoint with llama-3.3-70b-versatile
-// ============================================================
-async function callGroq(messages, apiKey) {
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: TUTOR_SYSTEM_PROMPT },
-        ...messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
-      ],
-      temperature: 0.7,
-      max_tokens: 1000,
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const raw = data?.choices?.[0]?.message?.content || "";
-
-  try {
-    const clean = raw.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch {
-    return {
-      message: raw || "I couldn't process that. Please try again.",
-      type: "question",
-      conceptsDetected: [],
-      misconceptionDetected: null,
-      hintLevel: null,
-      progressSummary: null,
-      encouragementScore: 3,
-    };
-  }
-}
 
 // ============================================================
 // API KEY MODAL — Groq version
@@ -131,26 +44,10 @@ function ApiKeyModal({ onSave }) {
     }
     setTesting(true);
     setError("");
-    try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${trimmed}` },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: "hi" }],
-          max_tokens: 5,
-        }),
-      });
-      if (res.status === 401) {
-        setError("Invalid API key. Please check and try again.");
-        setTesting(false);
-        return;
-      }
-      onSave(trimmed);
-    } catch {
-      setError("Connection failed. Check your internet and try again.");
-    }
+    const result = await verifyKey(trimmed);
     setTesting(false);
+    if (result.ok) onSave(trimmed);
+    else setError(result.error);
   };
 
   return (
@@ -242,7 +139,7 @@ function HintPanel({ hints, onRequestHint, loading }) {
       {hints.map((h, i) => (
         <div key={i} style={{ display: "flex", gap: "10px", marginBottom: "8px", padding: "8px 12px", background: "#1e293b", borderRadius: "8px", fontSize: "13px", color: "#94a3b8" }}>
           <span style={{ color: "#f59e0b", fontFamily: "'DM Mono', monospace", fontSize: "11px", minWidth: "20px" }}>L{h.level}</span>
-          <span>{h.text}</span>
+          <span dir="auto">{h.text}</span>
         </div>
       ))}
       <button onClick={onRequestHint} disabled={loading || hints.length >= 3}
@@ -264,7 +161,7 @@ function MessageBubble({ msg }) {
       </div>
       <div style={{ maxWidth: "75%" }}>
         {!isUser && msg.type && <div style={{ fontSize: "10px", color: typeInfo.color, fontFamily: "'DM Mono', monospace", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{typeInfo.label}</div>}
-        <div style={{ background: isUser ? "#1e293b" : "#0f172a", border: `1px solid ${isUser ? "#334155" : "#1e3a5f"}`, borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 16px", fontSize: "14px", lineHeight: "1.6", color: isUser ? "#cbd5e1" : "#e2e8f0" }}>
+        <div style={{ background: isUser ? "#1e293b" : "#0f172a", border: `1px solid ${isUser ? "#334155" : "#1e3a5f"}`, borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 16px", fontSize: "14px", lineHeight: "1.6", color: isUser ? "#cbd5e1" : "#e2e8f0", whiteSpace: "pre-wrap" }} dir="auto">
           {msg.content}
         </div>
         {msg.progressSummary && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}> {msg.progressSummary}</div>}
@@ -295,6 +192,8 @@ export default function AITutor() {
   const [analytics, setAnalytics] = useState({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
   const [showWelcome, setShowWelcome] = useState(true);
   const [encouragement, setEncouragement] = useState(null);
+  const [language, setLanguage] = useState("auto");
+  const [lastLanguage, setLastLanguage] = useState(null);
   const bottomRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -334,34 +233,44 @@ export default function AITutor() {
     setMessages(prev => [...prev, { role: "user", content: text }]);
     setInput("");
     try {
-      const parsed = await callGroq(newApiMsgs, apiKey);
+      const parsed = await callTutor(newApiMsgs, apiKey, { language });
+      if (parsed.language) setLastLanguage(parsed.language);
       setApiMessages(prev => [...prev, { role: "assistant", content: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary }]);
       processResponse(parsed, text);
     } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}. Please check your API key.`, type: "question" }]);
+      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
     }
     setLoading(false);
-  }, [loading, apiMessages, apiKey, processResponse]);
+  }, [loading, apiMessages, apiKey, processResponse, language]);
 
   const requestHint = useCallback(async () => {
     if (loading || hints.length >= 3 || messages.length === 0) return;
     setLoading(true);
     const level = hints.length + 1;
-    const hintMsgs = [...apiMessages, { role: "user", content: `I need a level ${level} hint. Never reveal the answer.` }];
+    const request = { role: "user", content: hintRequest(level, language !== "auto" ? language : lastLanguage) };
     try {
-      const parsed = await callGroq(hintMsgs, apiKey);
+      const parsed = await callTutor([...apiMessages, request], apiKey, { language });
+      if (parsed.language) setLastLanguage(parsed.language);
       setHints(prev => [...prev, { level, text: parsed.message }]);
-      setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: "hint", hintLevel: level }]);
-      setApiMessages(prev => [...prev, { role: "user", content: `I need a level ${level} hint.` }, { role: "assistant", content: parsed.message }]);
+      setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: "hint", hintLevel: level, conceptsDetected: parsed.conceptsDetected }]);
+      setApiMessages(prev => [...prev, request, { role: "assistant", content: parsed.message }]);
       setAnalytics(prev => ({ ...prev, hintsUsed: prev.hintsUsed + 1 }));
-    } catch {}
+    } catch (err) {
+      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
+    }
     setLoading(false);
-  }, [loading, hints, messages, apiMessages, apiKey]);
+  }, [loading, hints, messages, apiMessages, apiKey, language, lastLanguage]);
+
+  // Clears the conversation (and the 3-hint budget) but keeps mastery and analytics.
+  const newProblem = () => {
+    setMessages([]); setApiMessages([]); setHints([]); setLastLanguage(null);
+    setReasoningGraph([]); setShowWelcome(true); setInput("");
+  };
 
   const resetKey = () => {
     if (confirm("Clear your API key and reset the session?")) {
-      setApiKey(null); setMessages([]); setApiMessages([]); setHints([]);
+      setApiKey(null); setMessages([]); setApiMessages([]); setHints([]); setLastLanguage(null);
       setReasoningGraph([]); setShowWelcome(true); setMastery(INITIAL_MASTERY);
       setAnalytics({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
     }
@@ -394,6 +303,11 @@ export default function AITutor() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ fontSize: "12px", color: "#475569", fontFamily: "'DM Mono', monospace" }}>{messages.filter(m => m.role === "user").length} exchanges</div>
+          <select value={language} onChange={e => setLanguage(e.target.value)} title="Reply language"
+            style={{ padding: "4px 8px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#94a3b8", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace", outline: "none" }}>
+            {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" && lastLanguage ? `Auto (${lastLanguage})` : l.label}</option>)}
+          </select>
+          {messages.length > 0 && <button onClick={newProblem} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#7dd3fc", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>New problem</button>}
           <button onClick={resetKey} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#475569", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}> Key</button>
           <div style={{ padding: "4px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "20px", fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", gap: "6px" }}>
             <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", animation: "pulse-glow 2s ease-in-out infinite" }} />
@@ -415,7 +329,7 @@ export default function AITutor() {
               <div style={{ textAlign: "center", padding: "40px 20px", animation: "float-in 0.6s ease" }}>
                 <div style={{ fontSize: "48px", marginBottom: "16px" }}></div>
                 <div style={{ fontFamily: "'Fraunces', serif", fontSize: "28px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</div>
-                <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>I won't give you answers — I'll help you discover them. Every question I ask is a step toward your own understanding.</div>
+                <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>I won't give you answers — I'll help you discover them, one accurate hint at a time. Write in any language and I'll reply in it. Try an example:</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "480px", margin: "0 auto" }}>
                   {STARTER_PROMPTS.map((p, i) => (
                     <button key={i} onClick={() => sendMessage(p)}
@@ -441,11 +355,11 @@ export default function AITutor() {
             <div ref={bottomRef} />
           </div>
 
-          {messages.length > 2 && <div style={{ padding: "0 24px" }}><HintPanel hints={hints} onRequestHint={requestHint} loading={loading} /></div>}
+          {messages.length >= 2 && <div style={{ padding: "0 24px" }}><HintPanel hints={hints} onRequestHint={requestHint} loading={loading} /></div>}
 
           <div style={{ padding: "16px 24px 20px", borderTop: "1px solid #1e293b", background: "#020817" }}>
             <div style={{ display: "flex", gap: "10px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "14px", padding: "10px 14px", alignItems: "flex-end" }}>
-              <textarea value={input} onChange={e => setInput(e.target.value)}
+              <textarea dir="auto" value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
                 placeholder="Share your thinking, show your work, or ask for guidance…" rows={1}
                 style={{ flex: 1, background: "transparent", border: "none", color: "#e2e8f0", fontSize: "14px", lineHeight: "1.6", fontFamily: "'DM Sans', sans-serif", maxHeight: "120px", overflowY: "auto" }}
@@ -516,7 +430,7 @@ export default function AITutor() {
                   }
                 </div>
                 <div style={{ marginTop: "12px", padding: "12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "10px", fontSize: "12px", color: "#4ade80", textAlign: "center" }}>
-                   Powered by Groq · LLaMA 3.3 70B · Free · 14,400 req/day
+                   Powered by Groq · GPT-OSS 120B · Free tier
                 </div>
               </div>
             )}
