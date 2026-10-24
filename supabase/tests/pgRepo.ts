@@ -36,6 +36,13 @@ export function pgRepo(db: PGlite): Repo {
           [sessionId, userId, m.role, m.content, JSON.stringify(m.meta)]);
       }
     },
+    async getSessionAnswer(sessionId) {
+      return (await one("select final_answer from public.tutoring_session_answers where session_id = $1", [sessionId]))?.final_answer ?? null;
+    },
+    async setSessionAnswer(sessionId, answer) {
+      await db.query(`insert into public.tutoring_session_answers (session_id, final_answer) values ($1, $2)
+        on conflict (session_id) do update set final_answer = excluded.final_answer, updated_at = now()`, [sessionId, answer]);
+    },
     async updateSession(sessionId, patch) {
       const keys = Object.keys(patch);
       if (!keys.length) return;

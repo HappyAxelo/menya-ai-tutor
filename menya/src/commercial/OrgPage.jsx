@@ -60,7 +60,7 @@ export default function OrgPage({ orgs, onBack }) {
           <Card title="What learners are working on (this month)">
             {dash.top_concepts.length === 0 ? <div style={{ color: C.faint, fontSize: "13px" }}>No activity yet.</div> : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {dash.top_concepts.map(c => <span key={c.concept} style={{ padding: "4px 10px", background: "#0c4a6e", border: "1px solid #0369a1", borderRadius: "12px", fontSize: "12px", color: C.accent }}>{c.concept} · {c.count}</span>)}
+                {dash.top_concepts.map(c => <span key={c.concept} style={{ padding: "4px 10px", background: "var(--accent-soft)", border: "1px solid var(--border)", borderRadius: "12px", fontSize: "12px", color: C.accent }}>{c.concept} · {c.count}</span>)}
               </div>
             )}
           </Card>

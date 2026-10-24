@@ -17,9 +17,10 @@ export class ErrorBoundary extends Component {
   }
 }
 
+// Theme tokens from menya.css, so these pages follow light/dark mode too.
 export const C = {
-  bg: "#020817", panel: "#0f172a", panel2: "#0a1628", border: "#1e293b", text: "#e2e8f0", muted: "#94a3b8",
-  dim: "#64748b", faint: "#475569", accent: "#7dd3fc", violet: "#c084fc", green: "#4ade80", amber: "#f59e0b", red: "#f87171",
+  bg: "var(--bg)", panel: "var(--surface)", panel2: "var(--surface)", border: "var(--border)", text: "var(--text)", muted: "var(--text-2)",
+  dim: "var(--muted)", faint: "var(--faint)", accent: "var(--info)", violet: "var(--accent)", green: "var(--success)", amber: "var(--warn)", red: "var(--danger)",
 };
 export const mono = "'DM Mono', monospace";
 export const serif = "'Fraunces', serif";
@@ -48,7 +49,7 @@ export function Button({ children, onClick, variant = "primary", disabled, type 
   const styles = {
     primary: { background: disabled ? C.border : "linear-gradient(135deg,#0ea5e9,#7c3aed)", color: disabled ? C.faint : "#fff", border: "none" },
     ghost: { background: C.panel, color: C.muted, border: `1px solid ${C.border}` },
-    danger: { background: "#2d0a0a", color: "#fca5a5", border: "1px solid #7f1d1d" },
+    danger: { background: "var(--danger-soft)", color: "var(--danger)", border: "1px solid var(--danger)" },
   };
   return (
     <button type={type} onClick={onClick} disabled={disabled}
@@ -91,8 +92,8 @@ export const inputStyle = {
 };
 
 export function Notice({ kind = "info", children }) {
-  const k = { info: [C.accent, "#0c2a40"], ok: [C.green, "#0f2a1a"], warn: [C.amber, "#2a1f05"], error: ["#fca5a5", "#2d0a0a"] }[kind];
-  return <div role={kind === "error" ? "alert" : "status"} style={{ padding: "10px 14px", borderRadius: "10px", border: `1px solid ${k[0]}55`, background: k[1], color: k[0], fontSize: "13px", lineHeight: 1.6, marginBottom: "14px" }}>{children}</div>;
+  const k = { info: ["var(--info)", "var(--info-soft)"], ok: ["var(--success)", "var(--success-soft)"], warn: ["var(--warn)", "var(--warn-soft)"], error: ["var(--danger)", "var(--danger-soft)"] }[kind];
+  return <div role={kind === "error" ? "alert" : "status"} style={{ padding: "10px 14px", borderRadius: "12px", border: `1px solid color-mix(in srgb, ${k[0]} 35%, transparent)`, background: k[1], color: k[0], fontSize: "13px", lineHeight: 1.6, marginBottom: "14px" }}>{children}</div>;
 }
 
 export function Loading({ label = "Loading…" }) {

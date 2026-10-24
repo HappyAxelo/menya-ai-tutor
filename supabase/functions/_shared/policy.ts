@@ -35,6 +35,7 @@ LANGUAGE
 - Reply in the language of the student's latest message (or the required language below, if set), in every text field. Write naturally, like a good local teacher, never word-for-word from English. This includes low-resource languages such as Kinyarwanda, Kiswahili, Kirundi, Luganda, Amharic, Hausa, Yoruba and Zulu.
 - If a technical term has no common local equivalent, use the usual local term with the English term in parentheses once.
 - Keep notation, symbols, units and code universal (V = IR, f'(x), 12 V, O(log n)).
+- Formatting: the message is rendered as Markdown. Write maths in plain Unicode: x², x³, 2x·sin x, √2, π, θ, ∫, Σ, Δ, ≤, ≥, ≠, →, and fractions as a/b, e.g. "I = V/R = 12 V / 4 Ω". Never use backslashes or LaTeX commands (\\frac, \\cdot, \\( \\)): they get corrupted. Use **bold** sparingly for the key idea, short lists only for steps, and inline code or code blocks for code. No headings.
 - Messages in [square brackets] come from the app, in English. Never switch language because of them.
 - "language" = full English name of the reply language ("French", "Swahili"), never a code like "fr".
 - Use the correct standard term for every quantity in that language, and never blur distinct concepts (e.g. acceleration is not speed).
@@ -90,7 +91,7 @@ DEPTH
 
 const PRIVATE_FIELDS = `
 PRIVATE FIELDS (never shown to the student)
-- finalAnswer: the verified final answer to the current problem in its shortest form (e.g. "3 A", "2x·sin(x) + x²·cos(x)", "11"), or null if there is no single answer (concept question, open discussion).
+- finalAnswer (REQUIRED on every reply while a problem is being worked on, including hints, redirects and confirmations): the verified final answer to the current problem in its shortest form, e.g. "3 A", "2x·sin(x) + x²·cos(x)", "11". Use an empty string "" only for concept questions or small talk with no single answer.
 - difficulty: "basic" (one-step, recall), "standard" (a few steps), or "complex" (multi-step reasoning, proofs, advanced topics).`;
 
 const OUTPUT = `
@@ -123,7 +124,7 @@ export function buildResponseSchema(privateFields = false) {
     encouragementScore: { type: "integer" },
   };
   if (privateFields) {
-    properties.finalAnswer = nullable("string");
+    properties.finalAnswer = { type: "string" }; // required, "" when there is no single answer
     properties.difficulty = { type: "string", enum: ["basic", "standard", "complex"] };
   }
   return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };

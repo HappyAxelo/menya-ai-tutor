@@ -9,7 +9,7 @@ import AdminPage from "./AdminPage.jsx";
 import { C, mono, Notice, ErrorBoundary } from "./ui.jsx";
 
 const PLAN_NAMES = { free: "Free", pro: "Pro", professional: "Professional" };
-const pill = { padding: "4px 12px", background: C.panel, border: `1px solid ${C.border}`, borderRadius: "20px", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: mono };
+const pill = { height: "36px", padding: "0 12px", background: C.panel, border: `1px solid ${C.border}`, borderRadius: "10px", color: C.muted, fontSize: "13px", cursor: "pointer", fontWeight: 500 };
 
 export default function CommercialApp() {
   const [session, setSession] = useState(undefined); // undefined = still loading
@@ -88,8 +88,9 @@ export default function CommercialApp() {
   const nav = (
     <>
       {account && (
-        <button onClick={() => setPage("account")} style={{ ...pill, color: C.green, borderColor: "#166534", background: "#0f2a1a" }}>
-          {PLAN_NAMES[account.plan] ?? account.plan} · {Math.max(account.limits.daily - account.used.daily, 0)} left today
+        <button onClick={() => setPage("account")} className="mn-pill" style={{ height: "36px", cursor: "pointer" }}>
+          <span className="dot" />
+          <span className="mn-hide-sm">{PLAN_NAMES[account.plan] ?? account.plan} · </span>{Math.max(account.limits.daily - account.used.daily, 0)} left<span className="mn-hide-sm"> today</span>
         </button>
       )}
       <span className="menya-desktop-only" style={{ display: "contents" }}>{links.map(([label, act]) => <button key={label} onClick={act} style={pill}>{label}</button>)}</span>

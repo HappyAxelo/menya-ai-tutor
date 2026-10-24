@@ -109,6 +109,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     ? hintRequest(session.hints_used + 1, input.language !== "auto" ? input.language : session.language)
     : input.message!;
   const history = await repo.loadMessages(session.id, ent.context_turns * 2);
+  const rememberedAnswer = input.sessionId ? await repo.getSessionAnswer(session.id) : null;
   const studentTexts = history.filter(m => m.role === "user" && !m.meta?.control).map(m => m.content);
   if (input.action === "message") studentTexts.push(userContent);
 
@@ -158,6 +159,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         let inputTokens = res.inputTokens ?? 0, outputTokens = res.outputTokens ?? 0, latencyMs = res.latencyMs;
         if (!reply) { lastError = new ProviderError("bad_request", provider.name); break; }
         let cost = estimateCostUsd(candidate.config, res);
+        // Models sometimes omit the private answer; fall back to the one remembered for this session.
+        if (!reply.finalAnswer && rememberedAnswer) reply.finalAnswer = rememberedAnswer;
         served = { candidate, reply, inputTokens, outputTokens, latencyMs, cost, rewrite: false };
 
         // Answer-leak guard (earned worked solutions are exempt)
@@ -212,6 +215,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       ...(reply.misconceptionDetected ? { misconception: reply.misconceptionDetected } : {}),
     } },
   ]);
+  if (reply.finalAnswer && reply.finalAnswer !== rememberedAnswer) await repo.setSessionAnswer(session.id, reply.finalAnswer);
   const hintsUsed = session.hints_used + (input.action === "hint" ? 1 : 0);
   await repo.updateSession(session.id, {
     turn_count: session.turn_count + 1, hints_used: hintsUsed,

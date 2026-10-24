@@ -105,10 +105,12 @@ create table public.model_configs (
 -- no per-token price; their server cost is tracked separately in reports.
 insert into public.model_configs (role, provider, model, enabled, is_premium, input_usd_per_mtok, output_usd_per_mtok, timeout_ms, max_output_tokens, options, fallback_role) values
   ('medium',      'groq',              'openai/gpt-oss-120b', true,  false, 0.15, 0.60, 45000, 2000, '{"reasoning_effort":"medium"}', null),
+  -- 'small' is configured but unused by the default routing: gpt-oss-20b did not report the private
+  -- answer the leak guard needs (docs/EVALUATION.md). Free routes to 'medium' instead.
   ('small',       'groq',              'openai/gpt-oss-20b',  true,  false, 0.075, 0.30, 30000, 1500, '{"reasoning_effort":"medium"}', 'medium'),
   ('strong',      'groq',              'openai/gpt-oss-120b', true,  false, 0.15, 0.60, 60000, 3000, '{"reasoning_effort":"high"}',   'medium'),
   ('premium',     'anthropic',         'claude-opus-5-5',     true,  true,  4.00, 20.00, 90000, 4000, '{"effort":"medium"}',         'strong'),
-  ('local_small', 'openai_compatible', 'qwen3:4b',            false, false, 0,    0,     60000, 1500, '{}',                           'small');
+  ('local_small', 'openai_compatible', 'qwen3:4b',            false, false, 0,    0,     60000, 1500, '{}',                           'medium');
 
 -- ------------------------------------------------------------
 -- Users

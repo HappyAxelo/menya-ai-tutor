@@ -57,11 +57,11 @@ describe("tutor pipeline", () => {
     assert.equal(res.status, 200);
     assert.equal((res.body.reply as any).message, "What do you already know about this circuit?");
     assert.equal((res.body.reply as any).finalAnswer, undefined, "private answer never reaches the browser");
-    assert.equal(groq.calls[0].model, "openai/gpt-oss-20b", "free plan uses the small model");
+    assert.equal(groq.calls[0].model, "openai/gpt-oss-120b", "free plan uses the medium model");
     const rows = await usage(u);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].status, "success");
-    assert.equal(Number(rows[0].est_cost_usd), (1000 * 0.075 + 200 * 0.30) / 1e6);
+    assert.equal(Number(rows[0].est_cost_usd), (1000 * 0.15 + 200 * 0.60) / 1e6);
     const msgs = await db.query<any>("select role, meta from public.tutoring_messages where session_id = $1 order by id", [res.body.sessionId]);
     assert.deepEqual(msgs.rows.map(m => m.role), ["user", "assistant"]);
     assert.equal(JSON.stringify(msgs.rows[1].meta).includes("3 A"), false, "stored meta has no private answer");
@@ -76,7 +76,7 @@ describe("tutor pipeline", () => {
         { plan: "professional", model: "claude-opus-5-5", role: "premium", premium: true }));
     assert.equal(res.status, 200);
     assert.equal(anthropic.calls.length, 0);
-    assert.equal(groq.calls[0].model, "openai/gpt-oss-20b");
+    assert.equal(groq.calls[0].model, "openai/gpt-oss-120b");
   });
 
   test("Pro routes complex questions to the strong model; Professional to premium within allowance", async () => {
@@ -115,10 +115,13 @@ describe("tutor pipeline", () => {
   test("provider failure falls back without leaking secrets; total failure refunds the quota", async () => {
     const u = await createUser(db);
     let n = 0;
-    const flaky = fakeProvider("groq", (config) => (config.model === "openai/gpt-oss-20b" ? new ProviderError("unavailable", "groq", 503) : (n++, reply())));
+    // Local model first (enabled for this test), falling back to the hosted one.
+    await db.query("update public.model_configs set enabled = true, provider = 'groq', model = 'local-test' where role = 'local_small'");
+    const flaky = fakeProvider("groq", (config) => (config.model === "local-test" ? new ProviderError("unavailable", "groq", 503) : (n++, reply())));
     const ok = await handleTutor({ repo: pgRepo(db), providers: { groq: flaky.provider }, sleep: noSleep }, u, ask("help"));
+    await db.query("update public.model_configs set enabled = false, provider = 'openai_compatible', model = 'qwen3:4b' where role = 'local_small'");
     assert.equal(ok.status, 200);
-    assert.deepEqual(flaky.calls.map(c => c.model), ["openai/gpt-oss-20b", "openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
+    assert.deepEqual(flaky.calls.map(c => c.model), ["local-test", "local-test", "openai/gpt-oss-120b"]);
     assert.equal((await usage(u)).at(-1).fallback_used, true);
 
     const v = await createUser(db);
@@ -145,6 +148,32 @@ describe("tutor pipeline", () => {
     const res = await handleTutor({ repo: pgRepo(db), providers: { groq: stubborn.provider }, sleep: noSleep }, u, ask("current for 12 V and 4 Ω?"));
     assert.doesNotMatch((res.body.reply as any).message, /3 A/);
   });
+
+  test("the guard remembers the answer when the model stops reporting it", async () => {
+    const u = await createUser(db);
+    let call = 0;
+    const groq = fakeProvider("groq", () => {
+      call++;
+      if (call === 1) return reply({ message: "Which rule applies to a product?", finalAnswer: "2x·sin(x) + x²·cos(x)" });
+      if (call === 2) return reply({ type: "hint", message: "The derivative is (2x)·sin(x) + x²·cos(x).", finalAnswer: "" });
+      return reply({ type: "hint", message: "f'(x) = u'·sin(x) + x²·v'. What are u' and v'?", finalAnswer: "" });
+    });
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    const first = await handleTutor(deps, u, ask("Derivative of x² sin x?"));
+    const hint = await handleTutor(deps, u, { requestId: randomUUID(), action: "hint", sessionId: first.body.sessionId });
+    assert.doesNotMatch((hint.body.reply as any).message, /cos\(x\)\./);
+    assert.equal(call, 3, "the leaking reply was rewritten");
+    const stored = await db.query<any>("select final_answer from public.tutoring_session_answers where session_id = $1", [first.body.sessionId]);
+    assert.equal(stored.rows[0].final_answer, "2x·sin(x) + x²·cos(x)");
+    await asUserCheck(u);
+  });
+
+  async function asUserCheck(userId: string) {
+    const { asUser } = await import("./db.ts");
+    await asUser(db, userId, async () => {
+      await assert.rejects(db.query("select * from public.tutoring_session_answers"), /permission denied/);
+    });
+  }
 
   test("hints: the server picks the level and stops after 3", async () => {
     const u = await createUser(db);
@@ -200,6 +229,20 @@ describe("answer guard", () => {
     assert.equal(revealsAnswer("Correct, the current is 3 A.", "3 A", ["I = 12/4 = 3 A"]), false);
     assert.equal(revealsAnswer("Ni byo! 60 km/h.", "60 km/h", ["Ni 240 km/h?"]), true);
   });
+
+  test("sees through LaTeX formatting", () => {
+    assert.equal(revealsAnswer(String.raw`So $f'(x) = 2x\sin(x) + x^2\cos(x)$.`, "2x·sin(x) + x²·cos(x)"), true);
+    assert.equal(revealsAnswer(String.raw`$f'(x) = 2x \cdot \sin x + x^{2} \cdot \cos x$`, "2x·sin(x) + x²·cos(x)"), true);
+    assert.equal(revealsAnswer(String.raw`$I = \frac{12}{4} = 3\,\text{A}$`, "3 A"), true);
+    assert.equal(revealsAnswer(String.raw`$f'(x) = u'\sin(x) + x^2 v'$. What are $u'$ and $v'$?`, "2x·sin(x) + x²·cos(x)"), false);
+  });
+
+  test("the policy prompt has real backslashes, not control characters", async () => {
+    const { buildSystemPrompt } = await import("../functions/_shared/policy.ts");
+    const p = buildSystemPrompt({ privateFields: true });
+    assert.ok(p.includes(String.raw`(\frac, \cdot, \( \))`));
+    assert.doesNotMatch(p, /[\f\v\b]/);
+  });
 });
 
 describe("router", () => {
@@ -220,7 +263,7 @@ describe("router", () => {
 
   test("free never reaches strong or premium, even via fallbacks", () => {
     const r = planRoute({ policy: "free", difficulty: "complex", premiumRemaining: 99, configs, availableProviders: all });
-    assert.deepEqual(r.map(c => c.role), ["small", "medium"]);
+    assert.deepEqual(r.map(c => c.role), ["medium"]);
   });
 
   test("local model is used first for free when enabled", () => {

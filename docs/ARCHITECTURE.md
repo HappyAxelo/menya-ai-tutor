@@ -47,7 +47,7 @@ affects money, quotas or roles.
 6. **Model call**: the provider adapter enforces a timeout; retryable errors are retried once,
    then the next candidate is tried. If all fail, the quota reservation is released and the
    learner is told the message was not counted.
-7. **Socratic validation**: the model returns its verified final answer in a private field.
+7. **Socratic validation**: the model returns its verified final answer in a private field (remembered per session in a server-only table, for turns where the model omits it).
    If the reply reveals it (and the learner hasn't earned a worked solution), the model is
    asked once to rewrite; if it still leaks, a safe generic next-step prompt is sent.
 8. **Persistence and metering**: messages are stored without private fields; a usage record
@@ -57,7 +57,7 @@ affects money, quotas or roles.
 
 | Policy | Ordinary tutoring | Complex questions | Allowed roles (incl. fallbacks) |
 |---|---|---|---|
-| free | `local_small` if enabled, else `small` | same | local_small, small, medium |
+| free | `local_small` if enabled, else `medium` | same | local_small, small, medium |
 | pro | `medium` | `strong` | local_small, small, medium, strong |
 | professional | `strong` | `premium` while allowance remains, else `strong` | all |
 
@@ -66,7 +66,7 @@ a code change. Configured at launch (2026-10):
 
 | Role | Provider | Model | Notes |
 |---|---|---|---|
-| small | Groq | `openai/gpt-oss-20b` | reasoning effort medium; $0.075 / $0.30 per M tokens |
+| small | Groq | `openai/gpt-oss-20b` | configured but **not routed by default**: it never reported the private final answer the leak guard needs (EVALUATION.md) |
 | medium | Groq | `openai/gpt-oss-120b` | reasoning effort medium; $0.15 / $0.60 |
 | strong | Groq | `openai/gpt-oss-120b` | reasoning effort high |
 | premium | Anthropic | `claude-opus-5-5` | effort medium; $4 / $20; counts against the premium allowance |

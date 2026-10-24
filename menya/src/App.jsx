@@ -1,5 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, lazy, Suspense } from "react";
+import {
+  ArrowUp, BarChart3, BookOpen, Check, CheckCircle2, ChevronDown, Code2, Copy, Gauge, Globe, GraduationCap,
+  HelpCircle, KeyRound, Lightbulb, Moon, RotateCcw, Sigma, Sparkles, SquarePen, Sun, TriangleAlert, X, Zap, Flag,
+} from "lucide-react";
 import { callTutor, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
+// The Markdown + maths renderer is a separate download, fetched while the
+// first reply is being prepared, so the first screen stays light.
+const loadMarkdown = () => import("./Markdown.jsx");
+const Markdown = lazy(loadMarkdown);
+import "./menya.css";
 
 // ============================================================
 // INITIAL MASTERY STATE
@@ -20,15 +29,46 @@ const INITIAL_MASTERY = {
 // Example problems — clicking one sends it as the student's question.
 // Mixed languages to show that Menya replies in whatever language you write.
 const STARTER_PROMPTS = [
-  "A 12 V battery is connected across a 4 Ω resistor. How do I find the current?",
-  "Comment dériver f(x) = x² · sin(x) ?",
-  "Imodoka igenda ibilometero 120 mu masaha 2. Umuvuduko wayo ni uwuhe?",
-  "Nisaidie: kwa nini function hii ya recursion haikomi? def f(n): return n * f(n-1)",
-  "¿Cuál es la complejidad Big-O de la búsqueda binaria y por qué?",
+  { icon: Zap, title: "Circuits", lang: "EN", text: "A 12 V battery is connected across a 4 Ω resistor. How do I find the current?" },
+  { icon: Sigma, title: "Calculus", lang: "FR", text: "Comment dériver f(x) = x² · sin(x) ?" },
+  { icon: Gauge, title: "Motion", lang: "RW", text: "Imodoka igenda ibilometero 120 mu masaha 2. Umuvuduko wayo ni uwuhe?" },
+  { icon: Code2, title: "Recursion", lang: "SW", text: "Nisaidie: kwa nini function hii ya recursion haikomi? def f(n): return n * f(n-1)" },
 ];
 
+const REPLY_STYLE = {
+  question:        { label: "Your turn", icon: HelpCircle, cls: "" },
+  affirmation:     { label: "Correct", icon: CheckCircle2, cls: "ok" },
+  hint:            { label: "Hint", icon: Lightbulb, cls: "hint" },
+  redirect:        { label: "Let's check that", icon: RotateCcw, cls: "redirect" },
+  summary:         { label: "Summary", icon: Flag, cls: "info" },
+  explanation:     { label: "Explanation", icon: BookOpen, cls: "info" },
+  worked_solution: { label: "Worked solution", icon: GraduationCap, cls: "ok" },
+  limit:           { label: "Plan limit", icon: TriangleAlert, cls: "hint" },
+  error:           { label: "Something went wrong", icon: TriangleAlert, cls: "redirect" },
+};
+
+const SUBJECT_COLORS = { EE: "#f59e0b", Math: "#60a5fa", Physics: "#34d399", CS: "#a78bfa" };
+const NODE_COLORS = { concept: "#34d399", formula: "#60a5fa", step: "#f59e0b", assumption: "#a78bfa", misconception: "#f87171" };
+
 // ============================================================
-// API KEY MODAL — Groq version
+// THEME (per-viewer preference; storage may be unavailable)
+// ============================================================
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("menya-theme") || null; } catch { return null; }
+  });
+  useEffect(() => {
+    if (theme) document.documentElement.setAttribute("data-theme", theme);
+    else document.documentElement.removeAttribute("data-theme");
+    try { theme ? localStorage.setItem("menya-theme", theme) : localStorage.removeItem("menya-theme"); } catch { /* ignore */ }
+  }, [theme]);
+  const systemDark = typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  const effective = theme ?? (systemDark ? "dark" : "light");
+  return [effective, () => setTheme(effective === "dark" ? "light" : "dark")];
+}
+
+// ============================================================
+// API KEY SCREEN — developer mode (own Groq key)
 // ============================================================
 function ApiKeyModal({ onSave }) {
   const [key, setKey] = useState("");
@@ -51,51 +91,32 @@ function ApiKeyModal({ onSave }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(2,8,23,0.96)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(8px)" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=DM+Mono:wght@400&family=Fraunces:opsz,wght@9..144,700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input{outline:none}`}</style>
-      <div style={{ background: "#0a1628", border: "1px solid #1e3a5f", borderRadius: "20px", padding: "40px", maxWidth: "460px", width: "90%", boxShadow: "0 0 60px #0ea5e922", fontFamily: "'DM Sans', sans-serif" }}>
-        <div style={{ textAlign: "center", marginBottom: "24px" }}>
-          <div style={{ fontSize: "44px", marginBottom: "12px" }}></div>
-          <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: "26px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</h1>
-          <p style={{ color: "#64748b", fontSize: "14px", lineHeight: "1.7" }}>Enter your free Groq API key to begin. Your key stays in memory only — never stored, never shared.</p>
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
-          <div style={{ padding: "6px 16px", background: "#0f2a1a", border: "1px solid #16a34a", borderRadius: "20px", fontSize: "12px", color: "#4ade80", fontFamily: "'DM Mono', monospace" }}>
-             100% Free — No credit card required
-          </div>
-        </div>
-
-        <div style={{ marginBottom: "16px" }}>
-          <label style={{ display: "block", fontSize: "11px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", marginBottom: "8px" }}>GROQ API KEY</label>
-          <input
-            type="password" value={key}
-            onChange={e => setKey(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleSave()}
-            placeholder="gsk_..."
-            style={{ width: "100%", padding: "12px 16px", background: "#0f172a", border: `1px solid ${error ? "#7f1d1d" : "#1e293b"}`, borderRadius: "10px", color: "#e2e8f0", fontSize: "14px", fontFamily: "'DM Mono', monospace" }}
-          />
-          {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "#f87171" }}>{error}</div>}
-        </div>
-
-        <button onClick={handleSave} disabled={!key.trim() || testing}
-          style={{ width: "100%", padding: "13px", background: !key.trim() || testing ? "#1e293b" : "linear-gradient(135deg,#0ea5e9,#7c3aed)", border: "none", borderRadius: "10px", color: !key.trim() || testing ? "#475569" : "#fff", fontSize: "14px", fontWeight: "600", cursor: !key.trim() || testing ? "not-allowed" : "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s" }}>
-          {testing ? "Verifying key…" : "Start Tutoring →"}
-        </button>
-
-        <div style={{ marginTop: "20px", padding: "16px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px" }}>
-          <div style={{ fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", marginBottom: "8px" }}>HOW TO GET YOUR FREE KEY (2 minutes)</div>
-          <ol style={{ fontSize: "12px", color: "#64748b", paddingLeft: "16px", lineHeight: "2.1" }}>
-            <li>Go to <span style={{ color: "#7dd3fc" }}>console.groq.com</span></li>
-            <li>Sign up with Google or email — free</li>
-            <li>Click <strong style={{ color: "#94a3b8" }}>"API Keys"</strong> in the left sidebar</li>
-            <li>Click <strong style={{ color: "#94a3b8" }}>"Create API Key"</strong></li>
-            <li>Copy the key (starts with <span style={{ color: "#94a3b8" }}>gsk_</span>) and paste above</li>
+    <div className="mn-gate">
+      <div className="mn-card">
+        <div style={{ display: "flex", justifyContent: "center" }}><div className="mn-mark" style={{ width: 52, height: 52, fontSize: 28, borderRadius: 15 }}>M</div></div>
+        <h1>Welcome to Menya</h1>
+        <p className="sub">A tutor that guides you to the answer, one accurate hint at a time — in your language.</p>
+        <form onSubmit={e => { e.preventDefault(); handleSave(); }}>
+          <label className="mn-field">
+            <span>Groq API key</span>
+            <input className={`mn-input${error ? " invalid" : ""}`} type="password" value={key} autoComplete="off"
+              onChange={e => setKey(e.target.value)} placeholder="gsk_…" aria-invalid={Boolean(error)} />
+            {error && <div className="mn-error" role="alert">{error}</div>}
+          </label>
+          <button type="submit" className="mn-btn primary" disabled={!key.trim() || testing} style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14.5 }}>
+            {testing ? "Checking your key…" : "Start learning"}
+          </button>
+        </form>
+        <div className="mn-steps">
+          <b>Get a free key in 2 minutes</b>
+          <ol>
+            <li>Open <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">console.groq.com/keys</a> and sign in</li>
+            <li>Click <strong>Create API Key</strong></li>
+            <li>Copy the key (starts with gsk_) and paste it above</li>
           </ol>
         </div>
-
-        <p style={{ marginTop: "14px", fontSize: "11px", color: "#334155", textAlign: "center", lineHeight: "1.6" }}>
-           Key held in memory only. Refreshing clears it. Free tier: 14,400 requests/day.
+        <p style={{ marginTop: 14, fontSize: 12, color: "var(--faint)", textAlign: "center", lineHeight: 1.6 }}>
+          Your key stays in this tab's memory only and goes straight to Groq. Refreshing clears it.
         </p>
       </div>
     </div>
@@ -103,83 +124,146 @@ function ApiKeyModal({ onSave }) {
 }
 
 // ============================================================
-// SUB-COMPONENTS
+// MESSAGE PARTS
 // ============================================================
-function ReasoningNode({ node, index }) {
-  const colors = { concept: "#4ade80", formula: "#60a5fa", step: "#f59e0b", assumption: "#c084fc", misconception: "#f87171" };
-  const c = colors[node.type] || "#94a3b8";
-  return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: `${c}22`, border: `1px solid ${c}55`, borderRadius: "20px", padding: "4px 12px", fontSize: "12px", color: c, margin: "3px", fontFamily: "'DM Mono', monospace" }}>
-      <span style={{ fontSize: "9px", opacity: 0.7 }}>#{index + 1}</span>{node.label}
-    </div>
-  );
+// Reveals a reply word by word; LaTeX segments appear whole so formulas never flash half-written.
+function useReveal(text, animate) {
+  const tokens = useRef([]);
+  const [count, setCount] = useState(animate ? 0 : Infinity);
+  useEffect(() => {
+    tokens.current = text.match(/\$\$[\s\S]*?\$\$|\$[^$\n]*\$|\s+|[^\s$]+|\$/g) ?? [text];
+    if (!animate || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setCount(Infinity); return; }
+    setCount(0);
+    const step = Math.max(1, Math.ceil(tokens.current.length / 70));
+    const id = setInterval(() => setCount(c => {
+      if (c >= tokens.current.length) { clearInterval(id); return Infinity; }
+      return c + step;
+    }), 22);
+    return () => clearInterval(id);
+  }, [text, animate]);
+  return count === Infinity ? text : tokens.current.slice(0, count).join("");
 }
 
-function MasteryBar({ concept, data }) {
-  const colors = { EE: "#f59e0b", Math: "#60a5fa", Physics: "#4ade80", CS: "#c084fc" };
-  const color = colors[data.subject] || "#94a3b8";
-  const pct = Math.min(100, Math.round(data.score));
-  return (
-    <div style={{ marginBottom: "10px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "11px" }}>
-        <span style={{ color: "#cbd5e1" }}>{concept}</span>
-        <span style={{ color, fontFamily: "'DM Mono', monospace" }}>{pct}%</span>
-      </div>
-      <div style={{ height: "4px", background: "#1e293b", borderRadius: "2px", overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,${color}88,${color})`, borderRadius: "2px", transition: "width 0.8s cubic-bezier(0.4,0,0.2,1)" }} />
-      </div>
-    </div>
-  );
-}
+function AssistantMessage({ msg, animate, latest, onHint, canHint }) {
+  const shown = useReveal(msg.content, animate);
+  const done = shown === msg.content;
+  const [copied, setCopied] = useState(false);
+  const style = REPLY_STYLE[msg.type] ?? REPLY_STYLE.question;
+  const Icon = style.icon;
 
-function HintPanel({ hints, onRequestHint, loading }) {
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(msg.content); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+  };
+
   return (
-    <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: "12px", padding: "16px", marginTop: "12px" }}>
-      <div style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "12px", fontFamily: "'DM Mono', monospace" }}>Hint System</div>
-      {hints.map((h, i) => (
-        <div key={i} style={{ display: "flex", gap: "10px", marginBottom: "8px", padding: "8px 12px", background: "#1e293b", borderRadius: "8px", fontSize: "13px", color: "#94a3b8" }}>
-          <span style={{ color: "#f59e0b", fontFamily: "'DM Mono', monospace", fontSize: "11px", minWidth: "20px" }}>L{h.level}</span>
-          <span dir="auto">{h.text}</span>
+    <div className={`mn-msg${latest ? " latest" : ""}`}>
+      <div className="mn-mark sm" aria-hidden="true">M</div>
+      <div className="mn-assistant">
+        <div className={`mn-chip ${style.cls}`}>
+          <Icon size={13} strokeWidth={2.4} />
+          {msg.type === "hint" ? `Hint ${msg.hintLevel || 1} of 3` : style.label}
+          {msg.type === "hint" && <span className="pips" aria-hidden="true">{[1, 2, 3].map(i => <i key={i} className={i <= (msg.hintLevel || 1) ? "on" : ""} />)}</span>}
         </div>
-      ))}
-      <button onClick={onRequestHint} disabled={loading || hints.length >= 3}
-        style={{ marginTop: "8px", width: "100%", padding: "10px", background: hints.length >= 3 ? "#1e293b" : "#f59e0b22", border: `1px solid ${hints.length >= 3 ? "#334155" : "#f59e0b55"}`, borderRadius: "8px", color: hints.length >= 3 ? "#475569" : "#f59e0b", fontSize: "13px", cursor: hints.length >= 3 ? "not-allowed" : "pointer", fontFamily: "'DM Mono', monospace" }}>
-        {hints.length >= 3 ? "Maximum hints reached" : loading ? "Thinking…" : `Request Hint ${hints.length + 1} of 3`}
-      </button>
-    </div>
-  );
-}
-
-function MessageBubble({ msg }) {
-  const isUser = msg.role === "user";
-  const typeLabels = { question: { label: "Question", color: "#60a5fa" }, affirmation: { label: " Great!", color: "#4ade80" }, hint: { label: `Hint L${msg.hintLevel || 1}`, color: "#f59e0b" }, redirect: { label: "Redirect", color: "#c084fc" }, summary: { label: "Summary", color: "#94a3b8" }, explanation: { label: "Explanation", color: "#7dd3fc" }, worked_solution: { label: "Worked solution", color: "#4ade80" }, limit: { label: "Plan limit", color: "#f59e0b" } };
-  const typeInfo = typeLabels[msg.type] || typeLabels["question"];
-  return (
-    <div style={{ display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "10px", marginBottom: "16px", alignItems: "flex-start" }}>
-      <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: isUser ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>
-        {isUser ? "" : ""}
-      </div>
-      <div style={{ maxWidth: "75%" }}>
-        {!isUser && msg.type && <div style={{ fontSize: "10px", color: typeInfo.color, fontFamily: "'DM Mono', monospace", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{typeInfo.label}</div>}
-        <div style={{ background: isUser ? "#1e293b" : "#0f172a", border: `1px solid ${isUser ? "#334155" : "#1e3a5f"}`, borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 16px", fontSize: "14px", lineHeight: "1.6", color: isUser ? "#cbd5e1" : "#e2e8f0", whiteSpace: "pre-wrap" }} dir="auto">
-          {msg.content}
+        <div className={`mn-content${msg.type === "error" ? " error" : ""}`} dir="auto">
+          {msg.type === "error" || msg.type === "limit" ? <p>{shown}</p> : <Suspense fallback={<p style={{ whiteSpace: "pre-wrap" }}>{shown}</p>}><Markdown>{shown}</Markdown></Suspense>}
         </div>
-        {msg.type === "limit" && (
-          <button onClick={() => window.dispatchEvent(new CustomEvent("menya:navigate", { detail: "pricing" }))}
-            style={{ marginTop: "6px", padding: "6px 14px", background: "#f59e0b22", border: "1px solid #f59e0b55", borderRadius: "8px", color: "#f59e0b", fontSize: "12px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>
-            {msg.upgradeTo ? "Compare plans" : "View your plan"}
-          </button>
-        )}
-        {msg.advanced && <div style={{ marginTop: "4px", fontSize: "10px", color: "#c084fc", fontFamily: "'DM Mono', monospace" }}>Advanced reasoning used</div>}
-        {msg.progressSummary && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}> {msg.progressSummary}</div>}
-        {msg.misconceptionDetected && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>️ Misconception detected: {msg.misconceptionDetected}</div>}
-        {msg.conceptsDetected?.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", marginTop: "6px", gap: "4px" }}>
-            {msg.conceptsDetected.map((c, i) => <span key={i} style={{ padding: "2px 8px", background: "#0c4a6e", border: "1px solid #0369a1", borderRadius: "12px", fontSize: "11px", color: "#7dd3fc", fontFamily: "'DM Mono', monospace" }}>{c}</span>)}
-          </div>
+        {done && (
+          <>
+            {msg.misconceptionDetected && (
+              <div className="mn-callout warn"><TriangleAlert size={16} /><div><b>Common misconception</b>{msg.misconceptionDetected}</div></div>
+            )}
+            {msg.progressSummary && (
+              <div className="mn-callout ok"><Flag size={16} /><div><b>What you've established</b>{msg.progressSummary}</div></div>
+            )}
+            {msg.type === "limit" && (
+              <button className="mn-btn outline" style={{ marginTop: 12 }}
+                onClick={() => window.dispatchEvent(new CustomEvent("menya:navigate", { detail: "pricing" }))}>
+                {msg.upgradeTo ? "Compare plans" : "View your plan"}
+              </button>
+            )}
+            {msg.conceptsDetected?.length > 0 && (
+              <div className="mn-tags">{msg.conceptsDetected.map((c, i) => <span key={i} className="mn-tag-chip">{c}</span>)}</div>
+            )}
+            {msg.advanced && <div className="mn-advanced"><Sparkles size={12} /> Advanced reasoning used</div>}
+            {msg.type !== "error" && msg.type !== "limit" && (
+              <div className="mn-msg-actions">
+                <button className="mn-btn" onClick={copy} aria-label="Copy reply">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy"}</button>
+                {latest && canHint && <button className="mn-btn" onClick={onHint}><Lightbulb size={14} />I'm stuck — hint</button>}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+function ProgressDrawer({ onClose, tab, setTab, reasoningGraph, subjectGroups, analytics }) {
+  useEffect(() => {
+    const onKey = e => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <>
+      <div className="mn-scrim" onClick={onClose} />
+      <aside className="mn-drawer" role="dialog" aria-label="Your progress">
+        <div className="mn-drawer-head">
+          <h2>Your progress</h2>
+          <button className="mn-btn icon" onClick={onClose} aria-label="Close progress"><X size={18} /></button>
+        </div>
+        <div className="mn-tabs" role="tablist">
+          {[["reasoning", "Reasoning"], ["mastery", "Mastery"], ["analytics", "Analytics"]].map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} className="mn-tab" onClick={() => setTab(id)}>{label}</button>
+          ))}
+        </div>
+        <div className="mn-drawer-body">
+          {tab === "reasoning" && (
+            <>
+              <div className="mn-section-label">Reasoning graph</div>
+              {reasoningGraph.length === 0
+                ? <div className="mn-empty">The concepts and steps you work through will appear here.</div>
+                : reasoningGraph.map((n, i) => {
+                    const c = NODE_COLORS[n.type] || "#94a3b8";
+                    return <span key={i} className="mn-node" style={{ color: c, borderColor: `${c}55`, background: `${c}14` }}><small style={{ opacity: .6 }}>#{i + 1}</small>{n.label}</span>;
+                  })}
+              <div className="mn-legend">
+                {Object.entries(NODE_COLORS).map(([t, c]) => <span key={t}><i style={{ background: c }} />{t[0].toUpperCase() + t.slice(1)}</span>)}
+              </div>
+            </>
+          )}
+          {tab === "mastery" && Object.entries(subjectGroups).map(([subj, concepts]) => (
+            <div key={subj} style={{ marginBottom: 18 }}>
+              <div className="mn-section-label">{subj}</div>
+              {concepts.map(([concept, data]) => {
+                const pct = Math.min(100, Math.round(data.score));
+                const color = SUBJECT_COLORS[data.subject] || "#94a3b8";
+                return (
+                  <div key={concept} className="mn-bar">
+                    <div className="mn-bar-row"><span>{concept}</span><span>{pct}%</span></div>
+                    <div className="mn-bar-track"><div className="mn-bar-fill" style={{ width: `${pct}%`, background: color }} /></div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          {tab === "analytics" && (
+            <>
+              <div className="mn-stats">
+                {[["Messages", analytics.totalMessages, "var(--info)"], ["Hints used", analytics.hintsUsed, "var(--warn)"],
+                  ["Concepts", analytics.conceptsIdentified, "var(--success)"], ["Misconceptions", analytics.misconceptionsDetected, "var(--danger)"]].map(([l, v, c]) => (
+                  <div key={l} className="mn-stat"><div className="v" style={{ color: c }}>{v}</div><div className="l">{l}</div></div>
+                ))}
+              </div>
+              <div className="mn-summary">
+                {analytics.totalMessages === 0 ? "Start a problem to build your learning report."
+                  : `You've worked through ${analytics.totalMessages} exchanges, met ${analytics.conceptsIdentified} concepts and used ${analytics.hintsUsed} hints${analytics.misconceptionsDetected ? `; ${analytics.misconceptionsDetected} misconceptions were caught and corrected` : ""}.`}
+              </div>
+            </>
+          )}
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -199,15 +283,26 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const [mastery, setMastery] = useState(INITIAL_MASTERY);
   const [activeTab, setSideTab] = useState("reasoning");
   const [analytics, setAnalytics] = useState({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
-  const [showWelcome, setShowWelcome] = useState(true);
   const [encouragement, setEncouragement] = useState(null);
   const [language, setLanguage] = useState("auto");
   const [lastLanguage, setLastLanguage] = useState(null);
   const [waitSeconds, setWaitSeconds] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [animateIndex, setAnimateIndex] = useState(-1);
+  const [loadingKind, setLoadingKind] = useState("message");
+  const [theme, toggleTheme] = useTheme();
   const bottomRef = useRef(null);
+  const inputRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, loading]);
+
+  // Auto-grow the composer
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [input]);
 
   const updateMastery = useCallback((concepts, score) => {
     setMastery(prev => {
@@ -230,15 +325,23 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     setAnalytics(prev => ({ ...prev, totalMessages: prev.totalMessages + 1, conceptsIdentified: prev.conceptsIdentified + (parsed.conceptsDetected?.length || 0), misconceptionsDetected: prev.misconceptionsDetected + (parsed.misconceptionDetected ? 1 : 0) }));
     if (parsed.conceptsDetected?.length > 0) updateMastery(parsed.conceptsDetected, parsed.encouragementScore || 3);
     if (parsed.encouragementScore >= 4) {
-      setEncouragement(parsed.encouragementScore === 5 ? " Excellent reasoning!" : " Great progress!");
-      setTimeout(() => setEncouragement(null), 3000);
+      setEncouragement(parsed.encouragementScore === 5 ? "Excellent reasoning!" : "Great progress!");
+      setTimeout(() => setEncouragement(null), 2800);
     }
   }, [updateMastery]);
 
+  const pushAssistant = useCallback((msg) => {
+    setMessages(prev => { setAnimateIndex(prev.length); return [...prev, { role: "assistant", ...msg }]; });
+  }, []);
+
+  const failureMessage = (err) => err.limit
+    ? { content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo }
+    : { content: err.message || "Something went wrong. Please try again.", type: "error" };
+
   const sendMessage = useCallback(async (text) => {
     if (!text.trim() || loading) return;
-    setShowWelcome(false);
-    setLoading(true);
+    loadMarkdown();
+    setLoading(true); setLoadingKind("message");
     const newApiMsgs = [...apiMessages, { role: "user", content: text }];
     setApiMessages(newApiMsgs);
     setMessages(prev => [...prev, { role: "user", content: text }]);
@@ -255,19 +358,18 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       }
       if (parsed.language) setLastLanguage(parsed.language);
       setApiMessages(prev => [...prev, { role: "assistant", content: parsed.message }]);
-      setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary, advanced }]);
+      pushAssistant({ content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary, advanced });
       processResponse(parsed, text);
     } catch (err) {
-      setMessages(prev => [...prev, err.limit
-        ? { role: "assistant", content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo }
-        : { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
+      pushAssistant(failureMessage(err));
     }
     setLoading(false);
-  }, [loading, apiMessages, apiKey, processResponse, language, client, onUsage]);
+    inputRef.current?.focus();
+  }, [loading, apiMessages, apiKey, processResponse, language, client, onUsage, pushAssistant]);
 
   const requestHint = useCallback(async () => {
     if (loading || hints.length >= 3 || messages.length === 0) return;
-    setLoading(true);
+    setLoading(true); setLoadingKind("hint");
     const level = hints.length + 1;
     const request = { role: "user", content: hintRequest(level, language !== "auto" ? language : lastLanguage) };
     try {
@@ -282,28 +384,27 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       }
       if (parsed.language) setLastLanguage(parsed.language);
       setHints(prev => [...prev, { level, text: parsed.message }]);
-      setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: "hint", hintLevel: level, conceptsDetected: parsed.conceptsDetected }]);
+      pushAssistant({ content: parsed.message, type: "hint", hintLevel: level, conceptsDetected: parsed.conceptsDetected });
       setApiMessages(prev => [...prev, request, { role: "assistant", content: parsed.message }]);
       setAnalytics(prev => ({ ...prev, hintsUsed: prev.hintsUsed + 1 }));
     } catch (err) {
-      setMessages(prev => [...prev, err.limit
-        ? { role: "assistant", content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo }
-        : { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
+      pushAssistant(failureMessage(err));
     }
     setLoading(false);
-  }, [loading, hints, messages, apiMessages, apiKey, language, lastLanguage, client, onUsage]);
+  }, [loading, hints, messages, apiMessages, apiKey, language, lastLanguage, client, onUsage, pushAssistant]);
 
   // Clears the conversation (and the 3-hint budget) but keeps mastery and analytics.
   const newProblem = () => {
     client?.newProblem();
     setMessages([]); setApiMessages([]); setHints([]); setLastLanguage(null);
-    setReasoningGraph([]); setShowWelcome(true); setInput("");
+    setReasoningGraph([]); setInput(""); setAnimateIndex(-1);
+    inputRef.current?.focus();
   };
 
   const resetKey = () => {
     if (confirm("Clear your API key and reset the session?")) {
       setApiKey(null); setMessages([]); setApiMessages([]); setHints([]); setLastLanguage(null);
-      setReasoningGraph([]); setShowWelcome(true); setMastery(INITIAL_MASTERY);
+      setReasoningGraph([]); setMastery(INITIAL_MASTERY);
       setAnalytics({ totalMessages: 0, hintsUsed: 0, conceptsIdentified: 0, misconceptionsDetected: 0 });
     }
   };
@@ -313,174 +414,110 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
 
   if (!client && !apiKey) return <ApiKeyModal onSave={setApiKey} />;
 
-  return (
-    <div style={{ height: "100dvh", background: "#020817", color: "#e2e8f0", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,600&family=DM+Mono:wght@300;400;500&family=Fraunces:opsz,wght@9..144,300;9..144,700&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#0f172a}::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
-        textarea{resize:none;outline:none}
-        @keyframes pulse-glow{0%,100%{opacity:1}50%{opacity:0.4}}
-        @keyframes float-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-        .menya-mobile-only{display:none !important}
-        @media (max-width: 860px){
-          .menya-mobile-only{display:inline-block !important}
-          .menya-desktop-only{display:none !important}
-          .menya-sidebar{display:none !important}
-          .menya-sidebar.open{display:flex !important;position:absolute;top:0;bottom:0;left:0;right:0;width:auto !important;z-index:150}
-          .menya-chat-pad{padding:16px 12px 8px !important}
-        }
-        @keyframes encouragement-pop{0%{opacity:0;transform:scale(0.8) translateY(-10px)}20%{opacity:1;transform:scale(1.05) translateY(0)}80%{opacity:1;transform:scale(1) translateY(0)}100%{opacity:0;transform:scale(0.95) translateY(-5px)}}
-      `}</style>
+  const hintsLeft = 3 - hints.length;
+  const canHint = messages.length > 0 && hintsLeft > 0 && !loading;
+  const lastAssistant = messages.map(m => m.role).lastIndexOf("assistant");
 
-      <header style={{ borderBottom: "1px solid #1e293b", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", background: "#020817", position: "sticky", top: 0, zIndex: 160 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}></div>
-          <div>
-            <div style={{ fontFamily: "'Fraunces', serif", fontSize: "20px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Menya</div>
-            <div style={{ fontSize: "10px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.12em" }}>AI TUTOR</div>
+  return (
+    <div className="mn-app">
+      <header className="mn-topbar">
+        <div className="mn-brand">
+          <div className="mn-mark" aria-hidden="true">M</div>
+          <div style={{ minWidth: 0 }}>
+            <div className="mn-wordmark">Menya</div>
+            <div className="mn-tag">AI tutor</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <div className="menya-desktop-only" style={{ fontSize: "12px", color: "#475569", fontFamily: "'DM Mono', monospace" }}>{messages.filter(m => m.role === "user").length} exchanges</div>
-          <select value={language} onChange={e => setLanguage(e.target.value)} title="Reply language"
-            style={{ padding: "4px 8px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#94a3b8", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace", outline: "none" }}>
-            {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" && lastLanguage ? `Auto (${lastLanguage})` : l.label}</option>)}
-          </select>
-          {messages.length > 0 && <button onClick={newProblem} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#7dd3fc", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>New problem</button>}
-          <button className="menya-mobile-only" onClick={() => setShowSidebar(v => !v)} aria-expanded={showSidebar}
-            style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#94a3b8", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>{showSidebar ? "Chat" : "Progress"}</button>
-          {client ? headerExtras : (<>
-            <button onClick={resetKey} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#475569", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}> Key</button>
-            <div style={{ padding: "4px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "20px", fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", gap: "6px" }}>
-              <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", animation: "pulse-glow 2s ease-in-out infinite" }} />
-              Developer mode
-            </div>
-          </>)}
+        <div className="mn-actions">
+          <label className="mn-select" title="Reply language">
+            <Globe size={15} className="lead" />
+            <select value={language} onChange={e => setLanguage(e.target.value)} aria-label="Reply language">
+              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" && lastLanguage ? `Auto · ${lastLanguage}` : l.label}</option>)}
+            </select>
+            <ChevronDown size={14} className="trail" />
+          </label>
+          <button className="mn-btn" onClick={newProblem} disabled={messages.length === 0} title="New problem">
+            <SquarePen size={16} /><span className="mn-hide-sm">New problem</span>
+          </button>
+          <button className="mn-btn" onClick={() => setShowSidebar(true)} aria-label="Your progress" title="Your progress">
+            <BarChart3 size={16} /><span className="mn-hide-sm">Progress</span>
+            {reasoningGraph.length > 0 && <span className="mn-badge">{reasoningGraph.length}</span>}
+          </button>
+          <button className="mn-btn icon" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title="Theme">
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          {client ? headerExtras : (
+            <>
+              <button className="mn-btn icon" onClick={resetKey} aria-label="Change API key" title="Change API key"><KeyRound size={16} /></button>
+              <span className="mn-pill mn-hide-sm"><span className="dot" />Developer mode</span>
+            </>
+          )}
         </div>
       </header>
 
-      {encouragement && (
-        <div style={{ position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)", padding: "10px 24px", background: "linear-gradient(135deg,#0d4f2a,#14532d)", border: "1px solid #16a34a", borderRadius: "30px", color: "#4ade80", fontSize: "14px", fontWeight: "600", zIndex: 200, animation: "encouragement-pop 3s ease forwards", pointerEvents: "none" }}>
-          {encouragement}
-        </div>
-      )}
+      {encouragement && <div className="mn-toast" role="status"><Sparkles size={15} />{encouragement}</div>}
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0, position: "relative" }}>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <div className="menya-chat-pad" style={{ flex: 1, overflowY: "auto", padding: "24px", paddingBottom: "8px" }}>
-            {showWelcome && (
-              <div style={{ textAlign: "center", padding: "40px 20px", animation: "float-in 0.6s ease" }}>
-                <div style={{ fontSize: "48px", marginBottom: "16px" }}></div>
-                <div style={{ fontFamily: "'Fraunces', serif", fontSize: "28px", fontWeight: "700", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>Welcome to Menya</div>
-                <div style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.7" }}>I won't give you answers — I'll help you discover them, one accurate hint at a time. Write in any language and I'll reply in it. Try an example:</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "480px", margin: "0 auto" }}>
-                  {STARTER_PROMPTS.map((p, i) => (
-                    <button key={i} onClick={() => sendMessage(p)}
-                      style={{ padding: "12px 18px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "12px", color: "#94a3b8", fontSize: "13px", cursor: "pointer", textAlign: "left", fontFamily: "'DM Sans', sans-serif" }}
-                      onMouseEnter={e => { e.target.style.borderColor = "#334155"; e.target.style.color = "#e2e8f0"; e.target.style.background = "#1e293b"; }}
-                      onMouseLeave={e => { e.target.style.borderColor = "#1e293b"; e.target.style.color = "#94a3b8"; e.target.style.background = "#0f172a"; }}
-                    >
-                      <span style={{ color: "#475569", marginRight: "10px", fontFamily: "'DM Mono', monospace", fontSize: "11px" }}>{String(i + 1).padStart(2, "0")}</span>{p}
+      <div className="mn-body">
+        <main className="mn-thread" aria-live="polite">
+          <div className="mn-thread-inner">
+            {messages.length === 0 && (
+              <section className="mn-hero">
+                <div className="mn-mark" aria-hidden="true">M</div>
+                <h1>What are we <span>learning</span> today?</h1>
+                <p>Bring any problem. I'll guide you to the answer step by step, with hints when you need them — in English, Kinyarwanda, Français, Kiswahili and more.</p>
+                <div className="mn-suggestions">
+                  {STARTER_PROMPTS.map(({ icon: Icon, title, lang, text }) => (
+                    <button key={text} className="mn-suggestion" onClick={() => sendMessage(text)}>
+                      <span className="ico"><Icon size={17} /></span>
+                      <span style={{ minWidth: 0 }}>
+                        <span className="t">{title}<span className="mn-lang">{lang}</span></span>
+                        <span className="d">{text}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
-            {messages.map((msg, i) => <div key={i} style={{ animation: "float-in 0.3s ease" }}><MessageBubble msg={msg} /></div>)}
+
+            {messages.map((msg, i) => msg.role === "user"
+              ? <div key={i} className="mn-msg user"><div className="mn-user-bubble" dir="auto">{msg.content}</div></div>
+              : <AssistantMessage key={i} msg={msg} animate={i === animateIndex} latest={i === lastAssistant} onHint={requestHint} canHint={canHint} />)}
+
             {loading && (
-              <div style={{ display: "flex", gap: "10px", marginBottom: "16px", alignItems: "center" }}>
-                <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}></div>
-                <div style={{ padding: "12px 20px", background: "#0f172a", border: "1px solid #1e3a5f", borderRadius: "4px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
-                  {[0,1,2].map(d => <div key={d} style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#0ea5e9", animation: `pulse-glow 1.2s ease-in-out infinite ${d * 0.2}s` }} />)}
-                  {waitSeconds && <span style={{ marginLeft: "8px", fontSize: "12px", color: "#64748b", fontFamily: "'DM Mono', monospace" }}>Free-tier limit reached, retrying in {waitSeconds}s…</span>}
-                </div>
+              <div className="mn-thinking" role="status">
+                <div className="mn-mark sm" aria-hidden="true">M</div>
+                <span className="label">{loadingKind === "hint" ? "Preparing a hint…" : "Thinking…"}</span>
+                {waitSeconds && <span className="wait">busy — retrying in {waitSeconds}s</span>}
               </div>
             )}
             <div ref={bottomRef} />
           </div>
+        </main>
 
-          {messages.length >= 2 && <div style={{ padding: "0 24px" }}><HintPanel hints={hints} onRequestHint={requestHint} loading={loading} /></div>}
-
-          <div style={{ padding: "16px 24px 20px", borderTop: "1px solid #1e293b", background: "#020817" }}>
-            <div style={{ display: "flex", gap: "10px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "14px", padding: "10px 14px", alignItems: "flex-end" }}>
-              <textarea dir="auto" value={input} onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-                placeholder="Share your thinking, show your work, or ask for guidance…" rows={1}
-                style={{ flex: 1, background: "transparent", border: "none", color: "#e2e8f0", fontSize: "14px", lineHeight: "1.6", fontFamily: "'DM Sans', sans-serif", maxHeight: "120px", overflowY: "auto" }}
-              />
-              <button onClick={() => sendMessage(input)} disabled={loading || !input.trim()}
-                style={{ padding: "8px 18px", background: loading || !input.trim() ? "#1e293b" : "linear-gradient(135deg,#0ea5e9,#7c3aed)", border: "none", borderRadius: "8px", color: loading || !input.trim() ? "#475569" : "#fff", fontSize: "13px", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
-                Send →
+        <div className="mn-composer-wrap">
+          <form className="mn-composer" onSubmit={e => { e.preventDefault(); sendMessage(input); }}>
+            <textarea ref={inputRef} dir="auto" rows={1} value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendMessage(input); } }}
+              placeholder={messages.length ? "Share your next step or your answer…" : "Ask about any problem, in any language…"}
+              aria-label="Message Menya" />
+            <div className="mn-composer-row">
+              <button type="button" className="mn-hint-btn" onClick={requestHint} disabled={!canHint}
+                aria-label={`Get a hint, ${hintsLeft} of 3 left`}>
+                <Lightbulb size={15} />Hint
+                <span className="pips" aria-hidden="true">{[0, 1, 2].map(i => <i key={i} className={i < hints.length ? "used" : ""} />)}</span>
               </button>
+              <span className="spacer" />
+              <span className="mn-kbd mn-hide-sm">Shift + Enter for a new line</span>
+              <button type="submit" className="mn-send" disabled={loading || !input.trim()} aria-label="Send message"><ArrowUp size={18} strokeWidth={2.5} /></button>
             </div>
-            <div style={{ textAlign: "center", marginTop: "8px", fontSize: "11px", color: "#334155", fontFamily: "'DM Mono', monospace" }}>Menya guides reasoning — never gives direct answers</div>
-          </div>
+          </form>
+          <div className="mn-footnote">Menya guides you to answers instead of handing them over. {client ? "Your progress is saved to your account." : "Developer mode · your own Groq key."}</div>
         </div>
 
-        <div className={`menya-sidebar${showSidebar ? " open" : ""}`} style={{ width: "300px", borderLeft: "1px solid #1e293b", display: "flex", flexDirection: "column", background: "#030d1a", overflowY: "auto", flexShrink: 0 }}>
-          <div style={{ display: "flex", borderBottom: "1px solid #1e293b", background: "#020817", position: "sticky", top: 0, zIndex: 10 }}>
-            {["reasoning","mastery","analytics"].map(tab => (
-              <button key={tab} onClick={() => setSideTab(tab)}
-                style={{ flex: 1, padding: "12px 0", background: "transparent", border: "none", borderBottom: `2px solid ${activeTab === tab ? "#0ea5e9" : "transparent"}`, color: activeTab === tab ? "#7dd3fc" : "#475569", fontSize: "10px", cursor: "pointer", fontFamily: "'DM Mono', monospace", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                {tab}
-              </button>
-            ))}
-          </div>
-          <div style={{ padding: "16px" }}>
-            {activeTab === "reasoning" && (
-              <div>
-                <div style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "12px", fontFamily: "'DM Mono', monospace" }}>Reasoning Graph</div>
-                {reasoningGraph.length === 0
-                  ? <div style={{ color: "#334155", fontSize: "13px", textAlign: "center", padding: "20px 0", lineHeight: "1.7" }}>Your reasoning steps will appear here as you work through problems.</div>
-                  : reasoningGraph.map((node, i) => <ReasoningNode key={i} node={node} index={i} />)
-                }
-                <div style={{ marginTop: "20px", padding: "12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px" }}>
-                  <div style={{ fontSize: "10px", color: "#475569", fontFamily: "'DM Mono', monospace", marginBottom: "8px" }}>LEGEND</div>
-                  {[["concept","#4ade80","Concept"],["formula","#60a5fa","Formula"],["step","#f59e0b","Logic Step"],["assumption","#c084fc","Assumption"],["misconception","#f87171","Misconception"]].map(([t,c,l]) => (
-                    <div key={t} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                      <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: c }} />
-                      <span style={{ fontSize: "12px", color: "#64748b" }}>{l}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {activeTab === "mastery" && (
-              <div>
-                <div style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "16px", fontFamily: "'DM Mono', monospace" }}>Concept Mastery Model</div>
-                {Object.entries(subjectGroups).map(([subj, concepts]) => (
-                  <div key={subj} style={{ marginBottom: "20px" }}>
-                    <div style={{ fontSize: "10px", color: "#475569", fontFamily: "'DM Mono', monospace", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "10px", paddingBottom: "6px", borderBottom: "1px solid #1e293b" }}>{subj}</div>
-                    {concepts.map(([concept, data]) => <MasteryBar key={concept} concept={concept} data={data} />)}
-                  </div>
-                ))}
-              </div>
-            )}
-            {activeTab === "analytics" && (
-              <div>
-                <div style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "12px", fontFamily: "'DM Mono', monospace" }}>Learning Analytics</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                  {[["Messages", analytics.totalMessages, "#60a5fa"],["Hints Used", analytics.hintsUsed, "#f59e0b"],["Concepts", analytics.conceptsIdentified, "#4ade80"],["Misconceptions", analytics.misconceptionsDetected, "#f87171"]].map(([l,v,c]) => (
-                    <div key={l} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px", padding: "12px", textAlign: "center" }}>
-                      <div style={{ fontSize: "22px", fontFamily: "'DM Mono', monospace", color: c, fontWeight: "700" }}>{v}</div>
-                      <div style={{ fontSize: "10px", color: "#475569", marginTop: "2px" }}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginTop: "16px", padding: "14px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px", fontSize: "13px", color: "#94a3b8", lineHeight: "1.7" }}>
-                  {analytics.totalMessages === 0
-                    ? <span style={{ color: "#334155" }}>Start a problem to generate your learning report.</span>
-                    : <>You've worked through <span style={{ color: "#60a5fa" }}>{analytics.totalMessages}</span> exchanges, identified <span style={{ color: "#4ade80" }}>{analytics.conceptsIdentified}</span> concepts, and used <span style={{ color: "#f59e0b" }}>{analytics.hintsUsed}</span> hints.{analytics.misconceptionsDetected > 0 && <> <span style={{ color: "#f87171" }}>{analytics.misconceptionsDetected}</span> misconceptions were caught.</>}</>
-                  }
-                </div>
-                <div style={{ marginTop: "12px", padding: "12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "10px", fontSize: "12px", color: "#4ade80", textAlign: "center" }}>
-                   {client ? "Your progress is saved to your account" : "Developer mode · your own Groq key"}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        {showSidebar && (
+          <ProgressDrawer onClose={() => setShowSidebar(false)} tab={activeTab} setTab={setSideTab}
+            reasoningGraph={reasoningGraph} subjectGroups={subjectGroups} analytics={analytics} />
+        )}
       </div>
     </div>
   );

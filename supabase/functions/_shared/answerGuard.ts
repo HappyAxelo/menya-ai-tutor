@@ -7,6 +7,10 @@ const SUPERSCRIPTS: Record<string, string> = { "²": "^2", "³": "^3", "¹": "^1
 
 export function normalizeMath(s: string): string {
   return s
+    .replace(/\\(cdot|times|left|right|,|;|!|quad|qquad)/g, "")  // LaTeX spacing/multiplication
+    .replace(/\\(?:text|mathrm|operatorname)\{([^}]*)\}/g, "$1")
+    .replace(/\\([a-zA-Z]+)/g, "$1")                              // \sin -> sin, \pi -> pi
+    .replace(/\$/g, "")
     .toLowerCase()
     .replace(/[²³¹⁴⁰]/g, ch => SUPERSCRIPTS[ch])
     .replace(/[\s·×*()\[\]{}]/g, "")

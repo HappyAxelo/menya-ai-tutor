@@ -49,7 +49,9 @@ function usable(role: string, input: RouteInput): ModelConfig | null {
 function preferredRoles(policy: RoutingPolicy, difficulty: Difficulty): string[] {
   switch (policy) {
     case "free":
-      return ["local_small", "small"];
+      // Not "small": gpt-oss-20b never filled the private finalAnswer in testing, so the
+      // answer guard couldn't protect it, and it made more factual errors (docs/EVALUATION.md).
+      return ["local_small", "medium"];
     case "pro":
       return difficulty === "complex" ? ["strong", "medium"] : ["medium"];
     case "professional":
@@ -68,7 +70,10 @@ export function planRoute(input: RouteInput): RouteCandidate[] {
     while (role && !seen.has(role) && out.length < 3) {
       seen.add(role);
       const c = usable(role, input);
-      if (c) out.push({ role, config: c, premium: c.is_premium, fallback: fallback || out.length > 0 });
+      // Fallback chains cover runtime failures of a usable model; an unusable
+      // (disabled, no credentials, no allowance) role doesn't hand off its chain.
+      if (!c) break;
+      out.push({ role, config: c, premium: c.is_premium, fallback: fallback || out.length > 0 });
       role = input.configs[role]?.fallback_role ?? null;
       fallback = true;
     }

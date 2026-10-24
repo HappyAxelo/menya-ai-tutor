@@ -49,7 +49,7 @@ export default function AuthScreen({ inviteToken }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
-      <div style={{ background: C.panel2, border: "1px solid #1e3a5f", borderRadius: "20px", padding: "32px", maxWidth: "440px", width: "100%", boxShadow: "0 0 60px #0ea5e922" }}>
+      <div style={{ background: C.panel2, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "32px", maxWidth: "440px", width: "100%", boxShadow: "0 0 60px #0ea5e922" }}>
         <h1 style={{ fontFamily: serif, fontSize: "26px", textAlign: "center", marginBottom: "8px", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Welcome to Menya</h1>
         <p style={{ color: C.dim, fontSize: "14px", lineHeight: 1.7, textAlign: "center", marginBottom: "22px" }}>
           A tutor that helps you understand, one accurate hint at a time — in your language.

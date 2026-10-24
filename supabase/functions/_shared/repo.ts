@@ -68,6 +68,8 @@ export interface Repo {
   createSession(userId: string, orgId: string | null, title: string, language: string | null): Promise<Session>;
   loadMessages(sessionId: string, limit: number): Promise<StoredMessage[]>;
   appendMessages(sessionId: string, userId: string, messages: StoredMessage[]): Promise<void>;
+  getSessionAnswer(sessionId: string): Promise<string | null>;
+  setSessionAnswer(sessionId: string, answer: string): Promise<void>;
   updateSession(sessionId: string, patch: Partial<Pick<Session, "turn_count" | "hints_used" | "last_difficulty" | "language" | "title">>): Promise<void>;
   processPaymentEvent(provider: string, event: unknown, raw: unknown): Promise<string>;
   audit(entry: { actor_id: string | null; action: string; target_type?: string; target_id?: string; org_id?: string | null; details?: Record<string, unknown> }): Promise<void>;
@@ -131,6 +133,14 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
     },
     async appendMessages(sessionId, userId, messages) {
       check(await sb.from("tutoring_messages").insert(messages.map(m => ({ ...m, session_id: sessionId, user_id: userId }))), "append_messages");
+    },
+    async getSessionAnswer(sessionId) {
+      const rows = check(await sb.from("tutoring_session_answers").select("final_answer").eq("session_id", sessionId), "get_session_answer");
+      return rows[0]?.final_answer ?? null;
+    },
+    async setSessionAnswer(sessionId, answer) {
+      check(await sb.from("tutoring_session_answers")
+        .upsert({ session_id: sessionId, final_answer: answer, updated_at: new Date().toISOString() }), "set_session_answer");
     },
     async updateSession(sessionId, patch) {
       check(await sb.from("tutoring_sessions").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", sessionId), "update_session");

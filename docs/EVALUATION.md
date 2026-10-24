@@ -65,10 +65,15 @@ derivative (now also caught by the server-side answer guard); Kiswahili using *m
 
 - Both models follow the Socratic structure and reply in the learner's language, including
   Kinyarwanda and Kiswahili.
-- **The smaller model makes noticeably more factual and diagnostic errors.** Since accurate
-  hints are the core promise, consider routing Free to `gpt-oss-120b` as well. The cost difference
-  at these prices is about $0.0003 per message (≈ $0.08 per Free user per month at the full
-  300-message allowance). It's a configuration change (`admin_update_model`), not a code change.
+- **The smaller model makes noticeably more factual and diagnostic errors**, and a follow-up
+  probe showed it **never fills the private `finalAnswer` field**, even when required, so the
+  server-side leak guard cannot protect its replies (it leaked a full derivative in a live test).
+  `gpt-oss-120b` reported the answer from the first hint onward. **Decision: Free now routes to
+  `gpt-oss-120b`** (≈ $0.0003 more per message, ≈ $0.08 per Free user per month at the full
+  allowance). The server also remembers each session's answer for turns where a model omits it.
+- Maths formatting: LaTeX backslashes were corrupted on the way through the provider's JSON output
+  (`\sin` → `sin`, `\(` → `(`), so the policy now asks for plain Unicode maths (x², 2x·sin x, a/b).
+  The web app still renders `$…$` maths and repairs common corruption for providers that keep backslashes.
 - Neither model is reliable on off-by-one reasoning; the premium tier exists for hard problems,
   but it has **not been evaluated yet** (no Anthropic key available during this work).
 - Kinyarwanda and Kiswahili output must be reviewed by native-speaker educators before launch.

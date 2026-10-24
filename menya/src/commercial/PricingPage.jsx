@@ -41,7 +41,7 @@ export default function PricingPage({ account, onBack }) {
             const cents = interval === "year" ? p.price_yearly_cents : p.price_monthly_cents;
             const unavailable = p.id !== "free" && cents == null;
             return (
-              <Card key={p.id} style={{ marginBottom: 0, border: `1px solid ${p.id === "pro" ? "#0369a1" : C.border}`, display: "flex", flexDirection: "column" }}>
+              <Card key={p.id} style={{ marginBottom: 0, border: `1px solid ${p.id === "pro" ? "var(--accent)" : C.border}`, display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: "18px", fontWeight: 600, color: C.text }}>{p.name}</div>
                 <div style={{ fontSize: "13px", color: C.dim, marginBottom: "12px" }}>{p.tagline}</div>
                 <div style={{ fontSize: "28px", fontWeight: 700, color: C.text, marginBottom: "4px" }}>
