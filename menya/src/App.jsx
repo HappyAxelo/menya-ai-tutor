@@ -12,6 +12,7 @@ import { callTutor, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
 // first reply is being prepared, so the first screen stays light.
 const loadMarkdown = () => import("./Markdown.jsx");
 const Markdown = lazy(loadMarkdown);
+import { BrandMark, BrandAvatar, BrandLockup, Wordmark, TAGLINE } from "./Brand.jsx";
 import "./menya.css";
 
 // ============================================================
@@ -81,9 +82,8 @@ function ApiKeyModal({ onSave }) {
   return (
     <div className="mn-gate">
       <div className="mn-card">
-        <div style={{ display: "flex", justifyContent: "center" }}><div className="mn-mark" style={{ width: 52, height: 52, fontSize: 28, borderRadius: 15 }}>M</div></div>
-        <h1>Welcome to Menya</h1>
-        <p className="sub">A tutor that guides you to the answer, one accurate hint at a time — in your language.</p>
+        <BrandLockup />
+        <p className="sub">Welcome! Menya guides you to the answer, one accurate hint at a time — in your language.</p>
         <form onSubmit={e => { e.preventDefault(); handleSave(); }}>
           <label className="mn-field">
             <span>Groq API key</span>
@@ -149,7 +149,7 @@ function AssistantMessage({ msg, animate, latest, onHint, canHint, showTags }) {
 
   return (
     <div className={`mn-msg${latest ? " latest" : ""}`}>
-      <div className="mn-mark sm" aria-hidden="true">M</div>
+      <BrandAvatar size={28} />
       <div className="mn-assistant">
         <div className={`mn-chip ${style.cls}`}>
           <Icon size={13} strokeWidth={2.4} />
@@ -440,11 +440,8 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     <div className="mn-app">
       <header className="mn-topbar">
         <div className="mn-brand">
-          <div className="mn-mark" aria-hidden="true">M</div>
-          <div style={{ minWidth: 0 }}>
-            <div className="mn-wordmark">Menya</div>
-            <div className="mn-tag">AI tutor</div>
-          </div>
+          <BrandMark size={38} decorative={false} />
+          <Wordmark size="md" />
         </div>
         <div className="mn-actions">
           <label className="mn-select" title="Reply language">
@@ -479,7 +476,8 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
           <div className="mn-thread-inner">
             {messages.length === 0 && (
               <section className="mn-hero">
-                <div className="mn-mark" aria-hidden="true">M</div>
+                <BrandMark size={96} />
+                <div className="mn-tagline">{TAGLINE}</div>
                 <h1>What are we <span>learning</span> today?</h1>
                 <p>Bring any problem. I'll guide you to the answer step by step, with hints when you need them — in English, Kinyarwanda, Français, Kiswahili and more.</p>
                 <div className="mn-suggestions">
@@ -502,7 +500,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
 
             {loading && (
               <div className="mn-thinking" role="status">
-                <div className="mn-mark sm" aria-hidden="true">M</div>
+                <BrandAvatar size={28} />
                 <span className="label">{loadingKind === "hint" ? "Preparing a hint…" : "Thinking…"}</span>
                 {waitSeconds && <span className="wait">busy — retrying in {waitSeconds}s</span>}
               </div>

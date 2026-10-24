@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../lib/backend.js";
-import { C, mono, serif, Button, Field, inputStyle, Notice } from "./ui.jsx";
+import { C, mono, Button, Field, inputStyle, Notice } from "./ui.jsx";
+import { BrandLockup } from "../Brand.jsx";
 
 // Only when the app points at the local development backend
 // (supabase/dev/local-server.ts). Never shown against a real Supabase project.
@@ -50,9 +51,9 @@ export default function AuthScreen({ inviteToken }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
       <div style={{ background: C.panel2, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "32px", maxWidth: "440px", width: "100%", boxShadow: "0 0 60px #0ea5e922" }}>
-        <h1 style={{ fontFamily: serif, fontSize: "26px", textAlign: "center", marginBottom: "8px", background: "linear-gradient(135deg,#7dd3fc,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Welcome to Menya</h1>
+        <div style={{ marginBottom: "16px" }}><BrandLockup /></div>
         <p style={{ color: C.dim, fontSize: "14px", lineHeight: 1.7, textAlign: "center", marginBottom: "22px" }}>
-          A tutor that helps you understand, one accurate hint at a time — in your language.
+          Welcome! Sign in to get step-by-step help that guides you to the answer — in your language.
         </p>
         {inviteToken && <Notice kind="info">You've been invited to join your institution on Menya. Sign in with the email address the invitation was sent to.</Notice>}
         {state === "sent" ? (
