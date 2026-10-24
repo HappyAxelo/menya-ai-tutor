@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test \"tests/**/*.test.ts\""
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "dev:local": "node dev/local-server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",

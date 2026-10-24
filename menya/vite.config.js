@@ -9,5 +9,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // The tutoring policy lives in ../supabase/functions/_shared and is shared with the backend.
+  server: { fs: { allow: ['..'] } },
   base: '/menya-ai-tutor/',   // <-- change this to your repo name
 })

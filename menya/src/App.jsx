@@ -152,7 +152,7 @@ function HintPanel({ hints, onRequestHint, loading }) {
 
 function MessageBubble({ msg }) {
   const isUser = msg.role === "user";
-  const typeLabels = { question: { label: "Question", color: "#60a5fa" }, affirmation: { label: " Great!", color: "#4ade80" }, hint: { label: `Hint L${msg.hintLevel || 1}`, color: "#f59e0b" }, redirect: { label: "Redirect", color: "#c084fc" }, summary: { label: "Summary", color: "#94a3b8" } };
+  const typeLabels = { question: { label: "Question", color: "#60a5fa" }, affirmation: { label: " Great!", color: "#4ade80" }, hint: { label: `Hint L${msg.hintLevel || 1}`, color: "#f59e0b" }, redirect: { label: "Redirect", color: "#c084fc" }, summary: { label: "Summary", color: "#94a3b8" }, explanation: { label: "Explanation", color: "#7dd3fc" }, worked_solution: { label: "Worked solution", color: "#4ade80" }, limit: { label: "Plan limit", color: "#f59e0b" } };
   const typeInfo = typeLabels[msg.type] || typeLabels["question"];
   return (
     <div style={{ display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "10px", marginBottom: "16px", alignItems: "flex-start" }}>
@@ -164,6 +164,13 @@ function MessageBubble({ msg }) {
         <div style={{ background: isUser ? "#1e293b" : "#0f172a", border: `1px solid ${isUser ? "#334155" : "#1e3a5f"}`, borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 16px", fontSize: "14px", lineHeight: "1.6", color: isUser ? "#cbd5e1" : "#e2e8f0", whiteSpace: "pre-wrap" }} dir="auto">
           {msg.content}
         </div>
+        {msg.type === "limit" && (
+          <button onClick={() => window.dispatchEvent(new CustomEvent("menya:navigate", { detail: "pricing" }))}
+            style={{ marginTop: "6px", padding: "6px 14px", background: "#f59e0b22", border: "1px solid #f59e0b55", borderRadius: "8px", color: "#f59e0b", fontSize: "12px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>
+            {msg.upgradeTo ? "Compare plans" : "View your plan"}
+          </button>
+        )}
+        {msg.advanced && <div style={{ marginTop: "4px", fontSize: "10px", color: "#c084fc", fontFamily: "'DM Mono', monospace" }}>Advanced reasoning used</div>}
         {msg.progressSummary && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "8px", fontSize: "12px", color: "#4ade80" }}> {msg.progressSummary}</div>}
         {msg.misconceptionDetected && <div style={{ marginTop: "6px", padding: "8px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: "8px", fontSize: "12px", color: "#fca5a5" }}>️ Misconception detected: {msg.misconceptionDetected}</div>}
         {msg.conceptsDetected?.length > 0 && (
@@ -179,7 +186,9 @@ function MessageBubble({ msg }) {
 // ============================================================
 // MAIN APP
 // ============================================================
-export default function AITutor() {
+// client: backend tutor client (commercial mode). Without it the app runs in
+// developer mode and asks for the developer's own Groq key.
+export default function AITutor({ client = null, headerExtras = null, onUsage = null }) {
   const [apiKey, setApiKey] = useState(null);
   const [messages, setMessages] = useState([]);
   const [apiMessages, setApiMessages] = useState([]);
@@ -195,6 +204,7 @@ export default function AITutor() {
   const [language, setLanguage] = useState("auto");
   const [lastLanguage, setLastLanguage] = useState(null);
   const [waitSeconds, setWaitSeconds] = useState(null);
+  const [showSidebar, setShowSidebar] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -234,16 +244,26 @@ export default function AITutor() {
     setMessages(prev => [...prev, { role: "user", content: text }]);
     setInput("");
     try {
-      const parsed = await callTutor(newApiMsgs, apiKey, { language, onWait: setWaitSeconds });
+      let parsed, advanced = false;
+      if (client) {
+        const r = await client.send({ text, language });
+        if (!r.ok) throw Object.assign(new Error(r.message), { limit: r.isLimit ? r : null });
+        parsed = r.reply; advanced = r.advanced;
+        onUsage?.(r.quota);
+      } else {
+        parsed = await callTutor(newApiMsgs, apiKey, { language, onWait: setWaitSeconds });
+      }
       if (parsed.language) setLastLanguage(parsed.language);
       setApiMessages(prev => [...prev, { role: "assistant", content: parsed.message }]);
-      setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary }]);
+      setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: parsed.type, conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected, hintLevel: parsed.hintLevel, progressSummary: parsed.progressSummary, advanced }]);
       processResponse(parsed, text);
     } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
+      setMessages(prev => [...prev, err.limit
+        ? { role: "assistant", content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo }
+        : { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
     }
     setLoading(false);
-  }, [loading, apiMessages, apiKey, processResponse, language]);
+  }, [loading, apiMessages, apiKey, processResponse, language, client, onUsage]);
 
   const requestHint = useCallback(async () => {
     if (loading || hints.length >= 3 || messages.length === 0) return;
@@ -251,20 +271,31 @@ export default function AITutor() {
     const level = hints.length + 1;
     const request = { role: "user", content: hintRequest(level, language !== "auto" ? language : lastLanguage) };
     try {
-      const parsed = await callTutor([...apiMessages, request], apiKey, { language, onWait: setWaitSeconds });
+      let parsed;
+      if (client) {
+        const r = await client.hint({ language });
+        if (!r.ok) throw Object.assign(new Error(r.message), { limit: r.isLimit ? r : null });
+        parsed = r.reply;
+        onUsage?.(r.quota);
+      } else {
+        parsed = await callTutor([...apiMessages, request], apiKey, { language, onWait: setWaitSeconds });
+      }
       if (parsed.language) setLastLanguage(parsed.language);
       setHints(prev => [...prev, { level, text: parsed.message }]);
       setMessages(prev => [...prev, { role: "assistant", content: parsed.message, type: "hint", hintLevel: level, conceptsDetected: parsed.conceptsDetected }]);
       setApiMessages(prev => [...prev, request, { role: "assistant", content: parsed.message }]);
       setAnalytics(prev => ({ ...prev, hintsUsed: prev.hintsUsed + 1 }));
     } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
+      setMessages(prev => [...prev, err.limit
+        ? { role: "assistant", content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo }
+        : { role: "assistant", content: `Error: ${err.message}`, type: "question" }]);
     }
     setLoading(false);
-  }, [loading, hints, messages, apiMessages, apiKey, language, lastLanguage]);
+  }, [loading, hints, messages, apiMessages, apiKey, language, lastLanguage, client, onUsage]);
 
   // Clears the conversation (and the 3-hint budget) but keeps mastery and analytics.
   const newProblem = () => {
+    client?.newProblem();
     setMessages([]); setApiMessages([]); setHints([]); setLastLanguage(null);
     setReasoningGraph([]); setShowWelcome(true); setInput("");
   };
@@ -280,10 +311,10 @@ export default function AITutor() {
   const subjectGroups = {};
   Object.entries(mastery).forEach(([k, v]) => { if (!subjectGroups[v.subject]) subjectGroups[v.subject] = []; subjectGroups[v.subject].push([k, v]); });
 
-  if (!apiKey) return <ApiKeyModal onSave={setApiKey} />;
+  if (!client && !apiKey) return <ApiKeyModal onSave={setApiKey} />;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#020817", color: "#e2e8f0", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100dvh", background: "#020817", color: "#e2e8f0", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,600&family=DM+Mono:wght@300;400;500&family=Fraunces:opsz,wght@9..144,300;9..144,700&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
@@ -291,10 +322,18 @@ export default function AITutor() {
         textarea{resize:none;outline:none}
         @keyframes pulse-glow{0%,100%{opacity:1}50%{opacity:0.4}}
         @keyframes float-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        .menya-mobile-only{display:none !important}
+        @media (max-width: 860px){
+          .menya-mobile-only{display:inline-block !important}
+          .menya-desktop-only{display:none !important}
+          .menya-sidebar{display:none !important}
+          .menya-sidebar.open{display:flex !important;position:absolute;top:0;bottom:0;left:0;right:0;width:auto !important;z-index:150}
+          .menya-chat-pad{padding:16px 12px 8px !important}
+        }
         @keyframes encouragement-pop{0%{opacity:0;transform:scale(0.8) translateY(-10px)}20%{opacity:1;transform:scale(1.05) translateY(0)}80%{opacity:1;transform:scale(1) translateY(0)}100%{opacity:0;transform:scale(0.95) translateY(-5px)}}
       `}</style>
 
-      <header style={{ borderBottom: "1px solid #1e293b", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#020817", position: "sticky", top: 0, zIndex: 100 }}>
+      <header style={{ borderBottom: "1px solid #1e293b", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", background: "#020817", position: "sticky", top: 0, zIndex: 160 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}></div>
           <div>
@@ -302,18 +341,22 @@ export default function AITutor() {
             <div style={{ fontSize: "10px", color: "#475569", fontFamily: "'DM Mono', monospace", letterSpacing: "0.12em" }}>AI TUTOR</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ fontSize: "12px", color: "#475569", fontFamily: "'DM Mono', monospace" }}>{messages.filter(m => m.role === "user").length} exchanges</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div className="menya-desktop-only" style={{ fontSize: "12px", color: "#475569", fontFamily: "'DM Mono', monospace" }}>{messages.filter(m => m.role === "user").length} exchanges</div>
           <select value={language} onChange={e => setLanguage(e.target.value)} title="Reply language"
             style={{ padding: "4px 8px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#94a3b8", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace", outline: "none" }}>
             {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" && lastLanguage ? `Auto (${lastLanguage})` : l.label}</option>)}
           </select>
           {messages.length > 0 && <button onClick={newProblem} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#7dd3fc", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>New problem</button>}
-          <button onClick={resetKey} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#475569", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}> Key</button>
-          <div style={{ padding: "4px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "20px", fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", gap: "6px" }}>
-            <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", animation: "pulse-glow 2s ease-in-out infinite" }} />
-            Free · Groq
-          </div>
+          <button className="menya-mobile-only" onClick={() => setShowSidebar(v => !v)} aria-expanded={showSidebar}
+            style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#94a3b8", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>{showSidebar ? "Chat" : "Progress"}</button>
+          {client ? headerExtras : (<>
+            <button onClick={resetKey} style={{ padding: "4px 12px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: "20px", color: "#475569", fontSize: "11px", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}> Key</button>
+            <div style={{ padding: "4px 12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "20px", fontSize: "11px", color: "#4ade80", fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", gap: "6px" }}>
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", animation: "pulse-glow 2s ease-in-out infinite" }} />
+              Developer mode
+            </div>
+          </>)}
         </div>
       </header>
 
@@ -323,9 +366,9 @@ export default function AITutor() {
         </div>
       )}
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 65px)" }}>
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0, position: "relative" }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <div style={{ flex: 1, overflowY: "auto", padding: "24px", paddingBottom: "8px" }}>
+          <div className="menya-chat-pad" style={{ flex: 1, overflowY: "auto", padding: "24px", paddingBottom: "8px" }}>
             {showWelcome && (
               <div style={{ textAlign: "center", padding: "40px 20px", animation: "float-in 0.6s ease" }}>
                 <div style={{ fontSize: "48px", marginBottom: "16px" }}></div>
@@ -375,7 +418,7 @@ export default function AITutor() {
           </div>
         </div>
 
-        <div style={{ width: "300px", borderLeft: "1px solid #1e293b", display: "flex", flexDirection: "column", background: "#030d1a", overflowY: "auto", flexShrink: 0 }}>
+        <div className={`menya-sidebar${showSidebar ? " open" : ""}`} style={{ width: "300px", borderLeft: "1px solid #1e293b", display: "flex", flexDirection: "column", background: "#030d1a", overflowY: "auto", flexShrink: 0 }}>
           <div style={{ display: "flex", borderBottom: "1px solid #1e293b", background: "#020817", position: "sticky", top: 0, zIndex: 10 }}>
             {["reasoning","mastery","analytics"].map(tab => (
               <button key={tab} onClick={() => setSideTab(tab)}
@@ -432,7 +475,7 @@ export default function AITutor() {
                   }
                 </div>
                 <div style={{ marginTop: "12px", padding: "12px", background: "#0f2a1a", border: "1px solid #166534", borderRadius: "10px", fontSize: "12px", color: "#4ade80", textAlign: "center" }}>
-                   Powered by Groq · GPT-OSS 120B · Free tier
+                   {client ? "Your progress is saved to your account" : "Developer mode · your own Groq key"}
                 </div>
               </div>
             )}

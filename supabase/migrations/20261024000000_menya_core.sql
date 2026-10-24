@@ -62,7 +62,7 @@ create table public.plans (
   context_turns          integer not null check (context_turns > 0),
   routing_policy         text not null check (routing_policy in ('free', 'pro', 'professional')),
   analytics_level        text not null default 'basic' check (analytics_level in ('basic', 'enhanced')),
-  features               jsonb not null default '[]'::jsonb, -- plain-language bullet list for the pricing page
+  features               jsonb not null default '[]'::jsonb, -- plain-language bullets; no numbers (limits are shown from the columns) and only features the backend enforces
   updated_at             timestamptz not null default now()
 );
 
@@ -75,13 +75,13 @@ insert into public.plans
 values
   ('free', 'Free', 'Try guided tutoring', 0, 0, 0,
    20, 300, 0, 0, 6, 30, 10, 'free', 'basic',
-   '["Step-by-step Socratic tutoring","Progressive hints","Basic progress tracking","20 tutor messages per day"]'),
+   '["Step-by-step Socratic tutoring","Three progressive hints per problem","Your sessions saved to your account"]'),
   ('pro', 'Pro', 'For regular study', 1500, null, 10,
    150, 3000, 0, 0, 15, 80, 24, 'pro', 'enhanced',
-   '["Everything in Free","150 tutor messages per day","Longer sessions with better memory of your work","More detailed hints and explanations","Learning analytics"]'),
+   '["Everything in Free","Many more messages each day","Longer sessions that remember more of your work","More detailed explanations and checks","A stronger model for hard questions"]'),
   ('professional', 'Professional', 'Deepest reasoning for demanding work', 5000, null, 20,
    400, 8000, 200, 10, 30, 150, 40, 'professional', 'enhanced',
-   '["Everything in Pro","400 tutor messages per day","Strongest reasoning for hard problems","200 advanced-reasoning requests per month","Priority processing","Detailed progress reports"]');
+   '["Everything in Pro","The highest daily allowance","Our strongest standard model for everyday tutoring","Advanced reasoning on hard problems, within a monthly allowance"]');
 
 -- ------------------------------------------------------------
 -- Model configuration (no credentials here: keys live in Edge

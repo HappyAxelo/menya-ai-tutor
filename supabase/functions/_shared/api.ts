@@ -209,7 +209,7 @@ async function orgRoutes(path: string, req: Request, ctx: ApiContext, user: Auth
       return json(200, await ctx.db.rpc("org_dashboard", { p_actor: user.id, p_org: orgId, p_month: month }));
     }
     if (path === "/org/roster" && req.method === "GET") {
-      return json(200, { members: await ctx.db.rpc("org_roster", { p_actor: user.id, p_org: orgId }) });
+      return json(200, { members: await ctx.db.rpc("org_roster_json", { p_actor: user.id, p_org: orgId }) });
     }
     if (path === "/org/invite" && req.method === "POST") {
       const emails = Array.isArray(b?.emails) ? (b!.emails as unknown[]).filter((e): e is string => typeof e === "string" && EMAIL_RE.test(e))

@@ -332,3 +332,11 @@ grant execute on function public.my_account() to authenticated;
 grant execute on function public.is_org_member(uuid, uuid), public.is_org_admin(uuid, uuid),
   public.is_platform_admin(uuid) to authenticated;
 grant execute on all functions in schema public to service_role;
+
+-- JSON form of the roster (same shape from supabase-js and from tests).
+create or replace function public.org_roster_json(p_actor uuid, p_org uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) from public.org_roster(p_actor, p_org) r;
+$$;
+revoke execute on function public.org_roster_json(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.org_roster_json(uuid, uuid) to service_role;
