@@ -49,6 +49,10 @@ export function pgRepo(db: PGlite): Repo {
       await db.query(`update public.tutoring_sessions set ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now() where id = $1`,
         [sessionId, ...keys.map(k => (patch as any)[k])]);
     },
+    async recordLearningEvent(e) {
+      await db.query(`insert into public.learning_events (user_id, session_id, kind, concepts, hints_used, examples_used, attempts)
+        values ($1, $2, $3, $4, $5, $6, $7)`, [e.user_id, e.session_id, e.kind, e.concepts, e.hints_used, e.examples_used, e.attempts]);
+    },
     processPaymentEvent: (provider, event, raw) => rpc(db, "process_payment_event", { p_provider: provider, p_event: event, p_raw: raw }),
     async audit(entry) {
       await db.query("insert into public.audit_logs (actor_id, action, target_type, target_id, org_id, details) values ($1, $2, $3, $4, $5, $6)",

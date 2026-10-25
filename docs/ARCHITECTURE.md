@@ -50,8 +50,22 @@ affects money, quotas or roles.
 7. **Socratic validation**: the model returns its verified final answer in a private field (remembered per session in a server-only table, for turns where the model omits it).
    If the reply reveals it (and the learner hasn't earned a worked solution), the model is
    asked once to rewrite; if it still leaks, a safe generic next-step prompt is sent.
-8. **Persistence and metering**: messages are stored without private fields; a usage record
-   stores provider-reported tokens, estimated cost, latency, fallback and rewrite flags.
+8. **Verified solve**: if the model sets `solved` *and* the learner's own text contains the
+   private verified answer (`matchesAnswer()`), the session is marked solved and a
+   `learning_events` row is written (`problem_solved` or `practice_solved`, with hints and
+   worked examples used). Nothing else creates progress.
+9. **Persistence and metering**: messages are stored without private fields (learner actions
+   are stored as `meta.control`, so history can show a label instead of the app's instruction);
+   a usage record stores provider-reported tokens, estimated cost, latency, fallback and
+   rewrite flags.
+
+### Learner actions
+
+`action` is one of `message | hint | simpler | example | check | practice | summary`
+(`policy.ts` → `actionRequest()`). All but `message` need an existing session; `message` and
+`check` carry the learner's text. `practice` starts a new problem inside the session: hints,
+attempts and worked examples reset, and the remembered answer is replaced by the practice
+question's. Each action is one metered request, like a message.
 
 ### Plan routing policies
 

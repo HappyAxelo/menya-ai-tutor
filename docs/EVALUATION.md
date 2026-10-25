@@ -78,3 +78,22 @@ derivative (now also caught by the server-side answer guard); Kiswahili using *m
   but it has **not been evaluated yet** (no Anthropic key available during this work).
 - Kinyarwanda and Kiswahili output must be reviewed by native-speaker educators before launch.
 - Local Qwen3 models have not been evaluated (no suitable GPU); run this suite on them first.
+
+## 25 October 2026 — after the refinement pass
+
+Policy changes: tone rules (specific acknowledgement, no generic praise or emoji), "don't
+over-question", quiz requests, worked solutions also after two genuine attempts, learner actions,
+a `solved` field verified by the server, and two answer-checking rules (re-check your own solution
+before calling an answer wrong; accept a correct answer under another standard reading).
+
+| Run | Result |
+|---|---|
+| Full suite, before the two answer-checking rules | 7/8. Spanish binary-search case failed: the model's hints used ⌈log₂ n⌉ = 10, then it rejected the learner's correct ⌊log₂ n⌋ + 1 = 11. |
+| Spanish only ×3, with the re-check rule | 0/3 (same failure) |
+| Spanish only ×3, with both rules | 1/3 |
+| Full suite, final rules | Not completed: Groq's free tier daily token limit (200,000 tokens/day for this model) was reached. Re-run with `npm run eval` once it resets. |
+
+Known limitation: once the model has committed to a convention in its own hints, it often
+defends it against a learner's equally valid one. The server-side check cannot catch this (it
+protects against leaking answers and against unearned progress, not against wrongly rejecting a
+correct answer). `EVAL_ONLY=Spanish npm run eval` re-runs just this case.

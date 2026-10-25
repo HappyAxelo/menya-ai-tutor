@@ -31,7 +31,7 @@ const PLAN_NAMES = { free: "Free", pro: "Pro", professional: "Professional" };
 // request), appearance, chat input, plan, data and the developer key.
 export default function SettingsPanel({
   settings, update, reset, mode, account, hasConversation,
-  onClose, onPlans, onAccount, onExport, onClear, onForgetKey,
+  onClose, onPlans, onAccount, onExport, onClear, onShowIntro, onForgetKey,
 }) {
   useEffect(() => {
     const onKey = e => e.key === "Escape" && onClose();
@@ -42,10 +42,10 @@ export default function SettingsPanel({
   return (
     <>
       <div className="mn-scrim" onClick={onClose} />
-      <aside className="mn-drawer wide" role="dialog" aria-label="Settings">
+      <aside className="mn-drawer wide" role="dialog" aria-modal="true" aria-label="Settings">
         <div className="mn-drawer-head">
           <h2>Settings</h2>
-          <button className="mn-btn icon" onClick={onClose} aria-label="Close settings"><X size={18} /></button>
+          <button className="mn-btn icon" onClick={onClose} aria-label="Close settings" autoFocus><X size={18} /></button>
         </div>
         <div className="mn-drawer-body">
           <section className="mn-settings-section">
@@ -78,7 +78,7 @@ export default function SettingsPanel({
             <Row label="Animate replies" help="Reveal replies word by word.">
               <Switch label="Animate replies" checked={settings.animate} onChange={animate => update({ animate })} />
             </Row>
-            <Row label="Show topic tags" help="Concepts detected in each reply.">
+            <Row label="Show topic tags" help="Topics the tutor recognised in each reply.">
               <Switch label="Show topic tags" checked={settings.showTags} onChange={showTags => update({ showTags })} />
             </Row>
           </section>
@@ -105,8 +105,8 @@ export default function SettingsPanel({
             ) : (
               <div className="mn-plan-summary">
                 <div className="name">Developer mode</div>
-                <p>You're using your own free Groq key, so Menya's plan limits don't apply. Free, Pro and Professional plans come with Menya accounts.</p>
-                <div className="mn-btn-row"><button className="mn-btn primary" onClick={onPlans}>See Free, Pro &amp; Professional</button></div>
+                <p>Local development with your own Groq key. Plan limits, saved history and progress need the signed-in app.</p>
+                <div className="mn-btn-row"><button className="mn-btn outline" onClick={onPlans}>See plans</button></div>
               </div>
             )}
           </section>
@@ -116,7 +116,7 @@ export default function SettingsPanel({
             <Row label="Export this conversation" help="Download it as a Markdown file.">
               <button className="mn-btn outline" onClick={onExport} disabled={!hasConversation}>Export</button>
             </Row>
-            <Row label="Clear conversation and progress" help="Removes this chat, hints, mastery and analytics from this tab.">
+            <Row label="Clear this conversation" help={mode === "dev" ? "Removes it from this tab." : "Removes it from the screen. The saved copy stays in History until you delete it there."}>
               <button className="mn-btn danger" onClick={onClear} disabled={!hasConversation}>Clear</button>
             </Row>
             {mode === "dev" ? (
@@ -133,10 +133,11 @@ export default function SettingsPanel({
           <section className="mn-settings-section">
             <h3><Info size={16} />About</h3>
             <div className="mn-about">
-              Menya is a Socratic tutor: it guides you to answers with accurate, step-by-step hints instead of handing them over, in your language.
-              Settings are saved in this browser only. <a href="https://github.com/HappyAxelo/menya-ai-tutor" target="_blank" rel="noopener noreferrer">Source on GitHub</a>.
+              Menya works through problems with you: it asks questions, gives hints when you're stuck and explains when you ask. It can make mistakes, so check important results.
+              These settings are saved in this browser only. <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a> · <a href="https://github.com/HappyAxelo/menya-ai-tutor" target="_blank" rel="noopener noreferrer">Source on GitHub</a>.
             </div>
             <div className="mn-btn-row">
+              <button className="mn-btn outline" onClick={onShowIntro}>Show "How Menya works" again</button>
               <button className="mn-btn outline" onClick={reset}><RotateCcw size={15} />Reset settings to defaults</button>
             </div>
           </section>

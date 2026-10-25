@@ -66,14 +66,14 @@ export default function OrgPage({ orgs, onBack }) {
           </Card>
 
           <Card title="Invite learners">
-            <Field label="EMAILS (ONE PER LINE, OR PASTE A CSV WITH AN 'EMAIL' COLUMN)">
+            <Field label="Emails (one per line, or paste a CSV with an 'email' column)">
               <textarea rows={4} value={inviteText} onChange={e => setInviteText(e.target.value)} style={{ ...inputStyle, fontFamily: mono, fontSize: "12px" }} placeholder={"student1@university.edu\nstudent2@university.edu"} />
             </Field>
             <Button onClick={invite} disabled={!inviteText.trim()}>Send invitations</Button>
             {invited && (
               <div style={{ marginTop: "14px" }}>
                 {invited.some(i => !i.emailed) && <Notice kind="warn">Email delivery isn't configured yet. Share each personal link below with its learner; links expire in 14 days and work only for that email address.</Notice>}
-                <Table columns={[{ key: "email", label: "EMAIL" }, { key: "link", label: "INVITATION", wrap: true, render: i => i.emailed ? "Emailed" : <code style={{ fontSize: "11px", wordBreak: "break-all" }}>{i.link}</code> }]} rows={invited} />
+                <Table columns={[{ key: "email", label: "Email" }, { key: "link", label: "Invitation", wrap: true, render: i => i.emailed ? "Emailed" : <code style={{ fontSize: "11px", wordBreak: "break-all" }}>{i.link}</code> }]} rows={invited} />
               </div>
             )}
           </Card>
@@ -81,11 +81,11 @@ export default function OrgPage({ orgs, onBack }) {
           <Card title="Roster">
             <Table empty="No members yet." rows={roster}
               columns={[
-                { key: "email", label: "EMAIL" },
-                { key: "role", label: "ROLE", render: m => m.role === "org_admin" ? "Admin" : "Learner" },
-                { key: "requests_this_month", label: "MESSAGES (MONTH)", align: "right" },
-                { key: "last_active", label: "LAST ACTIVE", render: m => m.last_active ? new Date(m.last_active).toLocaleDateString() : "—" },
-                { key: "seat", label: "SEAT", render: m => (
+                { key: "email", label: "Email" },
+                { key: "role", label: "Role", render: m => m.role === "org_admin" ? "Admin" : "Learner" },
+                { key: "requests_this_month", label: "Messages (month)", align: "right" },
+                { key: "last_active", label: "Last active", render: m => m.last_active ? new Date(m.last_active).toLocaleDateString() : "—" },
+                { key: "seat", label: "Seat", render: m => (
                   <button onClick={() => setSeat(m.user_id, !m.seat_assigned)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", padding: "3px 10px", color: m.seat_assigned ? C.green : C.muted, cursor: "pointer", fontSize: "12px" }}>
                     {m.seat_assigned ? "Assigned" : "Assign seat"}
                   </button>) },

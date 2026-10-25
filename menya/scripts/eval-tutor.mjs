@@ -21,6 +21,9 @@ if (!apiKey) {
   process.exit(1);
 }
 const MODELS = (process.env.EVAL_MODELS ?? "openai/gpt-oss-120b").split(",").map(s => s.trim()).filter(Boolean);
+// EVAL_ONLY=Spanish,French runs just the cases whose name contains one of these words.
+const ONLY = (process.env.EVAL_ONLY ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+const picked = (name) => !ONLY.length || ONLY.some(w => name.toLowerCase().includes(w));
 
 const CASES = [
   {
@@ -90,7 +93,7 @@ for (const model of MODELS) {
     return r;
   };
 
-  for (const c of CASES) {
+  for (const c of CASES.filter(c => picked(c.language))) {
     console.log(`\n${"=".repeat(70)}\n${c.language}: ${c.question}\n${"=".repeat(70)}`);
     const history = [];
     const failures = [];
@@ -119,7 +122,7 @@ for (const model of MODELS) {
     results.push({ name: c.language, failures });
   }
 
-  for (const s of SINGLE_TURN) {
+  for (const s of SINGLE_TURN.filter(s => picked(s.name))) {
     const failures = [];
     try {
       const r = await ask([{ role: "user", content: s.message }]);

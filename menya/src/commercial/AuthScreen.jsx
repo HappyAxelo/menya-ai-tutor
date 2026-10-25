@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/backend.js";
-import { C, mono, Button, Field, inputStyle, Notice } from "./ui.jsx";
+import { C, Button, Field, inputStyle, Notice } from "./ui.jsx";
 import { BrandLockup } from "../Brand.jsx";
 
 // Only when the app points at the local development backend
@@ -21,7 +21,7 @@ function LocalDemoLogin() {
   };
   return (
     <div style={{ marginTop: "18px", paddingTop: "16px", borderTop: `1px solid ${C.border}` }}>
-      <div style={{ fontSize: "11px", color: C.amber, fontFamily: mono, marginBottom: "8px", textAlign: "center" }}>LOCAL DEMO BACKEND</div>
+      <div style={{ fontSize: "12px", color: C.amber, marginBottom: "8px", textAlign: "center", fontWeight: 600 }}>Local demo backend</div>
       {DEMO_USERS.map(u => (
         <Button key={u.id} variant="ghost" onClick={() => signIn(u)} style={{ width: "100%", marginBottom: "8px" }}>Sign in as {u.label}</Button>
       ))}
@@ -78,12 +78,11 @@ export default function AuthScreen({ inviteToken }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
-      <div style={{ background: C.panel2, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "32px", maxWidth: "440px", width: "100%", boxShadow: "0 0 60px #0ea5e922" }}>
-        <div style={{ marginBottom: "16px" }}><BrandLockup /></div>
-        <p style={{ color: C.dim, fontSize: "14px", lineHeight: 1.7, textAlign: "center", marginBottom: "22px" }}>
-          Welcome! Sign in to get step-by-step help that guides you to the answer — in your language.
-        </p>
+    <div className="mn-gate">
+      <main className="mn-card">
+        <BrandLockup tagline={false} />
+        <h1 className="mn-auth-title">Work through problems, step by step</h1>
+        <p className="sub">Menya asks what you know, gives hints when you're stuck and explains when you ask. In English, Kinyarwanda, Français, Kiswahili and more.</p>
         {inviteToken && <Notice kind="info">You've been invited to join your institution on Menya. Sign in with the email address the invitation was sent to.</Notice>}
         {googleEnabled && <Button onClick={google} variant="ghost" style={{ width: "100%", height: "46px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", fontSize: "14.5px", background: "#fff", color: "#1f1f1f", border: "1px solid #dadce0" }}>
           {GOOGLE_ICON} Continue with Google
@@ -102,8 +101,8 @@ export default function AuthScreen({ inviteToken }) {
           <Notice kind="ok">Check your inbox: we sent a sign-in link to <strong>{email}</strong>. You can close this tab after clicking it.</Notice>
         ) : (
           <form onSubmit={submit} noValidate>
-            <Field label="EMAIL ADDRESS">
-              <input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@university.edu" style={inputStyle} />
+            <Field label="Email address">
+              <input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@university.edu" style={inputStyle} />
             </Field>
             {error && <Notice kind="error">{error}</Notice>}
             <Button type="submit" disabled={state === "sending" || !email.trim()} style={{ width: "100%" }}>
@@ -111,11 +110,12 @@ export default function AuthScreen({ inviteToken }) {
             </Button>
           </form>
         )}
-        <p style={{ marginTop: "18px", fontSize: "11px", color: C.faint, textAlign: "center", lineHeight: 1.6, fontFamily: mono }}>
-          Free plan included. No card, no API key, nothing to set up.
+        <p className="mn-fine">
+          The Free plan needs no card. We use your name and email to create your account, and save your conversations so you can come back to them.{" "}
+          <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
         </p>
         {LOCAL_DEMO && <LocalDemoLogin />}
-      </div>
+      </main>
     </div>
   );
 }

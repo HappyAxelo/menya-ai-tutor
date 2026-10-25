@@ -92,9 +92,23 @@ createServer(async (req, res) => {
         await asUser(db, user.id, () => db.query("delete from public.tutoring_sessions where id = $1", [id]));
         return send(res, 204, undefined);
       }
-      const rows = await asUser(db, user.id, async () => (await db.query(
-        "select id, title, language, turn_count, hints_used, updated_at from public.tutoring_sessions order by updated_at desc limit 30")).rows);
+      const id = url.searchParams.get("id")?.replace(/^eq\./, "");
+      const cols = "id, title, language, turn_count, hints_used, attempts, practice, solved, examples_used, problems_solved, updated_at";
+      const rows = await asUser(db, user.id, async () => (await db.query(id
+        ? `select ${cols} from public.tutoring_sessions where id = $1`
+        : `select ${cols} from public.tutoring_sessions order by updated_at desc limit 50`, id ? [id] : [])).rows);
+      // supabase-js .single() asks for one object instead of an array.
+      if (String(req.headers.accept ?? "").includes("vnd.pgrst.object")) return rows[0] ? send(res, 200, rows[0]) : send(res, 406, { message: "not found" });
       return send(res, 200, rows);
+    }
+    if (url.pathname === "/rest/v1/tutoring_messages" && user) {
+      const sid = url.searchParams.get("session_id")?.replace(/^eq\./, "");
+      return send(res, 200, await asUser(db, user.id, async () => (await db.query(
+        "select role, content, meta from public.tutoring_messages where session_id = $1 order by id", [sid])).rows));
+    }
+    if (url.pathname === "/rest/v1/learning_events" && user) {
+      return send(res, 200, await asUser(db, user.id, async () => (await db.query(
+        "select kind, concepts, hints_used, examples_used, attempts, created_at from public.learning_events order by created_at desc limit 1000")).rows));
     }
     send(res, 404, { error: "not emulated", path: url.pathname });
   } catch (err) {

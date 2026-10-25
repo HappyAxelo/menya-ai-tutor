@@ -43,6 +43,16 @@ export interface Session {
   turn_count: number;
   hints_used: number;
   last_difficulty: Difficulty | null;
+  attempts: number;
+  practice: boolean;
+  solved: boolean;
+  examples_used: number;
+  problems_solved: number;
+}
+
+export interface LearningEvent {
+  user_id: string; session_id: string; kind: "problem_solved" | "practice_solved";
+  concepts: string[]; hints_used: number; examples_used: number; attempts: number;
 }
 
 export interface StoredMessage { role: "user" | "assistant"; content: string; meta: Record<string, unknown> }
@@ -70,7 +80,8 @@ export interface Repo {
   appendMessages(sessionId: string, userId: string, messages: StoredMessage[]): Promise<void>;
   getSessionAnswer(sessionId: string): Promise<string | null>;
   setSessionAnswer(sessionId: string, answer: string): Promise<void>;
-  updateSession(sessionId: string, patch: Partial<Pick<Session, "turn_count" | "hints_used" | "last_difficulty" | "language" | "title">>): Promise<void>;
+  updateSession(sessionId: string, patch: Partial<Pick<Session, "turn_count" | "hints_used" | "last_difficulty" | "language" | "title" | "attempts" | "practice" | "solved" | "examples_used" | "problems_solved">>): Promise<void>;
+  recordLearningEvent(event: LearningEvent): Promise<void>;
   processPaymentEvent(provider: string, event: unknown, raw: unknown): Promise<string>;
   audit(entry: { actor_id: string | null; action: string; target_type?: string; target_id?: string; org_id?: string | null; details?: Record<string, unknown> }): Promise<void>;
 }
@@ -144,6 +155,9 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
     },
     async updateSession(sessionId, patch) {
       check(await sb.from("tutoring_sessions").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", sessionId), "update_session");
+    },
+    async recordLearningEvent(event) {
+      check(await sb.from("learning_events").insert(event), "record_learning_event");
     },
     async processPaymentEvent(provider, event, raw) {
       return check(await sb.rpc("process_payment_event", { p_provider: provider, p_event: event, p_raw: raw }), "process_payment_event");

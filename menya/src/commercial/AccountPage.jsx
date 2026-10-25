@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, listSessions, deleteSession, downloadWithAuth, supabase } from "../lib/backend.js";
-import { C, mono, Page, Card, Button, Meter, Notice, Loading, Field, inputStyle, Table } from "./ui.jsx";
+import { C, Page, Card, Button, Meter, Notice, Loading, Field, inputStyle, Table } from "./ui.jsx";
 
 const PLAN_NAMES = { free: "Free", pro: "Pro", professional: "Professional" };
 const STATUS_TEXT = {
@@ -19,9 +19,10 @@ export default function AccountPage({ account, email, onBack, onPricing, refresh
   const { limits, used } = account;
   const periodEnd = account.period_end ? new Date(account.period_end).toLocaleDateString() : null;
 
-  const removeSession = async (id) => {
-    await deleteSession(id);
-    setSessions(s => s.filter(x => x.id !== id));
+  const removeSession = async (s) => {
+    if (!confirm(`Delete "${s.title || "Untitled"}"? This can't be undone. Problems you solved stay in your progress.`)) return;
+    try { await deleteSession(s.id); setSessions(list => list.filter(x => x.id !== s.id)); }
+    catch { setMsg({ kind: "error", text: "Couldn't delete that conversation. Please try again." }); }
   };
 
   const deleteAccount = async () => {
@@ -54,31 +55,31 @@ export default function AccountPage({ account, email, onBack, onPricing, refresh
         <Meter label="Messages today" used={used.daily} limit={limits.daily} />
         <Meter label="Messages this month" used={used.monthly} limit={limits.monthly} />
         <Meter label="Advanced reasoning this month" used={used.premium} limit={limits.premium} color={C.violet} />
-        <div style={{ fontSize: "12px", color: C.faint, fontFamily: mono }}>Daily allowance resets at 00:00 UTC. Sessions hold up to {limits.session_turns} exchanges.</div>
-        <button onClick={refresh} style={{ marginTop: "8px", background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: "12px", fontFamily: mono, padding: 0 }}>Refresh</button>
+        <p className="mn-panel-text small">The daily allowance resets at 00:00 UTC. A conversation can hold up to {limits.session_turns} exchanges.</p>
+        <button onClick={refresh} className="mn-btn outline" style={{ marginTop: 8 }}>Refresh</button>
       </Card>
 
-      <Card title="Recent sessions">
+      <Card title="Recent conversations">
         {!sessions ? <Loading /> : (
-          <Table empty="Your tutoring sessions will appear here."
+          <Table empty="No conversations yet. They appear here after your first question."
             columns={[
-              { key: "title", label: "PROBLEM", wrap: true, render: s => s.title || "Untitled" },
-              { key: "turn_count", label: "EXCHANGES", align: "right" },
-              { key: "hints_used", label: "HINTS", align: "right" },
-              { key: "updated_at", label: "LAST ACTIVE", render: s => new Date(s.updated_at).toLocaleDateString() },
-              { key: "x", label: "", render: s => <button onClick={() => removeSession(s.id)} aria-label={`Delete session ${s.title}`} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: "12px" }}>Delete</button> },
+              { key: "title", label: "Problem", wrap: true, render: s => s.title || "Untitled" },
+              { key: "turn_count", label: "Exchanges", align: "right" },
+              { key: "hints_used", label: "Hints", align: "right" },
+              { key: "updated_at", label: "Last active", render: s => new Date(s.updated_at).toLocaleDateString() },
+              { key: "x", label: "", render: s => <button onClick={() => removeSession(s)} aria-label={`Delete conversation ${s.title}`} className="mn-link danger">Delete</button> },
             ]}
             rows={sessions} />
         )}
       </Card>
 
       <Card title="Your data">
-        <p style={{ fontSize: "13px", color: C.muted, lineHeight: 1.7, marginBottom: "12px" }}>
-          Download everything Menya stores about you, or delete your account. Deleting removes your profile, sessions and messages; anonymous usage counts are kept for billing records.
+        <p className="mn-panel-text">
+          Download everything Menya stores about you, or delete your account. Deleting removes your profile, conversations and progress. Usage counts without your identity are kept for billing records. Messages are deleted automatically after 180 days.
         </p>
         <Button variant="ghost" onClick={() => downloadWithAuth("/account/export", "menya-data.json").catch(e => setMsg({ kind: "error", text: e.message }))}>Download my data</Button>
         <div style={{ marginTop: "18px", maxWidth: "360px" }}>
-          <Field label='TYPE "DELETE" TO CONFIRM ACCOUNT DELETION'>
+          <Field label='Type "DELETE" to confirm account deletion'>
             <input value={confirmText} onChange={e => setConfirmText(e.target.value)} style={inputStyle} />
           </Field>
           <Button variant="danger" disabled={confirmText !== "DELETE"} onClick={deleteAccount}>Delete my account</Button>

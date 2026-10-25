@@ -3,7 +3,7 @@ import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
-import { freshDb, createUser, asUser, rpc } from "./db.ts";
+import { freshDb, createUser, asUser, rpc, migrationSql } from "./db.ts";
 
 let db: PGlite;
 before(async () => { db = await freshDb(); });
@@ -281,6 +281,17 @@ describe("unit economics", () => {
 });
 
 describe("migrations", () => {
+  test("learners read only their own learning events and cannot write any", async () => {
+    const a = await createUser(db), b = await createUser(db);
+    await db.query("insert into public.learning_events (user_id, kind, concepts) values ($1, 'problem_solved', '{Ohm''s law}')", [a]);
+    const mine = await asUser(db, a, () => db.query<any>("select count(*)::int as n from public.learning_events"));
+    const theirs = await asUser(db, b, () => db.query<any>("select count(*)::int as n from public.learning_events"));
+    assert.equal(mine.rows[0].n, 1);
+    assert.equal(theirs.rows[0].n, 0);
+    await assert.rejects(asUser(db, b, () => db.query("insert into public.learning_events (user_id, kind) values ($1, 'practice_solved')", [b])));
+    await assert.rejects(asUser(db, a, () => db.query("update public.learning_events set hints_used = 0")));
+  });
+
   test("rollback script removes everything and the migrations re-apply cleanly", async () => {
     const { readFileSync, readdirSync } = await import("node:fs");
     const { join, dirname } = await import("node:path");
@@ -290,7 +301,7 @@ describe("migrations", () => {
     await scratch.exec(readFileSync(join(root, "rollback", "20261024_menya_all.down.sql"), "utf8"));
     const left = await scratch.query<any>("select count(*)::int as n from pg_tables where schemaname = 'public'");
     assert.equal(left.rows[0].n, 0);
-    for (const f of readdirSync(join(root, "migrations")).sort()) await scratch.exec(readFileSync(join(root, "migrations", f), "utf8"));
+    for (const f of readdirSync(join(root, "migrations")).filter(f => f.endsWith(".sql")).sort()) await scratch.exec(migrationSql(f));
     const plans = await scratch.query<any>("select count(*)::int as n from public.plans");
     assert.equal(plans.rows[0].n, 3);
   });

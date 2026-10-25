@@ -18,15 +18,26 @@ async function token() {
   return data.session?.access_token ?? null;
 }
 
-export async function api(path, { method = "GET", body } = {}) {
+// timeoutMs: tutor replies can take a while on hard problems, but not forever.
+export async function api(path, { method = "GET", body, timeoutMs = 60000 } = {}) {
   const headers = { "Content-Type": "application/json" };
   const t = await token();
   if (t) headers.Authorization = `Bearer ${t}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  } catch {
-    return { ok: false, status: 0, data: { error: "network", message: "Can't reach Menya. Check your connection and try again." } };
+    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      return { ok: false, status: 0, data: { error: "timeout", message: "This is taking much longer than usual, so we stopped waiting. Please try again." } };
+    }
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    return { ok: false, status: 0, data: { error: "network", message: offline
+      ? "You're offline. Reconnect to the internet and try again."
+      : "Couldn't reach Menya. Check your connection and try again." } };
+  } finally {
+    clearTimeout(timer);
   }
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
@@ -51,9 +62,30 @@ export async function getAccount() {
   return data;
 }
 
-export async function listSessions() {
+const SESSION_COLUMNS = "id, title, language, turn_count, hints_used, attempts, practice, solved, examples_used, problems_solved, updated_at";
+
+export async function listSessions(limit = 30) {
   const { data, error } = await supabase.from("tutoring_sessions")
-    .select("id, title, language, turn_count, hints_used, updated_at").order("updated_at", { ascending: false }).limit(30);
+    .select(SESSION_COLUMNS).order("updated_at", { ascending: false }).limit(limit);
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// One saved conversation, readable only by its owner (row-level security).
+export async function loadSession(id) {
+  const [s, m] = await Promise.all([
+    supabase.from("tutoring_sessions").select(SESSION_COLUMNS).eq("id", id).single(),
+    supabase.from("tutoring_messages").select("role, content, meta").eq("session_id", id).order("id", { ascending: true }).limit(400),
+  ]);
+  if (s.error) throw new Error(s.error.message);
+  if (m.error) throw new Error(m.error.message);
+  return { session: s.data, rows: m.data };
+}
+
+// Verified solves only (written by the server); the progress page aggregates them.
+export async function listLearningEvents() {
+  const { data, error } = await supabase.from("learning_events")
+    .select("kind, concepts, hints_used, examples_used, attempts, created_at").order("created_at", { ascending: false }).limit(1000);
   if (error) throw new Error(error.message);
   return data;
 }
@@ -71,17 +103,21 @@ export function backendTutorClient() {
     const r = await api("/tutor", { method: "POST", body: { requestId: crypto.randomUUID(), sessionId, ...body } });
     if (!r.ok) {
       // Plan limits (quota, session length, hints) get an upgrade/plan button; other failures don't.
-      const isLimit = r.status === 429 || ["session_limit", "hint_limit"].includes(r.data.error);
-      return { ok: false, status: r.status, error: r.data.error, isLimit, upgradeTo: r.data.upgrade_to ?? null,
+      // Plan limits (quota, session length, hints) get a plan button; temporary failures get Retry.
+      const isLimit = ["daily_limit", "monthly_limit", "premium_limit", "premium_not_included", "org_limit", "session_limit", "hint_limit"].includes(r.data.error);
+      const retryable = r.status === 0 || r.status >= 500 || r.data.error === "rate_limited";
+      return { ok: false, status: r.status, error: r.data.error, isLimit, retryable, upgradeTo: r.data.upgrade_to ?? null,
                message: r.data.message ?? "Something went wrong. Please try again." };
     }
     sessionId = r.data.sessionId;
-    return { ok: true, reply: r.data.reply, quota: r.data.quota, advanced: r.data.advancedReasoning, hintsUsed: r.data.hintsUsed };
+    return { ok: true, reply: r.data.reply, quota: r.data.quota, advanced: r.data.advancedReasoning,
+             hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null };
   };
   return {
-    send: ({ text, language, learnerLevel, style }) => call({ action: "message", message: text, language, learnerLevel, style }),
-    hint: ({ language, learnerLevel, style }) => call({ action: "hint", language, learnerLevel, style }),
+    // action: message | hint | simpler | example | check | practice | summary
+    act: (action, { text, language, learnerLevel, style }) => call({ action, message: text, language, learnerLevel, style }),
     newProblem: () => { sessionId = null; },
+    resume: (id) => { sessionId = id; },
   };
 }
 

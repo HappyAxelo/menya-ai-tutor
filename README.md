@@ -12,10 +12,16 @@ The app lives in [`menya/`](menya/) (React + Vite) and the backend in
 - **Guided tutoring**: one step at a time; concept questions get a direct explanation; problems
   are guided, never solved for the learner.
 - **Three progressive hints per problem**: concept → relationship → next step, chosen by the server.
+- **Learner actions** under each reply: explain more simply, worked example (a similar problem
+  with a different answer), check my answer, similar practice question, summary.
 - **Accurate hints**: the model solves each problem privately first; a server-side guard stops
   replies that would reveal the final answer.
-- **Worked solutions are earned**: shown only after the learner solves it, or after all three
-  hints plus a genuine attempt (institutions can turn them off).
+- **Worked solutions are earned**: shown after the learner solves it, after all three hints plus
+  a genuine attempt, or on request after two genuine attempts (institutions can turn them off).
+- **Real progress**: a solve is recorded only when the learner's own answer matches the tutor's
+  verified answer (checked on the server). Practice questions solved without hints or worked
+  examples show a topic as understood. Messages and explanations never count.
+- **History**: every conversation is saved to the account and can be reopened and continued.
 - **Any language**: replies follow the learner's language, or a language they pick.
 - **Plans**: Free, Pro and Professional with server-enforced daily, monthly and
   advanced-reasoning allowances. Limits are shown to learners; nothing is "unlimited".

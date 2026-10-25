@@ -52,3 +52,21 @@ export function revealsAnswer(message: string, finalAnswer: string | null | unde
   if (!normalizeMath(message).includes(target)) return false;
   return !studentMessages.some(s => normalizeMath(s).includes(target));
 }
+
+// Does the student's own text contain the verified answer? Used before a solve
+// counts toward progress, so the model's "solved" claim is never enough alone.
+// Units are optional for the student ("3" matches "3 A"); expressions must appear in full.
+export function matchesAnswer(studentText: string, finalAnswer: string | null | undefined): boolean {
+  if (!finalAnswer || !studentText) return false;
+  const answer = finalAnswer.includes("=") ? finalAnswer.split("=").pop()!.trim() : finalAnswer.trim();
+  if (!answer) return false;
+  const num = asNumeric(answer);
+  if (num) {
+    const text = studentText.replace(/,(?=\d)/g, ".").replace(/−/g, "-");
+    const value = num.value.replace(/^\+/, "");
+    const before = value.startsWith("-") ? "(?<![\\d.])" : "(?<![\\d.-])"; // "-3" is not "3"
+    return new RegExp(`${before}${escapeRe(value)}(?![\\d]|\\.\\d)`).test(text);
+  }
+  const target = normalizeMath(answer);
+  return target.length > 0 && normalizeMath(studentText).includes(target);
+}

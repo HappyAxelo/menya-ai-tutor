@@ -2,13 +2,15 @@
 // Tutor request pipeline:
 //   authenticated user → entitlement → session → quota (atomic) →
 //   difficulty → route → model (bounded retries + fallback) →
-//   answer-leak check → persist → usage/cost record → response
+//   answer-leak check → verified-solve check → persist →
+//   usage/cost record (+ learning event) → response
 // ============================================================
 import {
-  buildResponseSchema, buildSystemPrompt, hintRequest, hintsUsedNote, parseTutorJson, publicReply,
-  REWRITE_REQUEST, LEARNER_LEVELS, REPLY_STYLES, type LearnerLevel, type ReplyStyle, type TutorReply,
+  actionRequest, buildResponseSchema, buildSystemPrompt, hintRequest, problemNote, parseTutorJson, publicReply,
+  REWRITE_REQUEST, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
+  type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
-import { revealsAnswer } from "./answerGuard.ts";
+import { matchesAnswer, revealsAnswer } from "./answerGuard.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
@@ -16,8 +18,8 @@ import type { Entitlement, Repo, Session } from "./repo.ts";
 export interface TutorInput {
   requestId: string;          // client-generated UUID; makes retries idempotent
   sessionId?: string | null;  // omitted = new problem
-  action: "message" | "hint";
-  message?: string;
+  action: TutorAction;
+  message?: string;           // the student's text (message, or the answer to check)
   language?: string;
   learnerLevel?: LearnerLevel;
   style?: ReplyStyle;
@@ -48,10 +50,10 @@ export function validateInput(raw: unknown, maxChars: number): TutorInput | stri
   const b = raw as Record<string, unknown>;
   if (typeof b.requestId !== "string" || !UUID_RE.test(b.requestId)) return "invalid_request_id";
   if (b.sessionId != null && (typeof b.sessionId !== "string" || !UUID_RE.test(b.sessionId))) return "invalid_session_id";
-  const action = b.action ?? "message";
-  if (action !== "message" && action !== "hint") return "invalid_action";
-  if (action === "hint" && !b.sessionId) return "hint_needs_session";
-  if (action === "message") {
+  const action = (b.action ?? "message") as TutorAction;
+  if (!TUTOR_ACTIONS.includes(action)) return "invalid_action";
+  if (action !== "message" && !b.sessionId) return action === "hint" ? "hint_needs_session" : "action_needs_session";
+  if (action === "message" || action === "check") {
     if (typeof b.message !== "string" || !b.message.trim()) return "empty_message";
     if (b.message.length > maxChars) return "message_too_long";
   }
@@ -111,13 +113,20 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     return { status: 409, body: { error: "hint_limit", message: "All 3 hints for this problem have been used." } };
   }
 
-  const userContent = input.action === "hint"
-    ? hintRequest(session.hints_used + 1, input.language !== "auto" ? input.language : session.language)
-    : input.message!;
+  const lang = input.language !== "auto" ? input.language : session.language;
+  const userContent = input.action === "message" ? input.message!
+    : input.action === "hint" ? hintRequest(session.hints_used + 1, lang)
+    : actionRequest(input.action, lang, input.message);
   const history = await repo.loadMessages(session.id, ent.context_turns * 2);
   const rememberedAnswer = input.sessionId ? await repo.getSessionAnswer(session.id) : null;
-  const studentTexts = history.filter(m => m.role === "user" && !m.meta?.control).map(m => m.content);
-  if (input.action === "message") studentTexts.push(userContent);
+  // The student's own words (a checked answer is stored under meta.text).
+  const studentTexts = history.filter(m => m.role === "user")
+    .map(m => (m.meta?.control ? (typeof m.meta.text === "string" ? m.meta.text : null) : m.content))
+    .filter((t): t is string => Boolean(t));
+  const isAttempt = input.action === "check" || (input.action === "message" && Boolean(input.sessionId));
+  if (input.action === "message" || input.action === "check") studentTexts.push(input.message!);
+  const newProblem = input.action === "practice";
+  const attemptsNow = newProblem ? 0 : session.attempts + (isAttempt ? 1 : 0);
 
   // Route
   const configs = await repo.getModelConfigs();
@@ -147,7 +156,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const schema = buildResponseSchema(true);
   const messages: ChatMessage[] = [
     ...history.map(m => ({ role: m.role, content: m.content })),
-    ...(session.hints_used > 0 ? [{ role: "user" as const, content: hintsUsedNote(session.hints_used) }] : []),
+    ...(!newProblem && (session.hints_used > 0 || attemptsNow > 0)
+      ? [{ role: "user" as const, content: problemNote({ hintsUsed: session.hints_used, attempts: attemptsNow, practice: session.practice }) }] : []),
     { role: "user", content: userContent },
   ];
 
@@ -165,12 +175,14 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         let inputTokens = res.inputTokens ?? 0, outputTokens = res.outputTokens ?? 0, latencyMs = res.latencyMs;
         if (!reply) { lastError = new ProviderError("bad_request", provider.name); break; }
         let cost = estimateCostUsd(candidate.config, res);
-        // Models sometimes omit the private answer; fall back to the one remembered for this session.
-        if (!reply.finalAnswer && rememberedAnswer) reply.finalAnswer = rememberedAnswer;
+        // Models sometimes omit the private answer; fall back to the one remembered for this
+        // session (not for a new practice question, whose answer is different).
+        if (!reply.finalAnswer && rememberedAnswer && !newProblem) reply.finalAnswer = rememberedAnswer;
         served = { candidate, reply, inputTokens, outputTokens, latencyMs, cost, rewrite: false };
 
         // Answer-leak guard (earned worked solutions are exempt)
-        const earnedSolution = reply.type === "worked_solution" && ent.worked_solutions && session.hints_used >= 3;
+        const earnedSolution = reply.type === "worked_solution" && ent.worked_solutions && !newProblem &&
+          (session.hints_used >= 3 || attemptsNow >= 2 || session.solved);
         if (!earnedSolution && revealsAnswer(reply.message, reply.finalAnswer, studentTexts)) {
           let rewritten: TutorReply | null = null;
           try {
@@ -213,20 +225,42 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const { candidate, reply } = served;
   if (reservedPremium && !candidate.premium) await repo.downgradeReservation(userId, input.requestId);
 
+  // A solve counts only if the model says so AND the student's own text contains the verified answer.
+  const verifiedSolve = !newProblem && !session.solved && reply.solved && isAnswerAction(input.action) &&
+    matchesAnswer(input.message ?? "", reply.finalAnswer);
+  const userMeta: Record<string, unknown> =
+    input.action === "message" ? {}
+    : input.action === "hint" ? { control: "hint", level: session.hints_used + 1 }
+    : input.action === "check" ? { control: "check", text: input.message }
+    : { control: input.action };
+
   // Persist conversation (never the private fields)
   await repo.appendMessages(session.id, userId, [
-    { role: "user", content: userContent, meta: input.action === "hint" ? { control: "hint", level: session.hints_used + 1 } : {} },
+    { role: "user", content: userContent, meta: userMeta },
     { role: "assistant", content: reply.message, meta: {
       type: reply.type, hintLevel: reply.hintLevel, concepts: reply.conceptsDetected,
       ...(reply.misconceptionDetected ? { misconception: reply.misconceptionDetected } : {}),
+      ...(verifiedSolve ? { solved: true } : {}),
+      ...(progressSummaryOk(reply, verifiedSolve) ? { summary: reply.progressSummary } : {}),
     } },
   ]);
   if (reply.finalAnswer && reply.finalAnswer !== rememberedAnswer) await repo.setSessionAnswer(session.id, reply.finalAnswer);
-  const hintsUsed = session.hints_used + (input.action === "hint" ? 1 : 0);
+  else if (newProblem && !reply.finalAnswer && rememberedAnswer) await repo.setSessionAnswer(session.id, ""); // forget the old problem's answer
+  const hintsUsed = newProblem ? 0 : session.hints_used + (input.action === "hint" ? 1 : 0);
+  const practice = newProblem ? true : session.practice;
+  const examplesUsed = newProblem ? 0 : session.examples_used + (input.action === "example" ? 1 : 0);
   await repo.updateSession(session.id, {
-    turn_count: session.turn_count + 1, hints_used: hintsUsed,
+    turn_count: session.turn_count + 1, hints_used: hintsUsed, attempts: attemptsNow, practice, examples_used: examplesUsed,
+    solved: newProblem ? false : session.solved || verifiedSolve,
+    problems_solved: session.problems_solved + (verifiedSolve ? 1 : 0),
     last_difficulty: reply.difficulty ?? difficulty, language: reply.language || session.language,
   });
+  if (verifiedSolve) {
+    await repo.recordLearningEvent({
+      user_id: userId, session_id: session.id, kind: session.practice ? "practice_solved" : "problem_solved",
+      concepts: reply.conceptsDetected.slice(0, 8), hints_used: hintsUsed, examples_used: examplesUsed, attempts: attemptsNow,
+    });
+  }
   await repo.recordUsage({
     request_id: input.requestId, user_id: userId, org_id: ent.org_id, plan_id: ent.plan_id,
     provider: candidate.config.provider, model: candidate.config.model, model_role: candidate.role, premium: candidate.premium,
@@ -238,9 +272,10 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   return {
     status: 200,
     body: {
-      reply: publicReply(reply),
+      reply: { ...publicReply(reply), solved: verifiedSolve, progressSummary: progressSummaryOk(reply, verifiedSolve) ? reply.progressSummary : null },
       sessionId: session.id,
       hintsUsed,
+      problem: { solved: !newProblem && (session.solved || verifiedSolve), practice, attempts: attemptsNow },
       advancedReasoning: candidate.premium,  // plain-language flag; no model names
       quota: {
         plan: ent.plan_id,
@@ -250,4 +285,11 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       },
     },
   };
+}
+
+const isAnswerAction = (a: TutorAction) => a === "message" || a === "check";
+
+// "What you've established" is shown only for replies about the student's own work.
+function progressSummaryOk(reply: TutorReply, verifiedSolve: boolean): boolean {
+  return Boolean(reply.progressSummary) && (verifiedSolve || reply.type === "summary" || reply.type === "affirmation");
 }

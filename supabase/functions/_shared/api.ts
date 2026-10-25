@@ -107,7 +107,8 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
   // tutorReady says whether the owner has configured an AI provider key; never which key.
   if (path === "/health" && method === "GET") return json(200, { ok: true, tutorReady: Object.keys(ctx.providers).length > 0 });
   if (path === "/plans" && method === "GET") {
-    return json(200, { plans: await ctx.db.rpc("public_plans", {}) });
+    // checkoutAvailable lets the pricing page say up front whether online payment exists.
+    return json(200, { plans: await ctx.db.rpc("public_plans", {}), checkoutAvailable: Boolean(ctx.billing) });
   }
   if (path === "/quote" && method === "POST") {
     const b = await readJson(req);

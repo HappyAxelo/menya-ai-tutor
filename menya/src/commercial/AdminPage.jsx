@@ -73,13 +73,13 @@ export default function AdminPage({ onBack }) {
       <Card title="Unit economics by plan">
         {!econ ? <Loading /> : (
           <Table rows={econ} columns={[
-            { key: "plan_id", label: "PLAN" }, { key: "paying_subscriptions", label: "PAYING SUBS", align: "right" },
-            { key: "active_users", label: "ACTIVE USERS", align: "right" }, { key: "requests", label: "REQUESTS", align: "right" },
-            { key: "premium_requests", label: "PREMIUM", align: "right" },
-            { key: "ai_cost_usd", label: "AI COST (EST.)", align: "right", render: r => usd(r.ai_cost_usd) },
-            { key: "allocated_infra_usd", label: "INFRA (ALLOC.)", align: "right", render: r => usd(r.allocated_infra_usd) },
-            { key: "est_revenue_usd", label: "REVENUE (EST.)", align: "right", render: r => usd(r.est_revenue_usd) },
-            { key: "gross_margin_pct", label: "GROSS MARGIN", align: "right", render: r => r.gross_margin_pct == null ? "—" : `${r.gross_margin_pct}%` },
+            { key: "plan_id", label: "Plan" }, { key: "paying_subscriptions", label: "Paying subs", align: "right" },
+            { key: "active_users", label: "Active users", align: "right" }, { key: "requests", label: "Requests", align: "right" },
+            { key: "premium_requests", label: "Premium", align: "right" },
+            { key: "ai_cost_usd", label: "Ai cost (est.)", align: "right", render: r => usd(r.ai_cost_usd) },
+            { key: "allocated_infra_usd", label: "Infra (alloc.)", align: "right", render: r => usd(r.allocated_infra_usd) },
+            { key: "est_revenue_usd", label: "Revenue (est.)", align: "right", render: r => usd(r.est_revenue_usd) },
+            { key: "gross_margin_pct", label: "Gross margin", align: "right", render: r => r.gross_margin_pct == null ? "—" : `${r.gross_margin_pct}%` },
           ]} />
         )}
         <div style={{ fontSize: "12px", color: C.faint, marginTop: "10px", lineHeight: 1.6 }}>
@@ -94,10 +94,10 @@ export default function AdminPage({ onBack }) {
         {config && (
           <div style={{ marginTop: "14px" }}>
             <Table rows={config.models} columns={[
-              { key: "role", label: "ROLE" }, { key: "provider", label: "PROVIDER" }, { key: "model", label: "MODEL" },
-              { key: "is_premium", label: "PREMIUM", render: m => m.is_premium ? "yes" : "" },
+              { key: "role", label: "Role" }, { key: "provider", label: "Provider" }, { key: "model", label: "Model" },
+              { key: "is_premium", label: "Premium", render: m => m.is_premium ? "yes" : "" },
               { key: "price", label: "$ / M TOKENS (IN/OUT)", render: m => `${m.input_usd_per_mtok} / ${m.output_usd_per_mtok}` },
-              { key: "fallback_role", label: "FALLBACK" },
+              { key: "fallback_role", label: "Fallback" },
               { key: "enabled", label: "", render: m => <button onClick={() => toggleModel(m.role, !m.enabled)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", padding: "3px 10px", color: m.enabled ? C.green : C.muted, cursor: "pointer", fontSize: "12px" }}>{m.enabled ? "Enabled" : "Disabled"}</button> },
             ]} />
           </div>
@@ -109,7 +109,7 @@ export default function AdminPage({ onBack }) {
           <Table rows={config.plans} columns={["daily_request_limit", "monthly_request_limit", "monthly_premium_limit", "premium_safety_margin", "requests_per_minute", "max_session_turns", "context_turns", "price_monthly_cents", "price_yearly_cents"]
             .reduce((cols, f) => [...cols, { key: f, label: f.replace(/_/g, " ").toUpperCase(), render: p => (
               <input defaultValue={p[f] ?? ""} aria-label={`${p.id} ${f}`} onKeyDown={e => e.key === "Enter" && savePlan(p.id, f, e.target.value)}
-                style={{ ...inputStyle, width: "90px", padding: "4px 6px", fontSize: "12px", fontFamily: mono }} />) }], [{ key: "id", label: "PLAN" }])} />
+                style={{ ...inputStyle, width: "90px", padding: "4px 6px", fontSize: "12px", fontFamily: mono }} />) }], [{ key: "id", label: "Plan" }])} />
         </Card>
       )}
 
@@ -119,9 +119,9 @@ export default function AdminPage({ onBack }) {
           <Button variant="ghost" onClick={searchUsers}>Search</Button>
         </div>
         {users && <Table rows={users} columns={[
-          { key: "email", label: "EMAIL" }, { key: "plan_id", label: "PLAN" }, { key: "plan_source", label: "SOURCE" },
-          { key: "requests_this_month", label: "REQ. (MONTH)", align: "right" },
-          { key: "cost_this_month", label: "COST (MONTH)", align: "right", render: u => usd(u.cost_this_month) },
+          { key: "email", label: "Email" }, { key: "plan_id", label: "Plan" }, { key: "plan_source", label: "Source" },
+          { key: "requests_this_month", label: "Req. (month)", align: "right" },
+          { key: "cost_this_month", label: "Cost (month)", align: "right", render: u => usd(u.cost_this_month) },
           { key: "g", label: "", render: u => <button onClick={() => grant(u.user_id)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: "12px" }}>Grant access</button> },
         ]} />}
       </Card>
@@ -129,16 +129,16 @@ export default function AdminPage({ onBack }) {
       {config && (
         <>
           <Card title="Institutions">
-            <Table rows={config.organizations} columns={[{ key: "name", label: "NAME" }, { key: "plan", label: "PLAN" }, { key: "status", label: "STATUS" }, { key: "seats", label: "SEATS", align: "right" }]} />
+            <Table rows={config.organizations} columns={[{ key: "name", label: "Name" }, { key: "plan", label: "Plan" }, { key: "status", label: "Status" }, { key: "seats", label: "Seats", align: "right" }]} />
           </Card>
           <Card title="Quotation requests">
-            <Table rows={config.recent_quotes} columns={[{ key: "institution", label: "INSTITUTION" }, { key: "contact_email", label: "CONTACT" }, { key: "learners", label: "LEARNERS", align: "right" }, { key: "created_at", label: "RECEIVED", render: x => new Date(x.created_at).toLocaleDateString() }]} />
+            <Table rows={config.recent_quotes} columns={[{ key: "institution", label: "Institution" }, { key: "contact_email", label: "Contact" }, { key: "learners", label: "Learners", align: "right" }, { key: "created_at", label: "Received", render: x => new Date(x.created_at).toLocaleDateString() }]} />
           </Card>
           <Card title="Billing webhooks">
             <div style={{ fontFamily: mono, fontSize: "13px", color: C.muted }}>Received (24h): {config.webhooks.last_24h} · Failed (7d): {config.webhooks.failed_7d}</div>
           </Card>
           <Card title="Audit log (latest)">
-            <Table rows={config.recent_audit} columns={[{ key: "created_at", label: "WHEN", render: a => new Date(a.created_at).toLocaleString() }, { key: "action", label: "ACTION" }, { key: "target_id", label: "TARGET" }, { key: "details", label: "DETAILS", wrap: true, render: a => <code style={{ fontSize: "11px" }}>{JSON.stringify(a.details)}</code> }]} />
+            <Table rows={config.recent_audit} columns={[{ key: "created_at", label: "When", render: a => new Date(a.created_at).toLocaleString() }, { key: "action", label: "Action" }, { key: "target_id", label: "Target" }, { key: "details", label: "Details", wrap: true, render: a => <code style={{ fontSize: "11px" }}>{JSON.stringify(a.details)}</code> }]} />
           </Card>
         </>
       )}

@@ -7,7 +7,7 @@ import { freshDb, createUser, rpc } from "./db.ts";
 import { pgRepo } from "./pgRepo.ts";
 import { handleTutor } from "../functions/_shared/tutorService.ts";
 import { ProviderError, type ModelProvider, type ChatRequest, type ModelConfig } from "../functions/_shared/providers.ts";
-import { revealsAnswer } from "../functions/_shared/answerGuard.ts";
+import { matchesAnswer, revealsAnswer } from "../functions/_shared/answerGuard.ts";
 import { classifyDifficulty, planRoute } from "../functions/_shared/router.ts";
 
 let db: PGlite;
@@ -17,7 +17,7 @@ function reply(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     language: "English", message: "What do you already know about this circuit?", type: "question",
     conceptsDetected: ["Ohm's law"], misconceptionDetected: null, hintLevel: null, progressSummary: null,
-    encouragementScore: 3, finalAnswer: "3 A", difficulty: "basic", ...overrides,
+    solved: false, finalAnswer: "3 A", difficulty: "basic", ...overrides,
   });
 }
 
@@ -190,6 +190,112 @@ describe("tutor pipeline", () => {
     assert.equal(fourth.body.error, "hint_limit");
   });
 
+  test("learner actions need an existing problem and send the right instruction", async () => {
+    const u = await createUser(db);
+    const groq = fakeProvider("groq", () => reply({ type: "explanation" }));
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    const orphan = await handleTutor(deps, u, { requestId: randomUUID(), action: "example" });
+    assert.equal(orphan.status, 400);
+    assert.equal(orphan.body.error, "action_needs_session");
+    const bogus = await handleTutor(deps, u, { requestId: randomUUID(), action: "solve_it_for_me", sessionId: randomUUID() });
+    assert.equal(bogus.body.error, "invalid_action");
+    const first = await handleTutor(deps, u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
+    const sessionId = first.body.sessionId as string;
+    const expected: Record<string, RegExp> = { simpler: /EXPLAIN MORE SIMPLY/, example: /WORKED EXAMPLE/, summary: /\[SUMMARY\]/ };
+    for (const [action, re] of Object.entries(expected)) {
+      const r = await handleTutor(deps, u, { requestId: randomUUID(), action, sessionId });
+      assert.equal(r.status, 200, action);
+      assert.match(groq.calls.at(-1)!.req.messages.at(-1)!.content, re);
+    }
+    const noAnswer = await handleTutor(deps, u, { requestId: randomUUID(), action: "check", sessionId, message: "  " });
+    assert.equal(noAnswer.body.error, "empty_message");
+    const msgs = await db.query<any>("select meta from public.tutoring_messages where session_id = $1 and role = 'user' order by id", [sessionId]);
+    assert.deepEqual(msgs.rows.map(m => m.meta.control ?? null), [null, "simpler", "example", "summary"]);
+  });
+
+  test("progress: a solve counts only when the student's own answer matches the verified answer", async () => {
+    const u = await createUser(db);
+    let claim = true;
+    const groq = fakeProvider("groq", () => reply({ type: "affirmation", solved: claim, progressSummary: "Current = voltage / resistance." }));
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    const first = await handleTutor(deps, u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
+    const sessionId = first.body.sessionId as string;
+    // The model claims "solved" but the student's text has the wrong value: not counted.
+    const wrong = await handleTutor(deps, u, { requestId: randomUUID(), action: "check", sessionId, message: "48 A" });
+    assert.equal((wrong.body.reply as any).solved, false);
+    // Right value (unit optional), but the model says not solved: not counted either.
+    claim = false;
+    const unclaimed = await handleTutor(deps, u, ask("I think it's 3", { sessionId }));
+    assert.equal((unclaimed.body.reply as any).solved, false);
+    claim = true;
+    const right = await handleTutor(deps, u, ask("So I = 12/4 = 3 A", { sessionId }));
+    assert.equal((right.body.reply as any).solved, true);
+    assert.deepEqual(right.body.problem, { solved: true, practice: false, attempts: 3 });
+    // Saying it again does not count twice.
+    await handleTutor(deps, u, ask("3 A, right?", { sessionId }));
+    // A practice question after a solve is a fresh, unsolved problem.
+    claim = false;
+    const next = await handleTutor(deps, u, { requestId: randomUUID(), action: "practice", sessionId });
+    assert.deepEqual(next.body.problem, { solved: false, practice: true, attempts: 0 });
+    const events = (await db.query<any>("select kind, attempts, hints_used from public.learning_events where user_id = $1", [u])).rows;
+    assert.deepEqual(events, [{ kind: "problem_solved", attempts: 3, hints_used: 0 }]);
+  });
+
+  test("practice: a new question resets hints and the remembered answer; solving it counts as practice", async () => {
+    const u = await createUser(db);
+    let answer = "3 A", type = "hint", solved = false;
+    const groq = fakeProvider("groq", () => reply({ type, finalAnswer: answer, solved }));
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    const first = await handleTutor(deps, u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
+    const sessionId = first.body.sessionId as string;
+    await handleTutor(deps, u, { requestId: randomUUID(), action: "hint", sessionId });
+    answer = "2 A"; type = "question";
+    const p = await handleTutor(deps, u, { requestId: randomUUID(), action: "practice", sessionId });
+    assert.equal(p.body.hintsUsed, 0);
+    assert.deepEqual(p.body.problem, { solved: false, practice: true, attempts: 0 });
+    // The old answer (3 A) no longer counts; the practice answer does.
+    type = "affirmation"; solved = true;
+    const stale = await handleTutor(deps, u, ask("3 A", { sessionId }));
+    assert.equal((stale.body.reply as any).solved, false);
+    const ok = await handleTutor(deps, u, ask("I = 10 V / 5 Ω = 2 A", { sessionId }));
+    assert.equal((ok.body.reply as any).solved, true);
+    const events = (await db.query<any>("select kind, hints_used from public.learning_events where user_id = $1", [u])).rows;
+    assert.deepEqual(events, [{ kind: "practice_solved", hints_used: 0 }]);
+  });
+
+  test("progress: a solve after a worked example is recorded as solved with help", async () => {
+    const u = await createUser(db);
+    let type = "explanation", solved = false;
+    const groq = fakeProvider("groq", () => reply({ type, solved, message: "Example: 9 V across 2 Ω gives 4.5 A. Now try yours." }));
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    const first = await handleTutor(deps, u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
+    const sessionId = first.body.sessionId as string;
+    await handleTutor(deps, u, { requestId: randomUUID(), action: "example", sessionId });
+    type = "affirmation"; solved = true;
+    await handleTutor(deps, u, ask("12/4 = 3 A", { sessionId }));
+    const events = (await db.query<any>("select hints_used, examples_used from public.learning_events where user_id = $1", [u])).rows;
+    assert.deepEqual(events, [{ hints_used: 0, examples_used: 1 }]);
+  });
+
+  test("worked solution: rewritten before effort, allowed after two genuine attempts", async () => {
+    const u = await createUser(db);
+    const groq = fakeProvider("groq", (_c, req) => {
+      const last = req.messages.at(-1)!.content;
+      return last.startsWith("[REWRITE]")
+        ? reply({ type: "question", message: "Which formula links voltage, current and resistance?" })
+        : reply({ type: "worked_solution", message: "I = V/R = 12 V / 4 Ω = 3 A." });
+    });
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    const first = await handleTutor(deps, u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
+    assert.equal((first.body.reply as any).type, "question", "no worked solution on the first message");
+    const sessionId = first.body.sessionId as string;
+    const a1 = await handleTutor(deps, u, ask("Is it 48 A?", { sessionId }));
+    assert.equal((a1.body.reply as any).type, "question", "one attempt is not enough");
+    const a2 = await handleTutor(deps, u, ask("Maybe 16 A? Please show me the solution.", { sessionId }));
+    assert.equal((a2.body.reply as any).type, "worked_solution");
+    assert.match(groq.calls.at(-1)!.req.messages.at(-2)!.content, /student attempts so far 2/);
+  });
+
   test("a user cannot continue another user's session", async () => {
     const a = await createUser(db), b = await createUser(db);
     const groq = fakeProvider("groq", () => reply());
@@ -231,6 +337,18 @@ describe("tutor pipeline", () => {
 });
 
 describe("answer guard", () => {
+  test("matchesAnswer: the student's own text must contain the verified answer", () => {
+    assert.equal(matchesAnswer("I think it's 3", "3 A"), true, "unit optional");
+    assert.equal(matchesAnswer("I = 12/4 = 3 A", "3 A"), true);
+    assert.equal(matchesAnswer("13 A", "3 A"), false);
+    assert.equal(matchesAnswer("-3", "3 A"), false);
+    assert.equal(matchesAnswer("3.5 A", "3 A"), false);
+    assert.equal(matchesAnswer("0,5 A", "0.5 A"), true);
+    assert.equal(matchesAnswer("f'(x) = 2x sin(x) + x² cos(x)", "2x·sin(x) + x²·cos(x)"), true);
+    assert.equal(matchesAnswer("f'(x) = 2x sin(x)", "2x·sin(x) + x²·cos(x)"), false);
+    assert.equal(matchesAnswer("3", null), false);
+  });
+
   test("detects symbolic and numeric leaks, allows confirming the student's own answer", () => {
     assert.equal(revealsAnswer("En remplaçant : f'(x)= (2x)·sin(x) + x²·cos(x).", "2x·sin(x) + x²·cos(x)"), true);
     assert.equal(revealsAnswer("f'(x) = u'·sin(x) + x²·v'. Que valent u' et v' ?", "2x·sin(x) + x²·cos(x)"), false);

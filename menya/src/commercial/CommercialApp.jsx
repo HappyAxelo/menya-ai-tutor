@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AITutor from "../App.jsx";
-import { supabase, api, getAccount, backendTutorClient, store } from "../lib/backend.js";
+import { BarChart3, History as HistoryIcon, Menu } from "lucide-react";
+import { supabase, api, getAccount, backendTutorClient, store, loadSession } from "../lib/backend.js";
+import { historyToMessages } from "../lib/chat.js";
 import AuthScreen from "./AuthScreen.jsx";
 import PricingPage from "./PricingPage.jsx";
 import AccountPage from "./AccountPage.jsx";
 import OrgPage from "./OrgPage.jsx";
 import AdminPage from "./AdminPage.jsx";
-import { C, mono, Notice, ErrorBoundary } from "./ui.jsx";
+import HistoryDrawer from "./HistoryDrawer.jsx";
+import ProgressPage from "./ProgressPage.jsx";
+import { Notice, ErrorBoundary } from "./ui.jsx";
 
 const PLAN_NAMES = { free: "Free", pro: "Pro", professional: "Professional" };
-const pill = { height: "36px", padding: "0 12px", background: C.panel, border: `1px solid ${C.border}`, borderRadius: "10px", color: C.muted, fontSize: "13px", cursor: "pointer", fontWeight: 500 };
 
 export default function CommercialApp() {
   const [session, setSession] = useState(undefined); // undefined = still loading
@@ -17,6 +20,9 @@ export default function CommercialApp() {
   const [page, setPage] = useState("tutor");
   const [banner, setBanner] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [resume, setResume] = useState(null);
+  const [opening, setOpening] = useState(null);
   const client = useMemo(() => backendTutorClient(), []);
 
   // Capture ?invite= and ?checkout= once, then clean the URL.
@@ -84,55 +90,85 @@ export default function CommercialApp() {
       premium: a.limits.premium - (quota.premium_remaining ?? a.limits.premium - a.used.premium) } }));
   }, []);
 
-  if (session === undefined) return <div style={{ minHeight: "100vh", background: C.bg }} />;
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = e => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
+  const openSession = async (id) => {
+    setOpening(id);
+    try {
+      const { session: s, rows } = await loadSession(id);
+      setResume({ key: `${id}:${Date.now()}`, session: s, messages: historyToMessages(rows) });
+      setShowHistory(false); setPage("tutor");
+    } catch {
+      setBanner({ kind: "error", text: "Couldn't open that conversation. Check your connection and try again." });
+    }
+    setOpening(null);
+  };
+
+  if (session === undefined) return <div className="mn-splash" role="status" aria-label="Loading" />;
   if (!session) return <AuthScreen inviteToken={inviteToken} />;
 
   const back = () => setPage("tutor");
   const links = [
+    ["Account", () => setPage("account")],
     ["Plans", () => setPage("pricing")],
     ...(account?.org_admin_of?.length > 0 ? [["Institution", () => setPage("org")]] : []),
     ...(account?.is_admin ? [["Admin", () => setPage("admin")]] : []),
     ["Sign out", () => supabase.auth.signOut()],
   ];
+  const daysLeft = account ? Math.max(account.limits.daily - account.used.daily, 0) : null;
   const nav = (
     <>
+      <button className="mn-btn" onClick={() => setShowHistory(true)} aria-label="History" title="History">
+        <HistoryIcon size={16} /><span className="mn-hide-md">History</span>
+      </button>
+      <button className="mn-btn" onClick={() => setPage("progress")} aria-label="Progress" title="Progress">
+        <BarChart3 size={16} /><span className="mn-hide-md">Progress</span>
+      </button>
       {account && (
-        <button onClick={() => setPage("account")} className="mn-pill" style={{ height: "36px", cursor: "pointer" }}>
-          <span className="dot" />
-          <span className="mn-hide-sm">{PLAN_NAMES[account.plan] ?? account.plan} · </span>{Math.max(account.limits.daily - account.used.daily, 0)} left<span className="mn-hide-sm"> today</span>
+        <button onClick={() => setPage("account")} className="mn-pill mn-hide-sm" title="Messages left today on your plan">
+          {PLAN_NAMES[account.plan] ?? account.plan} · {daysLeft} left today
         </button>
       )}
-      <span className="menya-desktop-only" style={{ display: "contents" }}>{links.map(([label, act]) => <button key={label} onClick={act} style={pill}>{label}</button>)}</span>
-      <span className="menya-mobile-only" style={{ position: "relative" }}>
-        <button onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-haspopup="menu" style={pill}>Menu</button>
+      <span className="mn-menu">
+        <button className="mn-btn icon" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label="Account menu"><Menu size={17} /></button>
         {menuOpen && (
-          <div role="menu" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: C.panel, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "6px", minWidth: "160px", zIndex: 200, boxShadow: "0 8px 24px #0008" }}>
-            {links.map(([label, act]) => (
-              <button key={label} role="menuitem" onClick={() => { setMenuOpen(false); act(); }}
-                style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", background: "none", border: "none", color: C.text, fontSize: "14px", cursor: "pointer", borderRadius: "8px" }}>{label}</button>
-            ))}
-          </div>
+          <>
+            <div className="mn-menu-scrim" onClick={() => setMenuOpen(false)} />
+            <div role="menu" className="mn-menu-list">
+              {account && <div className="mn-menu-note">{PLAN_NAMES[account.plan] ?? account.plan} plan · {daysLeft} messages left today</div>}
+              {links.map(([label, act]) => (
+                <button key={label} role="menuitem" onClick={() => { setMenuOpen(false); act(); }}>{label}</button>
+              ))}
+            </div>
+          </>
         )}
       </span>
     </>
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="mn-shell">
       {banner && (
-        <div style={{ position: "fixed", bottom: "16px", left: "16px", right: "16px", maxWidth: "640px", margin: "0 auto", zIndex: 300 }}>
+        <div className="mn-banner">
           <Notice kind={banner.kind}>
-            {banner.text} <button onClick={() => setBanner(null)} style={{ marginLeft: "8px", background: "none", border: "none", color: "inherit", cursor: "pointer", textDecoration: "underline" }}>Dismiss</button>
+            {banner.text} <button onClick={() => setBanner(null)} className="mn-link">Dismiss</button>
           </Notice>
         </div>
       )}
       {/* The tutor stays mounted so a conversation survives visiting other pages. */}
       <div style={{ display: page === "tutor" ? "block" : "none" }}>
-        <AITutor client={client} headerExtras={nav} onUsage={onUsage} account={account} onNavigate={setPage} />
+        <AITutor client={client} headerExtras={nav} onUsage={onUsage} account={account} onNavigate={setPage} resume={resume} />
       </div>
+      {showHistory && <HistoryDrawer onClose={() => setShowHistory(false)} onOpen={openSession} opening={opening} />}
       {page !== "tutor" && (
         <ErrorBoundary key={page} onReset={back}>
           {page === "pricing" && <PricingPage account={account} onBack={back} />}
+          {page === "progress" && <ProgressPage onBack={back} />}
           {page === "account" && <AccountPage account={account} email={session.user.email} onBack={back} onPricing={() => setPage("pricing")} refresh={refresh} />}
           {page === "org" && <OrgPage orgs={account?.org_admin_of ?? []} onBack={back} />}
           {page === "admin" && <AdminPage onBack={back} />}

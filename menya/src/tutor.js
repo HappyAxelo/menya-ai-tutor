@@ -3,7 +3,7 @@
 // Used when the app runs without a backend (no VITE_SUPABASE_URL), and by
 // scripts/eval-tutor.mjs. The commercial app calls the backend instead.
 // ============================================================
-import { buildResponseSchema, buildSystemPrompt as buildPolicyPrompt, hintRequest, parseTutorJson } from "../../supabase/functions/_shared/policy.ts";
+import { actionRequest, buildResponseSchema, buildSystemPrompt as buildPolicyPrompt, hintRequest, parseTutorJson } from "../../supabase/functions/_shared/policy.ts";
 
 export function buildSystemPrompt(language = "auto", { learnerLevel, style } = {}) {
   return buildPolicyPrompt({ language, workedSolutions: true, level: learnerLevel, style });
@@ -31,7 +31,7 @@ export const LANGUAGES = [
 // The tutoring policy is shared with the backend so every model follows the
 // same rules. Developer mode asks for no private fields (they would reach the browser).
 export const RESPONSE_SCHEMA = buildResponseSchema(false);
-export { hintRequest, parseTutorJson };
+export { actionRequest, hintRequest, parseTutorJson };
 
 function fallbackResponse(message) {
   return {
@@ -42,7 +42,7 @@ function fallbackResponse(message) {
     misconceptionDetected: null,
     hintLevel: null,
     progressSummary: null,
-    encouragementScore: 3,
+    solved: false,
   };
 }
 

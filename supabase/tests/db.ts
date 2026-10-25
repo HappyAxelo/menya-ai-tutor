@@ -25,12 +25,22 @@ const SUPABASE_STUBS = `
   alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 `;
 
+// PGlite has no pg_cron: record schedules in a stub instead.
+export function migrationSql(file: string): string {
+  return readFileSync(join(migrationsDir, file), "utf8")
+    .replace(/create extension if not exists pg_cron;/i, `create schema if not exists cron;
+      create table if not exists cron.jobs (name text primary key, schedule text, command text);
+      create or replace function cron.schedule(n text, s text, c text) returns bigint language sql as
+        $cron$ insert into cron.jobs values (n, s, c) on conflict (name) do update set schedule = excluded.schedule; select 1::bigint $cron$;`);
+}
+
 export async function freshDb() {
   const db = new PGlite();
   await db.exec(SUPABASE_STUBS);
   for (const file of readdirSync(migrationsDir).filter(f => f.endsWith(".sql")).sort()) {
+    const sql = migrationSql(file);
     try {
-      await db.exec(readFileSync(join(migrationsDir, file), "utf8"));
+      await db.exec(sql);
     } catch (err) {
       throw new Error(`migration ${file} failed: ${(err as Error).message}`);
     }
