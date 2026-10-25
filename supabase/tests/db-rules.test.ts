@@ -243,6 +243,12 @@ describe("organizations", () => {
       assert.equal(sessions.rows.length, 0, "cannot read other users' sessions");
     });
     await assert.rejects(rpc(db, "org_dashboard", { p_actor: adminA, p_org: orgB, p_month: "2026-10-01" }), /forbidden/);
+
+    // Signed-in users can't probe other people's roles through the RPC API.
+    await asUser(db, learnerB, async () => {
+      await assert.rejects(db.query("select public.is_org_admin($1, $2)", [orgA, adminA]), /permission denied/);
+      await assert.rejects(db.query("select public.is_platform_admin($1)", [adminA]), /permission denied/);
+    });
     const own = await rpc(db, "org_dashboard", { p_actor: adminA, p_org: orgA, p_month: "2026-10-01" });
     assert.equal(own.organization.id, orgA);
   });

@@ -34,6 +34,15 @@ export default function CommercialApp() {
     if (params.has("invite") || params.has("checkout")) window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
+  // If the owner hasn't configured the AI provider key yet, say so plainly.
+  useEffect(() => {
+    api("/health").then(r => {
+      if (r.ok && r.data.tutorReady === false) {
+        setBanner({ kind: "warn", text: "Menya's tutor is still being set up, so replies aren't available yet. Please check back soon." });
+      }
+    });
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));

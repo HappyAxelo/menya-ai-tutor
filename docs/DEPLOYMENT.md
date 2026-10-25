@@ -1,5 +1,9 @@
 # Deployment and operations
 
+> **Live project:** Supabase `menya-ai-tutor` (`tgrihnmngbamxxjnedlc`) has all migrations and the `api`
+> function deployed. The owner's remaining one-time settings (AI key, sign-in URLs, Google) are in
+> [OWNER_SETUP.md](OWNER_SETUP.md). The production web build reads `menya/.env.production` (public values only).
+
 ## Components
 
 | Part | Where it runs | Config |

@@ -29,4 +29,6 @@ drop table if exists
 
 drop function if exists public.subscription_is_live(public.subscriptions), public.setting_num(text, numeric) cascade;
 
+drop schema if exists private cascade;
+
 drop type if exists public.org_role, public.platform_role, public.billing_interval, public.subscription_status;
