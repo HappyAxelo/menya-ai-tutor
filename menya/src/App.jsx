@@ -254,7 +254,7 @@ function EmptyState({ client, onExample, onIntent, introOpen, onDismissIntro }) 
 
       <p className="mn-data-note">
         {client
-          ? <>Your conversations are saved to your account so you can reopen them from History. They're deleted after 180 days. <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a></>
+          ? <>Your conversations are saved to your account, so you can come back and continue any of them later. They're deleted after 180 days. <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a></>
           : "Developer mode: nothing is saved. Refreshing the page clears the conversation."}
       </p>
     </section>
@@ -267,7 +267,11 @@ function EmptyState({ client, onExample, onIntent, introOpen, onDismissIntro }) 
 // client: backend tutor client (signed-in app). Without it the app runs in
 // local developer mode and asks for the developer's own Groq key.
 // resume: { key, session, messages } to reopen a saved conversation.
-export default function AITutor({ client = null, headerExtras = null, onUsage = null, account = null, onNavigate = null, resume = null }) {
+// sidebar: conversation list shown beside the chat on wide screens.
+// onSessionChange(id): the saved conversation now on screen (null for a new one).
+// newChatKey: changing it starts a new conversation (the sidebar's "New conversation").
+export default function AITutor({ client = null, headerExtras = null, onUsage = null, account = null, onNavigate = null, resume = null,
+                                  sidebar = null, onSessionChange = null, newChatKey = 0 }) {
   const [apiKey, setApiKey] = useState(null);
   const [messages, setMessages] = useState([]);
   const [apiMessages, setApiMessages] = useState([]); // developer mode only: what the model sees
@@ -310,6 +314,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     setProblem({ solved: resume.session.solved, practice: resume.session.practice, attempts: resume.session.attempts });
     setLastLanguage(resume.session.language ?? null);
     setInput("");
+    onSessionChange?.(resume.session.id);
   }, [resume?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pushAssistant = useCallback((msg) => {
@@ -342,6 +347,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         setHintsUsed(r.hintsUsed ?? 0);
         setProblem(r.problem);
         onUsage?.(r.quota);
+        onSessionChange?.(client.currentSession());
       } else {
         const content = action === "message" ? text
           : action === "hint" ? hintRequest(hintsUsed + 1, lang)
@@ -366,7 +372,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     }
     setLoading(false);
     if (action === "message" || action === "check") inputRef.current?.focus();
-  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, onUsage, pushAssistant]);
+  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, onUsage, onSessionChange, pushAssistant]);
 
   const retry = useCallback(({ action, text }) => runAction(action, text, { retry: true }), [runAction]);
 
@@ -374,8 +380,11 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     client?.newProblem();
     setMessages([]); setApiMessages([]); setHintsUsed(0); setProblem(null); setLastLanguage(null);
     setInput(""); setAnimateIndex(-1);
+    onSessionChange?.(null);
     inputRef.current?.focus();
   };
+
+  useEffect(() => { if (newChatKey) newProblem(); }, [newChatKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetKey = () => {
     if (confirm("Clear your API key and this conversation?")) { setApiKey(null); newProblem(); }
@@ -438,6 +447,8 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         </div>
       </header>
 
+      <div className="mn-main">
+      {sidebar}
       <div className="mn-body">
         <main className="mn-thread">
           <div className="mn-thread-inner">
@@ -507,7 +518,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         )}
         {showPlans && <PlansView onClose={() => setShowPlans(false)} />}
       </div>
+      </div>
     </div>
   );
 }
-

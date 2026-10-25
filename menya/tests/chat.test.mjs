@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableActions, historyToMessages, summarizeProgress, topicStatus } from "../src/lib/chat.js";
+import { availableActions, groupByDay, historyToMessages, summarizeProgress, topicStatus } from "../src/lib/chat.js";
 
 const ids = (a) => a.map(x => x.id);
 
@@ -62,4 +62,14 @@ test("progress comes only from verified solves and separates help from independe
   assert.equal(ex.practiceIndependent, 0, "a worked example counts as help");
   assert.equal(topicStatus(ex.topics[0]), "with_help");
   assert.deepEqual(summarizeProgress([]), { solved: 0, independent: 0, withHelp: 0, practice: 0, practiceIndependent: 0, topics: [] });
+});
+
+test("history groups conversations by day, newest first", () => {
+  const now = new Date(2026, 9, 25, 15, 0);
+  const at = (d, h = 10) => new Date(2026, 9, d, h).toISOString();
+  const g = groupByDay([{ id: 1, updated_at: at(25) }, { id: 2, updated_at: at(25, 8) }, { id: 3, updated_at: at(24) },
+    { id: 4, updated_at: at(20) }, { id: 5, updated_at: at(2) }], now);
+  assert.deepEqual(g.map(([l, items]) => [l, items.map(s => s.id)]),
+    [["Today", [1, 2]], ["Yesterday", [3]], ["Previous 7 days", [4]], ["Older", [5]]]);
+  assert.deepEqual(groupByDay([], now), []);
 });

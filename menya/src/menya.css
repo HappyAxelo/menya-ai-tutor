@@ -471,3 +471,20 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 
 @media (max-width: 900px) { .mn-hide-md { display: none !important; } }
 .mn-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- Conversation sidebar (wide screens) ---------- */
+.mn-main { flex: 1; min-height: 0; display: flex; }
+.mn-sidebar { display: none; }
+@media (min-width: 1024px) {
+  .mn-sidebar { display: flex; flex-direction: column; width: 272px; flex: none; border-right: 1px solid var(--border); background: var(--bg-elev); padding: 12px 10px; gap: 10px; }
+  .mn-sidebar-new { width: 100%; justify-content: flex-start; height: 40px; }
+  .mn-sidebar-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+  .mn-sidebar .mn-fine { margin-top: 0; font-size: 12px; }
+  .mn-hide-lg { display: none !important; }
+}
+.mn-history-group + .mn-history-group { margin-top: 12px; }
+.mn-history-group .mn-section-label { margin: 6px 10px 4px; }
+.mn-history li.current { background: var(--accent-soft); }
+.mn-history li.current .t { font-weight: 600; }
+.mn-history-del { opacity: .6; flex: none; }
+.mn-history li:hover .mn-history-del, .mn-history-del:focus-visible { opacity: 1; }

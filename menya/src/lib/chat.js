@@ -75,3 +75,24 @@ export function topicStatus(t) {
   if (t.independent > 0) return "solved";
   return "with_help";
 }
+
+// Conversations grouped for the history list: Today, Yesterday, Previous 7 days, Older.
+// sessions must be sorted newest first (as the server returns them).
+export function groupByDay(sessions, now = new Date()) {
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = startOfDay(now), day = 864e5;
+  const label = (iso) => {
+    const t = startOfDay(new Date(iso));
+    if (t >= today) return "Today";
+    if (t >= today - day) return "Yesterday";
+    if (t >= today - 7 * day) return "Previous 7 days";
+    return "Older";
+  };
+  const groups = [];
+  for (const s of sessions) {
+    const l = label(s.updated_at);
+    if (groups.at(-1)?.[0] === l) groups.at(-1)[1].push(s);
+    else groups.push([l, [s]]);
+  }
+  return groups;
+}

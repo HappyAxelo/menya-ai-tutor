@@ -21,7 +21,8 @@ The app lives in [`menya/`](menya/) (React + Vite) and the backend in
 - **Real progress**: a solve is recorded only when the learner's own answer matches the tutor's
   verified answer (checked on the server). Practice questions solved without hints or worked
   examples show a topic as understood. Messages and explanations never count.
-- **History**: every conversation is saved to the account and can be reopened and continued.
+- **History**: every conversation is saved to the account. A sidebar (a drawer on phones) lists
+  them by day; opening one continues it where it stopped, and a page refresh reopens it.
 - **Any language**: replies follow the learner's language, or a language they pick.
 - **Plans**: Free, Pro and Professional with server-enforced daily, monthly and
   advanced-reasoning allowances. Limits are shown to learners; nothing is "unlimited".

@@ -47,8 +47,48 @@ The sign-in screen shows "Continue with Google" automatically as soon as Google 
   bring-your-own-key version to the signed-in version with `cd menya && npm run deploy`.
 - Make yourself platform admin after your first sign-in (SQL editor):
   `update public.profiles set platform_role = 'admin' where email = 'YOUR_EMAIL';`
-- Optional: Authentication → **SMTP Settings** with your own email service, so email sign-in
-  links reach students too (Supabase's built-in mailer only delivers to your own team).
+- Email sign-in links for students: see section 5 (Resend).
+
+## 4. Enough AI capacity for real students (Groq)
+
+Groq's free tier allows about 200,000 tokens a day for `openai/gpt-oss-120b`. One tutor reply
+uses roughly 2,000–3,000 tokens, so the free tier covers only **about 70–100 replies a day for
+all students together**. When it runs out, students see "The tutor is temporarily unavailable"
+until Groq's daily window resets.
+
+1. https://console.groq.com → **Settings** → **Billing** → upgrade to the pay-as-you-go
+   (Developer) tier and add a card.
+2. Optional: set a monthly spending limit there.
+3. Nothing changes in Menya: the same `GROQ_API_KEY` keeps working with higher limits.
+
+Cost at current prices ($0.15 per million input tokens, $0.60 per million output tokens): about
+**$0.0005 per reply**, i.e. roughly $0.50 per 1,000 replies. Actual cost per request is recorded
+in `usage_records` and shown on the Admin page.
+
+## 5. Email sign-in links for students (Resend)
+
+Google sign-in already works for everyone. Email links need your own email service, because
+Supabase's built-in mailer only delivers to members of your Supabase team.
+
+Resend needs a **domain you own** (for example `menya.rw` or any domain you buy): it will only
+send to other people from a verified domain. A `github.io` address can't be verified.
+
+1. Create an account at https://resend.com (free: 3,000 emails a month, 100 a day).
+2. **Domains** → **Add domain** → enter your domain → add the DNS records Resend shows (SPF,
+   DKIM) at your domain registrar → wait until the domain shows **Verified**.
+3. **API Keys** → **Create API key** (permission: *Sending access*). Copy it — this is the SMTP
+   password. Keep it private; never put it in the web app or GitHub.
+4. Supabase dashboard → **Authentication** → **Emails** → **SMTP Settings** → enable custom SMTP:
+   - Sender email: `no-reply@YOUR-DOMAIN` · Sender name: `Menya AI Tutor`
+   - Host: `smtp.resend.com` · Port: `465`
+   - Username: `resend` · Password: the API key from step 3
+   - Save.
+5. **Authentication** → **Rate Limits** → raise "emails sent per hour" (for example to 100).
+6. Test: open the site in a private window → *Use an email sign-in link instead* → enter an
+   address that is not yours → the link should arrive within a minute.
+
+Optional: **Authentication** → **Emails** → **Templates** → "Magic Link" — change the subject to
+"Your Menya sign-in link" and the text to match.
 
 ## Rotating the key
 

@@ -118,6 +118,7 @@ export function backendTutorClient() {
     act: (action, { text, language, learnerLevel, style }) => call({ action, message: text, language, learnerLevel, style }),
     newProblem: () => { sessionId = null; },
     resume: (id) => { sessionId = id; },
+    currentSession: () => sessionId,
   };
 }
 
