@@ -54,5 +54,5 @@ message) and the web change (75 s wait) go live only after approval.
 
 - Groq free tier (8K tokens/min) and Supabase Free (pauses after 7 idle days) — owner upgrades (P0).
 - Fixes 1–2 are not live until the API is redeployed; fix 1's browser half until the site is redeployed.
-- CI has not run on GitHub yet (runs on the first push of this branch).
+- CI: first GitHub run (40302119332) passed all three jobs.
 - No signed-in end-to-end test on the live site since the last deploy.

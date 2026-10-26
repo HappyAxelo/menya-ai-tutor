@@ -265,7 +265,7 @@ Effort is in engineer-days for one developer familiar with the code; ranges, not
 | Supabase Pro | F2 | Pricing page | P0 | A/B | No pause | Owner upgrade | — | 0.1 | $25/mo | Plan = Pro | Dashboard | Owner action |
 | Request deadline | F3 | tutorService | P1 | A | No charged-but-failed replies | Shared deadline; client 75 s | — | 0.5 | Free | Response < 60 s; quota released | 4 new tests (fail on old code, pass on new) | **Done in code; not deployed** |
 | Root prototype | F4 | App.jsx | P1 | A | Live site can't be overwritten by mistake | Resolve; delegate scripts | — | 0.3 | Free | Parses; root build = menya | esbuild parse + root `npm run build` | **Done** |
-| CI | F5 | none | P1 | A | Fewer regressions | GitHub Actions | — | 0.5 | Free | Green on push | Workflow run on GitHub | **Added; first run on branch push** |
+| CI | F5 | none | P1 | A | Fewer regressions | GitHub Actions | — | 0.5 | Free | Green on push | GitHub Actions run 40302119332: 3/3 jobs passed | **Done** |
 | Rate-limit wait time | F6 | api | P2 | A | Clear "try in N s" | Pass retry-after | F3 | 0.3 | Free | Message shows seconds | Test | **Done in code; not deployed** |
 | Concept-vs-problem | F7 | test | P1 | B | Earned solutions hold | Policy + eval | — | 1 | Low | 6/6 eval | Eval | Not started |
 | Eval dataset + rubric | D4 | 8 cases | P1 | B | Evidence of quality | JSON dataset, grader | — | 5–8 | ~$5 tokens | 60+ cases, κ ≥ 0.6 | Report | Not started |
