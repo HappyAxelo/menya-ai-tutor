@@ -61,6 +61,7 @@ export interface UsageRecord {
   request_id: string; user_id: string; org_id: string | null; plan_id: string;
   provider: string | null; model: string | null; model_role: string | null; premium: boolean;
   input_tokens: number | null; output_tokens: number | null; est_cost_usd: number | null;
+  cached_input_tokens?: number | null;
   latency_ms: number | null; ttft_ms: number | null;
   status: "success" | "timeout" | "error" | "cancelled";
   fallback_used: boolean; answer_rewrite: boolean; error_code: string | null;

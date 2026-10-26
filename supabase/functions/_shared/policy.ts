@@ -128,8 +128,12 @@ const OUTPUT = `
 OUTPUT: one JSON object matching the schema. type: question | affirmation | hint | redirect | summary | explanation | worked_solution. conceptsDetected: short concept names in the student's language. hintLevel: 1–3 for hints, else null. solved: see HOW TO GUIDE.`;
 
 export function buildSystemPrompt(opts: PolicyOptions = {}): string {
+  // Parts shared by every student come first, per-student settings last: providers cache a
+  // repeated prompt prefix, and on Groq cached tokens don't count toward the free-tier limits.
   const parts = [BASE_POLICY];
   parts.push(opts.workedSolutions === false ? WORKED_SOLUTIONS_OFF : WORKED_SOLUTIONS_ON);
+  if (opts.privateFields) parts.push(PRIVATE_FIELDS);
+  parts.push(OUTPUT);
   if (opts.depth === "detailed") parts.push(DETAILED);
   if (opts.level && LEVEL_TEXT[opts.level]) parts.push(`
 LEARNER LEVEL
@@ -137,8 +141,6 @@ LEARNER LEVEL
   if (opts.style && STYLE_TEXT[opts.style]) parts.push(`
 REPLY LENGTH
 - ${STYLE_TEXT[opts.style]}`);
-  if (opts.privateFields) parts.push(PRIVATE_FIELDS);
-  parts.push(OUTPUT);
   if (opts.language && opts.language !== "auto") {
     parts.push(`\nREQUIRED LANGUAGE: The student chose ${opts.language}. Write every text field in ${opts.language}, whatever language the student writes in.`);
   }

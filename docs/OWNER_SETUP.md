@@ -49,6 +49,32 @@ The sign-in screen shows "Continue with Google" automatically as soon as Google 
   `update public.profiles set platform_role = 'admin' where email = 'YOUR_EMAIL';`
 - Email sign-in links for students: see section 5 (Resend).
 
+## Running at zero cost (early adopters)
+
+Menya runs entirely on free tiers today, and nothing in it can create a bill as long as:
+
+- **Groq** has no payment method on the account. Free limits apply *per model* (8,000 tokens/min,
+  200,000 tokens/day each). Menya uses three models in a chain — `gpt-oss-120b`, then
+  `qwen3.8-27b`, then `gpt-oss-20b` — so when one is busy the next answers. Groq doesn't count
+  cached prompt tokens toward these limits, and Menya's instructions are cached automatically.
+  When all three are busy, students see "Menya is very busy right now. Please try again in about
+  N seconds. Your message was not counted." That is the only effect: no charge.
+- **Supabase** stays on the Free plan. Free projects pause after a week without activity; the
+  *Keep backend awake* GitHub Action calls the API every 3 days to prevent that. (GitHub turns
+  scheduled actions off after 60 days without commits — push anything, or run it from the
+  Actions tab, to turn it back on.)
+- **No Anthropic key** is set. The Professional plan's "advanced reasoning" role is skipped
+  without one.
+- **GitHub Pages** and **GitHub Actions** are free for public repositories.
+
+Rough free capacity: ~600,000 tokens/day across the three models ≈ 250–500 tutor replies/day
+(more with caching), ≈ 10–25 replies/minute at peak. Enough for a few dozen active early
+adopters; each Free account is capped at 20 messages/day. Usage per model is in `usage_records`
+(Admin page), including `cached_input_tokens`.
+
+Things that *would* cost money, for later: a Groq paid tier (section 4), Supabase Pro ($25/month),
+a domain for email sign-in (section 5), an Anthropic key.
+
 ## 4. Enough AI capacity for real students (Groq)
 
 Groq's free tier allows about 200,000 tokens a day for `openai/gpt-oss-120b`. One tutor reply

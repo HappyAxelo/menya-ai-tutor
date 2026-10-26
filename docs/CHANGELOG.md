@@ -1,5 +1,22 @@
 # Change log
 
+## Zero-cost operation for early adopters (26 October 2026, branch `phase-a-stability`)
+
+Decision (owner): no paid services for now. Changes so the free tiers go further:
+
+- **Three-model free chain.** Groq's free limits are per model; when `gpt-oss-120b` is busy the
+  request goes to `qwen/qwen3.8-27b`, then `gpt-oss-20b` (all support strict JSON output). A
+  rate-limited model is not retried; the next one answers immediately.
+  *Files:* `router.ts`, `tutorService.ts`, migration `20261026000007_menya_free_capacity.sql`.
+- **Cache-friendly prompt.** Shared instructions first, per-student settings last, so Groq's automatic
+  prompt cache (not counted toward its limits) covers more of every request. `cached_input_tokens`
+  is now recorded per request to measure it. *Files:* `policy.ts`, `providers.ts`, `repo.ts`.
+- **Keep-alive.** `.github/workflows/keep-alive.yml` reads the database every 3 days so the free
+  Supabase project isn't paused.
+- **Docs.** `docs/OWNER_SETUP.md` "Running at zero cost"; roadmap updated.
+- **Tests:** backend 68/68 (2 new: hand-over without waiting; all three busy → wait message).
+- **Not deployed.** Needs approval: one migration, then the API, then the web app.
+
 ## Phase A — stability and safety (26 October 2026, branch `phase-a-stability`)
 
 Status: done in code and tested locally. **Not deployed**: the API change (time budget, rate-limit

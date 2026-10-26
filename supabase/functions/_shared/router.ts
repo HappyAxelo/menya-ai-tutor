@@ -7,11 +7,12 @@ import type { Difficulty } from "./policy.ts";
 
 export type RoutingPolicy = "free" | "pro" | "professional";
 
-// Roles each plan may ever use (including fallbacks).
+// Roles each plan may ever use (including fallbacks). "alt" is a different model with its
+// own free-tier allowance, used when the main one is busy or rate-limited.
 const ALLOWED_ROLES: Record<RoutingPolicy, string[]> = {
-  free: ["local_small", "small", "medium"],
-  pro: ["local_small", "small", "medium", "strong"],
-  professional: ["local_small", "small", "medium", "strong", "premium"],
+  free: ["local_small", "small", "medium", "alt"],
+  pro: ["local_small", "small", "medium", "alt", "strong"],
+  professional: ["local_small", "small", "medium", "alt", "strong", "premium"],
 };
 
 // Cheap, explainable signal; the model's own difficulty rating from the

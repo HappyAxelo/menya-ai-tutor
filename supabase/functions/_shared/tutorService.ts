@@ -172,7 +172,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   ];
 
   // Model call with bounded retries and fallbacks
-  let served: { candidate: RouteCandidate; reply: TutorReply; inputTokens: number; outputTokens: number; latencyMs: number; cost: number | null; rewrite: boolean } | null = null;
+  let served: { candidate: RouteCandidate; reply: TutorReply; inputTokens: number; outputTokens: number; latencyMs: number; cost: number | null; rewrite: boolean; cachedTokens: number } | null = null;
   let lastError: ProviderError | null = null;
   let attempts = 0;
   const deadline = now() + (deps.budgetMs ?? MODEL_BUDGET_MS);
@@ -188,12 +188,13 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         const res = await provider.chat(withinBudget(candidate.config), { system, messages, schema });
         const reply = parseTutorJson(res.text);
         let inputTokens = res.inputTokens ?? 0, outputTokens = res.outputTokens ?? 0, latencyMs = res.latencyMs;
+        let cachedTokens = res.cachedInputTokens ?? 0;
         if (!reply) { lastError = new ProviderError("bad_request", provider.name); break; }
         let cost = estimateCostUsd(candidate.config, res);
         // Models sometimes omit the private answer; fall back to the one remembered for this
         // session (not for a new practice question, whose answer is different).
         if (!reply.finalAnswer && rememberedAnswer && !newProblem) reply.finalAnswer = rememberedAnswer;
-        served = { candidate, reply, inputTokens, outputTokens, latencyMs, cost, rewrite: false };
+        served = { candidate, reply, inputTokens, outputTokens, latencyMs, cost, rewrite: false, cachedTokens };
 
         // Answer-leak guard (earned worked solutions are exempt)
         const earnedSolution = reply.type === "worked_solution" && ent.worked_solutions && !newProblem &&
@@ -207,6 +208,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             ] });
             rewritten = parseTutorJson(res2.text);
             inputTokens += res2.inputTokens ?? 0; outputTokens += res2.outputTokens ?? 0; latencyMs += res2.latencyMs;
+            cachedTokens += res2.cachedInputTokens ?? 0;
             const c2 = estimateCostUsd(candidate.config, res2);
             cost = cost != null && c2 != null ? cost + c2 : cost;
           } catch { /* fall through to the safe message */ }
@@ -214,12 +216,15 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
           const finalReply: TutorReply = stillLeaks
             ? { ...reply, type: "question", hintLevel: null, message: SAFE_FALLBACK[reply.language] ?? SAFE_FALLBACK.English }
             : { ...rewritten!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty };
-          served = { candidate, reply: finalReply, inputTokens, outputTokens, latencyMs, cost, rewrite: true };
+          served = { candidate, reply: finalReply, inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
         }
       } catch (err) {
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);
         log({ event: "provider_error", provider: provider.name, role: candidate.role, kind: lastError.kind, status: lastError.status });
         if (!lastError.retryable || lastError.kind === "cancelled") break;
+        // A rate-limited model won't recover in a few seconds: go straight to the next model,
+        // which has its own allowance.
+        if (lastError.kind === "rate_limited" && route.indexOf(candidate) < route.length - 1) break;
         const wait = Math.min(lastError.retryAfterMs ?? 500, 3000);
         if (tryNo === 0 && remaining() - wait >= MIN_CALL_MS) await sleep(wait);
       }
@@ -288,6 +293,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     request_id: input.requestId, user_id: userId, org_id: ent.org_id, plan_id: ent.plan_id,
     provider: candidate.config.provider, model: candidate.config.model, model_role: candidate.role, premium: candidate.premium,
     input_tokens: served.inputTokens, output_tokens: served.outputTokens, est_cost_usd: served.cost,
+    cached_input_tokens: served.cachedTokens,
     latency_ms: served.latencyMs, ttft_ms: null, status: "success",
     fallback_used: candidate.fallback || attempts > 1, answer_rewrite: served.rewrite, error_code: null,
   });

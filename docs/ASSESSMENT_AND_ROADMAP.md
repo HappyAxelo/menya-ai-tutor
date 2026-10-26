@@ -261,8 +261,10 @@ Effort is in engineer-days for one developer familiar with the code; ranges, not
 
 | Task | Problem | Evidence | Pri | Phase | User impact | Approach | Deps | Effort | Cost | Acceptance | Verification | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Groq paid tier | F1 | Groq limits | P0 | A | Tutor available to a class | Owner upgrade | — | 0.1 | Low (usage) | Limits page shows higher TPM | 20-user load test | Owner action |
-| Supabase Pro | F2 | Pricing page | P0 | A/B | No pause | Owner upgrade | — | 0.1 | $25/mo | Plan = Pro | Dashboard | Owner action |
+| Free capacity chain (no cost) | F1 | Groq limits are per model | P0 | A | More free capacity for early adopters | gpt-oss-120b → qwen3.8-27b → gpt-oss-20b; skip retries on a rate-limited model; cache-friendly prompt order | — | 0.5 | Free | Busy model hands over at once | 2 new tests | **Done in code; not deployed** |
+| Groq paid tier | F1 | Groq limits | P1 (when a class uses it) | B | Tutor available to a whole class | Owner upgrade | — | 0.1 | Low (usage) | Limits page shows higher TPM | 20-user load test | Deferred (owner: no costs yet) |
+| Keep-alive (no cost) | F2 | Pricing page | P0 | A | No pause on the free plan | Scheduled GitHub Action reads the DB every 3 days | — | 0.2 | Free | Project never paused | Workflow runs | **Added** |
+| Supabase Pro | F2 | Pricing page | P2 | C | Backups, no pause risk | Owner upgrade | — | 0.1 | $25/mo | Plan = Pro | Dashboard | Deferred (owner: no costs yet) |
 | Request deadline | F3 | tutorService | P1 | A | No charged-but-failed replies | Shared deadline; client 75 s | — | 0.5 | Free | Response < 60 s; quota released | 4 new tests (fail on old code, pass on new) | **Done in code; not deployed** |
 | Root prototype | F4 | App.jsx | P1 | A | Live site can't be overwritten by mistake | Resolve; delegate scripts | — | 0.3 | Free | Parses; root build = menya | esbuild parse + root `npm run build` | **Done** |
 | CI | F5 | none | P1 | A | Fewer regressions | GitHub Actions | — | 0.5 | Free | Green on push | GitHub Actions run 40302119332: 3/3 jobs passed | **Done** |
@@ -284,7 +286,9 @@ Effort is in engineer-days for one developer familiar with the code; ranges, not
 ## J. Final recommendation
 
 1. **Biggest problem:** capacity and availability, not code. On the free Groq and Supabase tiers, a
-   single class would exhaust the AI limit within a minute, and the backend pauses after a quiet week.
+   single class would exhaust one model's AI limit within a minute, and the backend pauses after a quiet
+   week. For early adopters this is handled at no cost (three-model free chain, prompt caching,
+   keep-alive); a whole class at once still needs a paid AI tier later.
 2. **Fix immediately:** upgrade Groq and Supabase (owner, ~$25/month + usage); the request time budget;
    the root prototype that can overwrite the live site; CI. (The code items are done in Phase A; the
    time-budget fix goes live only when the API is redeployed.)

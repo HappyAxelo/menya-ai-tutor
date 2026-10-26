@@ -343,6 +343,42 @@ describe("tutor pipeline", () => {
     assert.equal((first.body.reply as any).message.includes("3 A"), false, "the answer is still not revealed");
   });
 
+  test("free capacity: a rate-limited main model hands over to the next model at once", async () => {
+    const u = await createUser(db);
+    const seen: string[] = [];
+    const groq: ModelProvider = {
+      name: "groq",
+      async chat(config) {
+        seen.push(config.model);
+        if (config.model === "openai/gpt-oss-120b") throw new ProviderError("rate_limited", "groq", 429, 40_000);
+        return { text: reply(), inputTokens: 1900, outputTokens: 300, latencyMs: 10, ttftMs: null, cachedInputTokens: 1536 };
+      },
+      async health() { return { ok: true }; },
+    };
+    let slept = 0;
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq }, sleep: async (ms: number) => { slept += ms; } }, u, ask("What is 12 V across 4 ohm?"));
+    assert.equal(res.status, 200);
+    assert.deepEqual(seen, ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"], "no second try on the rate-limited model");
+    assert.equal(slept, 0, "no waiting before switching models");
+    const row = (await usage(u)).at(-1);
+    assert.equal(row.model, "qwen/qwen3.8-27b");
+    assert.equal(row.fallback_used, true);
+    assert.equal(row.cached_input_tokens, 1536, "cached prompt tokens are recorded");
+  });
+
+  test("free capacity: all three free models busy -> clear wait message, not counted", async () => {
+    const u = await createUser(db);
+    const seen: string[] = [];
+    const groq: ModelProvider = {
+      name: "groq",
+      async chat(config) { seen.push(config.model); throw new ProviderError("rate_limited", "groq", 429, 20_000); },
+      async health() { return { ok: true }; },
+    };
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq }, sleep: noSleep }, u, ask("What is 2 + 2?"));
+    assert.equal(res.body.error, "tutor_busy");
+    assert.deepEqual(seen.slice(0, 3), ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]);
+  });
+
   test("provider rate limit: the student is told how long to wait, and the message is not counted", async () => {
     const u = await createUser(db);
     const groq = fakeProvider("groq", () => new ProviderError("rate_limited", "groq", 429, 42_000));

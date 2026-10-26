@@ -30,6 +30,7 @@ export interface ChatRequest {
 export interface ChatResult {
   text: string;
   inputTokens: number | null;   // provider-reported
+  cachedInputTokens?: number | null; // part of inputTokens served from the provider's prompt cache
   outputTokens: number | null;  // provider-reported (includes hidden reasoning where the provider bills it)
   latencyMs: number;
   ttftMs: number | null;        // null: these calls are not streamed
@@ -132,6 +133,8 @@ export function openAICompatibleProvider(o: OpenAICompatibleOptions): ModelProvi
       return {
         text: data?.choices?.[0]?.message?.content ?? "",
         inputTokens: data?.usage?.prompt_tokens ?? null,
+        // Groq caches repeated prompt prefixes automatically; cached tokens don't count toward its rate limits.
+        cachedInputTokens: data?.usage?.prompt_tokens_details?.cached_tokens ?? null,
         outputTokens: data?.usage?.completion_tokens ?? null,
         latencyMs: Date.now() - started,
         ttftMs: null,
