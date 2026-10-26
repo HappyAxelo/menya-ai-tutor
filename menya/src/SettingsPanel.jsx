@@ -50,9 +50,9 @@ export default function SettingsPanel({
         <div className="mn-drawer-body">
           <section className="mn-settings-section">
             <h3><GraduationCap size={16} />Tutor</h3>
-            <Row stack label="Reply language" help="The language Menya answers in. Auto-detect replies in whatever language you write.">
+            <Row stack label="Reply language" help="Menya answers in the language you write in: Kinyarwanda, English, Français, Kiswahili and more. Pick one here only if you always want replies in that language.">
               <select className="mn-select-full" value={settings.language} onChange={e => update({ language: e.target.value })}>
-                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" ? "Auto-detect (match my language)" : l.label}</option>)}
+                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" ? "Match my language (recommended)" : `Always ${l.label}`}</option>)}
               </select>
             </Row>
             <Row stack label="Your level" help="Menya adjusts its vocabulary, examples and rigour.">

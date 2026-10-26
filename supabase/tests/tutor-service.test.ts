@@ -6,6 +6,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { freshDb, createUser, rpc } from "./db.ts";
 import { pgRepo } from "./pgRepo.ts";
 import { handleTutor } from "../functions/_shared/tutorService.ts";
+import { detectLanguage } from "../functions/_shared/policy.ts";
 import { ProviderError, type ModelProvider, type ChatRequest, type ModelConfig } from "../functions/_shared/providers.ts";
 import { matchesAnswer, revealsAnswer } from "../functions/_shared/answerGuard.ts";
 import { classifyDifficulty, planRoute } from "../functions/_shared/router.ts";
@@ -293,7 +294,7 @@ describe("tutor pipeline", () => {
     assert.equal((a1.body.reply as any).type, "question", "one attempt is not enough");
     const a2 = await handleTutor(deps, u, ask("Maybe 16 A? Please show me the solution.", { sessionId }));
     assert.equal((a2.body.reply as any).type, "worked_solution");
-    assert.match(groq.calls.at(-1)!.req.messages.at(-2)!.content, /student attempts so far 2/);
+    assert.ok(groq.calls.at(-1)!.req.messages.some(m => /student attempts so far 2/.test(m.content)), "the model is told about the two attempts");
   });
 
   test("time budget: a hanging provider gets a clean 503 inside the budget, quota released, usage recorded", async () => {
@@ -390,6 +391,35 @@ describe("tutor pipeline", () => {
     assert.match(String(res.body.message), /not counted/);
   });
 
+  test("language: a Kinyarwanda question in 'match my language' mode is answered in Kinyarwanda", async () => {
+    const u = await createUser(db);
+    const groq = fakeProvider("groq", () => reply({ language: "Kinyarwanda", message: "Ese uzi icyo guteranya bisobanura?" }));
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
+    const res = await handleTutor(deps, u, ask("rimwe guteranyaho rimwe ni kangahe?", { language: "auto" }));
+    assert.equal(res.status, 200);
+    const sent = groq.calls[0].req.messages;
+    assert.match(sent.at(-2)!.content, /written in Kinyarwanda.*reply in Kinyarwanda/);
+    assert.equal(sent.at(-1)!.content, "rimwe guteranyaho rimwe ni kangahe?");
+    assert.doesNotMatch(groq.calls[0].req.system, /CHOSEN LANGUAGE: The student chose/, "no forced language in auto mode");
+    const session = await db.query<any>("select language from public.tutoring_sessions where id = $1", [res.body.sessionId]);
+    assert.equal(session.rows[0].language, "Kinyarwanda");
+    // A hint later in the conversation asks for Kinyarwanda too.
+    await handleTutor(deps, u, { requestId: randomUUID(), action: "hint", sessionId: res.body.sessionId, language: "auto" });
+    assert.match(groq.calls.at(-1)!.req.messages.at(-1)!.content, /Reply in Kinyarwanda/);
+  });
+
+  test("language: a chosen language is kept, but the student can still ask to switch", async () => {
+    const u = await createUser(db);
+    const groq = fakeProvider("groq", () => reply());
+    await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep }, u,
+      ask("vuga ikinyarwanda", { language: "English" }));
+    const { system, messages } = groq.calls[0].req;
+    assert.match(system, /CHOSEN LANGUAGE: The student chose English[^\n]*unless the student's latest message explicitly asks for another language/);
+    assert.match(system, /vuga ikinyarwanda/, "the rules name the switch request");
+    assert.equal(messages.some(m => /APP NOTE\] The student's latest message is written in/.test(m.content)), false);
+    assert.match(messages.at(-2)!.content, /Reply in English, the student's chosen language\. The message is written in Kinyarwanda.*explicitly asks for another language/);
+  });
+
   test("a user cannot continue another user's session", async () => {
     const a = await createUser(db), b = await createUser(db);
     const groq = fakeProvider("groq", () => reply());
@@ -427,6 +457,22 @@ describe("tutor pipeline", () => {
     assert.equal((await handleTutor(deps, u, { requestId: "nope", message: "x" })).body.error, "invalid_request_id");
     assert.equal((await handleTutor(deps, u, ask("x".repeat(5000)))).body.error, "message_too_long");
     assert.equal((await handleTutor(deps, u, ask("hi", { language: "<script>" }))).body.error, "invalid_language");
+  });
+});
+
+describe("language detection", () => {
+  test("recognises Kinyarwanda, Kiswahili, French and English; unsure on numbers", () => {
+    const cases: [string, string | null][] = [
+      ["rimwe guteranyaho rimwe ni kangahe?", "Kinyarwanda"],
+      ["Imodoka igenda ibilometero 120 mu masaha 2. Umuvuduko wayo ni uwuhe?", "Kinyarwanda"],
+      ["vuga ikinyarwanda", "Kinyarwanda"],
+      ["Ese iyo nkubye 3 na 4 mbona angahe?", "Kinyarwanda"],
+      ["Kitu chenye uzito wa kilo 5 kinasukumwa kwa nguvu ya Newton 20. Mchapuko wake ni upi?", "Swahili"],
+      ["Comment dériver f(x) = x² · sin(x) ?", "French"],
+      ["A 12 V battery is connected across a 4 Ω resistor. How do I find the current?", "English"],
+      ["3 A", null], ["12/4", null], ["ohms law", null],
+    ];
+    for (const [text, lang] of cases) assert.equal(detectLanguage(text), lang, text);
   });
 });
 

@@ -6,7 +6,7 @@
 //   usage/cost record (+ learning event) → response
 // ============================================================
 import {
-  actionRequest, buildResponseSchema, buildSystemPrompt, hintRequest, problemNote, parseTutorJson, publicReply,
+  actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, hintRequest, languageNote, problemNote, parseTutorJson, publicReply,
   REWRITE_REQUEST, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
@@ -107,13 +107,19 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
 
   const ent: Entitlement = await repo.resolveEntitlement(userId);
 
+  // Language of what the student just wrote (null when unsure). In "auto" mode the
+  // reply follows it; the model is told explicitly, because on short messages in
+  // Kinyarwanda or Kiswahili it otherwise tends to answer in English.
+  const detected = input.action === "message" || input.action === "check" ? detectLanguage(input.message!) : null;
+  const followStudent = input.language === "auto";
+
   // Session (owned by this user only)
   let session: Session | null;
   if (input.sessionId) {
     session = await repo.getSession(userId, input.sessionId);
     if (!session) return { status: 404, body: { error: "session_not_found" } };
   } else {
-    session = await repo.createSession(userId, ent.org_id, (input.message ?? "").slice(0, 80), input.language === "auto" ? null : input.language!);
+    session = await repo.createSession(userId, ent.org_id, (input.message ?? "").slice(0, 80), followStudent ? detected : input.language!);
   }
   if (session.turn_count >= ent.max_session_turns) {
     return { status: 409, body: { error: "session_limit", message: "This session is at its length limit. Start a new problem to continue.",
@@ -123,7 +129,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     return { status: 409, body: { error: "hint_limit", message: "All 3 hints for this problem have been used." } };
   }
 
-  const lang = input.language !== "auto" ? input.language : session.language;
+  const lang = followStudent ? (detected ?? session.language) : input.language;
   const userContent = input.action === "message" ? input.message!
     : input.action === "hint" ? hintRequest(session.hints_used + 1, lang)
     : actionRequest(input.action, lang, input.message);
@@ -168,6 +174,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     ...history.map(m => ({ role: m.role, content: m.content })),
     ...(!newProblem && (session.hints_used > 0 || attemptsNow > 0)
       ? [{ role: "user" as const, content: problemNote({ hintsUsed: session.hints_used, attempts: attemptsNow, practice: session.practice }) }] : []),
+    ...(followStudent ? (detected ? [{ role: "user" as const, content: languageNote(detected) }] : [])
+      : (input.action === "message" || input.action === "check" ? [{ role: "user" as const, content: chosenLanguageNote(input.language!, detected) }] : [])),
     { role: "user", content: userContent },
   ];
 

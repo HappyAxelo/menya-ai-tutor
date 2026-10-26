@@ -57,7 +57,9 @@ TONE
 - Do not claim certainty you don't have. If you might be wrong, say so.
 
 LANGUAGE
-- Reply in the language of the student's latest message (or the required language below, if set), in every text field. Write naturally, like a good local teacher, never word-for-word from English. This includes low-resource languages such as Kinyarwanda, Kiswahili, Kirundi, Luganda, Amharic, Hausa, Yoruba and Zulu.
+- Unless a CHOSEN LANGUAGE is given at the end of these instructions, reply in the language of the student's latest message, in every text field: a question in Kinyarwanda gets a reply in Kinyarwanda, a question in French a reply in French. If the latest message has no clear language (only numbers, symbols or code), keep the conversation's language; if there is none yet, use English. Write naturally, like a good local teacher, never word-for-word from English. This includes low-resource languages such as Kinyarwanda, Kiswahili, Kirundi, Luganda, Amharic, Hausa, Yoruba and Zulu.
+- If the student asks for a language ("vuga ikinyarwanda", "en français s'il te plaît", "kwa Kiswahili", "in English please"), switch to it at once and keep using it.
+- Read the student's message in its own language. Do not reinterpret a question in an African language as a different question: "rimwe guteranyaho rimwe ni kangahe?" asks what one plus one is.
 - If a technical term has no common local equivalent, use the usual local term with the English term in parentheses once.
 - Keep notation, symbols, units and code universal (V = IR, f'(x), 12 V, O(log n)).
 - Formatting: the message is rendered as Markdown. Write maths in plain Unicode: x², x³, 2x·sin x, √2, π, θ, ∫, Σ, Δ, ≤, ≥, ≠, →, and fractions as a/b, e.g. "I = V/R = 12 V / 4 Ω". Never use backslashes or LaTeX commands (\\frac, \\cdot, \\( \\)): they get corrupted. Use **bold** sparingly for the key idea, short numbered lists (1. 2. 3.) only for steps, and inline code or code blocks for code. No headings, no emoji.
@@ -142,7 +144,7 @@ LEARNER LEVEL
 REPLY LENGTH
 - ${STYLE_TEXT[opts.style]}`);
   if (opts.language && opts.language !== "auto") {
-    parts.push(`\nREQUIRED LANGUAGE: The student chose ${opts.language}. Write every text field in ${opts.language}, whatever language the student writes in.`);
+    parts.push(`\nCHOSEN LANGUAGE: The student chose ${opts.language} in their settings. Write every text field in ${opts.language}, unless the student's latest message explicitly asks for another language; then use that one.`);
   }
   return parts.join("\n");
 }
@@ -238,4 +240,52 @@ export function parseTutorJson(raw: string): TutorReply | null {
 export function publicReply(r: TutorReply) {
   const { finalAnswer: _f, difficulty: _d, ...rest } = r;
   return rest;
+}
+
+// ------------------------------------------------------------
+// Language of a student's message, from common words. Only used to tell the
+// model explicitly which language to answer in ("auto" mode): models tend to
+// drift to English on short messages in Kinyarwanda or Kiswahili.
+// Returns null when unsure (short, numbers only, or mixed).
+// ------------------------------------------------------------
+const LANGUAGE_WORDS: Record<string, string[]> = {
+  Kinyarwanda: ["ese", "iki", "uwuhe", "iyihe", "irihe", "ayahe", "kangahe", "ingahe", "angahe", "gute", "ryari", "nde", "mbwira",
+    "nsobanurira", "sobanura", "nyamuneka", "murakoze", "muraho", "igisubizo", "ikibazo", "imibare", "kandi", "cyangwa", "niba", "ngo",
+    "yego", "oya", "vuga", "ikinyarwanda", "kinyarwanda", "rimwe", "kabiri", "gatatu", "kane", "gatanu", "umuvuduko", "ibilometero",
+    "amasaha", "isaha", "imodoka", "intera", "igihe", "ubu", "uko", "kubera", "ari", "ndi", "uri", "turi", "bari", "nka", "cyane", "ibyo",
+    "iyo", "uyu", "aya", "ibi", "iri", "nshaka", "ndashaka", "mfasha", "umbwire", "kubara", "ibisubizo", "inshuro", "ingufu"],
+  Swahili: ["je", "nini", "gani", "vipi", "kiasi", "tafadhali", "nisaidie", "eleza", "jibu", "swali", "kama", "hii", "hiyo", "kuna",
+    "ndiyo", "hapana", "sana", "kwamba", "lakini", "pia", "au", "kutoka", "mwendo", "mchapuko", "nguvu", "hesabu", "kwa", "ya", "wa",
+    "za", "cha", "kitu", "kiswahili", "asante", "habari", "nataka", "naomba", "ngapi", "jinsi", "kwanini", "ipi", "zipi"],
+  French: ["le", "la", "les", "des", "est", "une", "comment", "pourquoi", "quelle", "quel", "quels", "je", "tu", "vous", "avec", "pour",
+    "dans", "sur", "que", "qui", "calculer", "dériver", "résoudre", "aide", "aidez", "merci", "français", "combien", "c'est", "est-ce",
+    "du", "au", "aux", "mon", "ma", "mes", "explique", "expliquez", "trouver", "fonction", "vitesse", "courant"],
+  English: ["the", "is", "what", "how", "and", "of", "to", "find", "solve", "calculate", "please", "why", "which", "explain", "help",
+    "does", "do", "can", "you", "my", "this", "that", "with", "for", "are", "an", "if", "it", "in", "english"],
+};
+// Spelling patterns common in Kinyarwanda/Kirundi and rare in the others.
+const KINYARWANDA_PATTERN = /(cy|jy|shy|nyw|rw)[aeiou]|^(gu|ku)(ter|kub|gab|bar|sobanur)/;
+
+export function detectLanguage(text: string): string | null {
+  const words = (text.toLowerCase().match(/[\p{L}']+/gu) ?? []).filter(w => w.length > 1);
+  if (!words.length) return null;
+  const score: Record<string, number> = { Kinyarwanda: 0, Swahili: 0, French: 0, English: 0 };
+  for (const w of words) {
+    for (const [lang, list] of Object.entries(LANGUAGE_WORDS)) if (list.includes(w)) score[lang]++;
+    if (KINYARWANDA_PATTERN.test(w)) score.Kinyarwanda += 0.5;
+  }
+  if (/[éèêàçùâîô]/.test(text)) score.French += 1;
+  const [best, second] = Object.entries(score).sort((a, b) => b[1] - a[1]);
+  if (best[1] < 1.5 || best[1] - second[1] < 1) return null;
+  return best[0];
+}
+
+export function languageNote(language: string): string {
+  return `[APP NOTE] The student's latest message is written in ${language}. Understand it in ${language} and reply in ${language}.`;
+}
+
+// When the student picked a fixed reply language in settings.
+export function chosenLanguageNote(chosen: string, written?: string | null): string {
+  const reading = written && written !== chosen ? ` The message is written in ${written}: understand it in ${written}.` : "";
+  return `[APP NOTE] Reply in ${chosen}, the student's chosen language.${reading} Only if this message explicitly asks for another language, reply in that language instead.`;
 }

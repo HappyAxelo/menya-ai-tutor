@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 export const DEFAULT_SETTINGS = {
-  language: "English",      // default reply language; "auto" follows the learner's language
+  language: "auto",         // "auto": reply in the language the learner writes in (English when unclear)
   level: "undergraduate",   // secondary | undergraduate | postgraduate
   style: "balanced",        // concise | balanced | detailed
   theme: "system",          // system | light | dark
@@ -14,13 +14,23 @@ export const DEFAULT_SETTINGS = {
 };
 
 const KEY = "menya-settings";
+const VERSION = 2;
+
+// Version 1 defaulted the reply language to English, which made Menya answer
+// Kinyarwanda questions in English. Settings saved before version 2 with that
+// default move to "auto"; a language picked after this update is kept.
+export function migrateSettings(saved) {
+  if (!saved || typeof saved !== "object") return { ...DEFAULT_SETTINGS, v: VERSION };
+  const next = { ...DEFAULT_SETTINGS, ...saved, v: VERSION };
+  if ((saved.v ?? 1) < 2 && saved.language === "English") next.language = "auto";
+  return next;
+}
 
 function load() {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? "null");
-    return saved && typeof saved === "object" ? { ...DEFAULT_SETTINGS, ...saved } : DEFAULT_SETTINGS;
+    return migrateSettings(JSON.parse(localStorage.getItem(KEY) ?? "null"));
   } catch {
-    return DEFAULT_SETTINGS;
+    return { ...DEFAULT_SETTINGS, v: VERSION };
   }
 }
 
@@ -36,7 +46,7 @@ export function useSettings() {
   }, [settings]);
 
   const update = useCallback((patch) => setSettings(s => ({ ...s, ...patch })), []);
-  const reset = useCallback(() => setSettings(DEFAULT_SETTINGS), []);
+  const reset = useCallback(() => setSettings({ ...DEFAULT_SETTINGS, v: VERSION }), []);
   return [settings, update, reset];
 }
 

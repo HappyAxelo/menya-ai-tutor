@@ -1,5 +1,28 @@
 # Change log
 
+## Kinyarwanda questions answered in English (fix, 26 October 2026, branch `fix-kinyarwanda-replies`)
+
+**What was wrong.** The app's reply-language setting defaulted to "English" and was sent with every
+message as a *required* language, so the tutor answered Kinyarwanda in English and ignored "vuga
+ikinyarwanda". Live data: every saved conversation had language "English", including Kinyarwanda ones.
+
+**What changed.**
+- Default is now "Match my language": reply in the language the student writes in; English only when
+  unclear. Browsers that still had the old English default move to it automatically; a language picked
+  after this update is kept. (`menya/src/settings.js`, labels in `SettingsPanel.jsx`, `tutor.js`)
+- The server recognises Kinyarwanda, Kiswahili, French and English from common words
+  (`detectLanguage`, `policy.ts`) and tells the model explicitly which language the message is in.
+- A chosen language ("Always English") is kept per message, but an explicit request ("vuga
+  ikinyarwanda") switches. Rules also tell the model to read the message in its own language.
+- `supabase/dev/try-languages.ts` runs real conversations through the full pipeline to check this.
+
+**Tests.** Backend 71/71 (3 new), frontend 8/8 (1 new). Real model, full pipeline: "rimwe guteranyaho
+rimwe ni kangahe?" → Kinyarwanda, understood as 1 + 1; car-speed problem → Kinyarwanda through question,
+hint and confirmation; English chosen → English, then "vuga ikinyarwanda" → Kinyarwanda.
+
+**Still open.** Kinyarwanda wording quality needs a native speaker's review. The 1 + 1 reply stated the
+answer inside an explanation (concept-vs-problem routing, Phase B).
+
 ## Zero-cost operation for early adopters (26 October 2026, branch `phase-a-stability`)
 
 Decision (owner): no paid services for now. Changes so the free tiers go further:

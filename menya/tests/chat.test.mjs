@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { availableActions, groupByDay, historyToMessages, summarizeProgress, topicStatus } from "../src/lib/chat.js";
+import { migrateSettings } from "../src/settings.js";
 
 const ids = (a) => a.map(x => x.id);
 
@@ -72,4 +73,12 @@ test("history groups conversations by day, newest first", () => {
   assert.deepEqual(g.map(([l, items]) => [l, items.map(s => s.id)]),
     [["Today", [1, 2]], ["Yesterday", [3]], ["Previous 7 days", [4]], ["Older", [5]]]);
   assert.deepEqual(groupByDay([], now), []);
+});
+
+test("settings: the old English default becomes 'match my language'; a later choice is kept", () => {
+  assert.equal(migrateSettings(null).language, "auto", "new users match their language");
+  assert.equal(migrateSettings({ language: "English", theme: "dark" }).language, "auto", "old default moves to auto");
+  assert.equal(migrateSettings({ language: "English", theme: "dark" }).theme, "dark", "other settings kept");
+  assert.equal(migrateSettings({ language: "French" }).language, "French", "a real choice is kept");
+  assert.equal(migrateSettings({ language: "English", v: 2 }).language, "English", "English picked after the update is kept");
 });

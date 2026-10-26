@@ -17,7 +17,7 @@ export const MODEL = "openai/gpt-oss-120b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 export const LANGUAGES = [
-  { code: "auto", label: "Auto-detect" },
+  { code: "auto", label: "Match my language" },
   { code: "English", label: "English" },
   { code: "Kinyarwanda", label: "Kinyarwanda" },
   { code: "French", label: "Français" },
