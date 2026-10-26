@@ -5,7 +5,8 @@
 Decision (owner): no paid services for now. Changes so the free tiers go further:
 
 - **Three-model free chain.** Groq's free limits are per model; when `gpt-oss-120b` is busy the
-  request goes to `qwen/qwen3.8-27b`, then `gpt-oss-20b` (all support strict JSON output). A
+  request goes to `gpt-oss-20b`, then `qwen/qwen3.8-27b` (all support strict JSON output; qwen is
+  last because it failed to produce valid JSON in 2 of 5 eval conversations on 26 Oct). A
   rate-limited model is not retried; the next one answers immediately.
   *Files:* `router.ts`, `tutorService.ts`, migration `20261026000007_menya_free_capacity.sql`.
 - **Cache-friendly prompt.** Shared instructions first, per-student settings last, so Groq's automatic

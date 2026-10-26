@@ -2,21 +2,25 @@
 -- More capacity on free provider tiers. Groq's free limits are per model
 -- (8K tokens/min, 200K tokens/day each), so when the main model is busy the
 -- request moves to a different model with its own allowance:
---   medium (gpt-oss-120b) -> alt (qwen3.8-27b) -> small (gpt-oss-20b)
--- All three support strict JSON-schema output, which the tutor needs.
+--   medium (gpt-oss-120b) -> small (gpt-oss-20b) -> alt (qwen3.8-27b)
+-- All three support strict JSON-schema output, which the tutor needs. qwen is last:
+-- in the 26 Oct eval it failed to produce valid JSON in 2 of 5 conversations.
+-- (gpt-oss-20b sometimes omits the private answer; the session's remembered answer covers that.)
 -- Prices are Groq's published rates (26 Oct 2026); with no payment method on
 -- the Groq account nothing is charged.
 -- Also records cached prompt tokens (they don't count toward Groq's limits).
 -- Rollback: update public.model_configs set fallback_role = null where role = 'medium';
+--           update public.model_configs set fallback_role = 'medium' where role = 'small';
 --           delete from public.model_configs where role = 'alt';
 --           alter table public.usage_records drop column cached_input_tokens;
 -- ============================================================
 insert into public.model_configs (role, provider, model, enabled, is_premium, input_usd_per_mtok, output_usd_per_mtok,
                                   timeout_ms, max_output_tokens, options, fallback_role)
-values ('alt', 'groq', 'qwen/qwen3.8-27b', true, false, 0.80, 4.00, 45000, 2000, '{"reasoning_effort":"medium"}', 'small')
+values ('alt', 'groq', 'qwen/qwen3.8-27b', true, false, 0.80, 4.00, 45000, 2000, '{"reasoning_effort":"medium"}', null)
 on conflict (role) do nothing;
 
-update public.model_configs set fallback_role = 'alt', updated_at = now() where role = 'medium' and fallback_role is null;
+update public.model_configs set fallback_role = 'small', updated_at = now() where role = 'medium' and fallback_role is null;
+update public.model_configs set fallback_role = 'alt',   updated_at = now() where role = 'small'  and fallback_role = 'medium';
 
 alter table public.usage_records add column if not exists cached_input_tokens integer;
 

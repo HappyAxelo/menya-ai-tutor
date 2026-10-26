@@ -358,10 +358,10 @@ describe("tutor pipeline", () => {
     let slept = 0;
     const res = await handleTutor({ repo: pgRepo(db), providers: { groq }, sleep: async (ms: number) => { slept += ms; } }, u, ask("What is 12 V across 4 ohm?"));
     assert.equal(res.status, 200);
-    assert.deepEqual(seen, ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"], "no second try on the rate-limited model");
+    assert.deepEqual(seen, ["openai/gpt-oss-120b", "openai/gpt-oss-20b"], "no second try on the rate-limited model");
     assert.equal(slept, 0, "no waiting before switching models");
     const row = (await usage(u)).at(-1);
-    assert.equal(row.model, "qwen/qwen3.8-27b");
+    assert.equal(row.model, "openai/gpt-oss-20b");
     assert.equal(row.fallback_used, true);
     assert.equal(row.cached_input_tokens, 1536, "cached prompt tokens are recorded");
   });
@@ -376,7 +376,7 @@ describe("tutor pipeline", () => {
     };
     const res = await handleTutor({ repo: pgRepo(db), providers: { groq }, sleep: noSleep }, u, ask("What is 2 + 2?"));
     assert.equal(res.body.error, "tutor_busy");
-    assert.deepEqual(seen.slice(0, 3), ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]);
+    assert.deepEqual(seen.slice(0, 3), ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]);
   });
 
   test("provider rate limit: the student is told how long to wait, and the message is not counted", async () => {

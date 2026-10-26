@@ -97,3 +97,13 @@ Known limitation: once the model has committed to a convention in its own hints,
 defends it against a learner's equally valid one. The server-side check cannot catch this (it
 protects against leaking answers and against unearned progress, not against wrongly rejecting a
 correct answer). `EVAL_ONLY=Spanish npm run eval` re-runs just this case.
+
+## 26 October 2026 — free fallback model candidate
+
+`EVAL_MODELS=qwen/qwen3.8-27b` (Groq free tier). Kinyarwanda and Swahili runs were cut short by the
+free-tier rate limits (8K tokens/min); replies seen were sound (correct hint progression, the
+multiplication-instead-of-division mistake named without giving the value, specific confirmation).
+Completed cases: **3/5** — French, concept explanation (English) and missing-data passed; English and
+Spanish failed with Groq's "Failed to generate JSON" twice in a row (strict schema). Decision: qwen is the
+*last* fallback (`gpt-oss-120b` → `gpt-oss-20b` → `qwen3.8-27b`); a JSON failure there moves on or ends
+with the "busy, not counted" message, never a broken reply.

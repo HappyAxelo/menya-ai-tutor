@@ -55,7 +55,7 @@ Menya runs entirely on free tiers today, and nothing in it can create a bill as 
 
 - **Groq** has no payment method on the account. Free limits apply *per model* (8,000 tokens/min,
   200,000 tokens/day each). Menya uses three models in a chain — `gpt-oss-120b`, then
-  `qwen3.8-27b`, then `gpt-oss-20b` — so when one is busy the next answers. Groq doesn't count
+  `gpt-oss-20b`, then `qwen3.8-27b` — so when one is busy the next answers. Groq doesn't count
   cached prompt tokens toward these limits, and Menya's instructions are cached automatically.
   When all three are busy, students see "Menya is very busy right now. Please try again in about
   N seconds. Your message was not counted." That is the only effect: no charge.

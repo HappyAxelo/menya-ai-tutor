@@ -261,7 +261,7 @@ Effort is in engineer-days for one developer familiar with the code; ranges, not
 
 | Task | Problem | Evidence | Pri | Phase | User impact | Approach | Deps | Effort | Cost | Acceptance | Verification | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Free capacity chain (no cost) | F1 | Groq limits are per model | P0 | A | More free capacity for early adopters | gpt-oss-120b → qwen3.8-27b → gpt-oss-20b; skip retries on a rate-limited model; cache-friendly prompt order | — | 0.5 | Free | Busy model hands over at once | 2 new tests | **Done in code; not deployed** |
+| Free capacity chain (no cost) | F1 | Groq limits are per model | P0 | A | More free capacity for early adopters | gpt-oss-120b → gpt-oss-20b → qwen3.8-27b; skip retries on a rate-limited model; cache-friendly prompt order | — | 0.5 | Free | Busy model hands over at once | 2 new tests | **Done in code; not deployed** |
 | Groq paid tier | F1 | Groq limits | P1 (when a class uses it) | B | Tutor available to a whole class | Owner upgrade | — | 0.1 | Low (usage) | Limits page shows higher TPM | 20-user load test | Deferred (owner: no costs yet) |
 | Keep-alive (no cost) | F2 | Pricing page | P0 | A | No pause on the free plan | Scheduled GitHub Action reads the DB every 3 days | — | 0.2 | Free | Project never paused | Workflow runs | **Added** |
 | Supabase Pro | F2 | Pricing page | P2 | C | Backups, no pause risk | Owner upgrade | — | 0.1 | $25/mo | Plan = Pro | Dashboard | Deferred (owner: no costs yet) |
