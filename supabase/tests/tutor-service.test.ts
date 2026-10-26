@@ -296,6 +296,64 @@ describe("tutor pipeline", () => {
     assert.match(groq.calls.at(-1)!.req.messages.at(-2)!.content, /student attempts so far 2/);
   });
 
+  test("time budget: a hanging provider gets a clean 503 inside the budget, quota released, usage recorded", async () => {
+    const u = await createUser(db);
+    let clock = 0;
+    const timeouts: number[] = [];
+    // Simulates a provider that never answers: each call uses its whole timeout.
+    const hanging: ModelProvider = {
+      name: "groq",
+      async chat(config) { timeouts.push(config.timeout_ms); clock += config.timeout_ms; throw new ProviderError("timeout", "groq"); },
+      async health() { return { ok: true }; },
+    };
+    const deps = { repo: pgRepo(db), providers: { groq: hanging }, sleep: async (ms: number) => { clock += ms; }, now: () => clock };
+    const res = await handleTutor(deps, u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
+    assert.equal(res.status, 503);
+    assert.equal(res.body.error, "tutor_unavailable");
+    assert.ok(clock <= 50_000, `all model calls fit the 50 s budget (used ${clock} ms)`);
+    assert.ok(timeouts.every(t => t <= 45_000) && timeouts.length >= 1, `each call capped: ${timeouts}`);
+    const rows = await usage(u);
+    assert.equal(rows.at(-1).status, "timeout", "the failure is recorded");
+    const counters = await db.query<any>("select coalesce(sum(requests),0)::int as n from public.usage_counters where subject_type = 'user' and subject_id = $1", [u]);
+    assert.equal(counters.rows[0].n, 0, "the student's quota is given back");
+  });
+
+  test("time budget: slow strong model on Pro does not run past the budget", async () => {
+    const u = await createUser(db);
+    await subscribe(u, "pro");
+    let clock = 0;
+    const slow: ModelProvider = {
+      name: "groq",
+      async chat(config) { clock += config.timeout_ms; throw new ProviderError("timeout", "groq"); },
+      async health() { return { ok: true }; },
+    };
+    const deps = { repo: pgRepo(db), providers: { groq: slow }, sleep: async (ms: number) => { clock += ms; }, now: () => clock };
+    const res = await handleTutor(deps, u, ask("Prove by induction that the recurrence T(n) = 2T(n/2) + n has complexity O(n log n), deriving each step."));
+    assert.equal(res.status, 503);
+    assert.ok(clock <= 50_000, `strong + fallback stay inside the budget (used ${clock} ms)`);
+  });
+
+  test("time budget: no time left for a rewrite sends the safe message instead of a leak", async () => {
+    const u = await createUser(db);
+    let clock = 0;
+    const groq = fakeProvider("groq", () => { clock += 47_000; return reply({ type: "hint", message: "So I = 12/4 = 3 A." }); });
+    const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep, now: () => clock };
+    const first = await handleTutor(deps, u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
+    assert.equal(groq.calls.length, 1, "no rewrite call started without time for it");
+    assert.equal((first.body.reply as any).message.includes("3 A"), false, "the answer is still not revealed");
+  });
+
+  test("provider rate limit: the student is told how long to wait, and the message is not counted", async () => {
+    const u = await createUser(db);
+    const groq = fakeProvider("groq", () => new ProviderError("rate_limited", "groq", 429, 42_000));
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep }, u, ask("What is 2 + 2?"));
+    assert.equal(res.status, 503);
+    assert.equal(res.body.error, "tutor_busy");
+    assert.equal(res.body.retry_after_seconds, 42);
+    assert.match(String(res.body.message), /about 42 seconds/);
+    assert.match(String(res.body.message), /not counted/);
+  });
+
   test("a user cannot continue another user's session", async () => {
     const a = await createUser(db), b = await createUser(db);
     const groq = fakeProvider("groq", () => reply());

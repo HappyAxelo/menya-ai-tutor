@@ -30,7 +30,16 @@ export interface TutorDeps {
   providers: Record<string, ModelProvider>;
   sleep?: (ms: number) => Promise<void>;
   log?: (event: Record<string, unknown>) => void;
+  now?: () => number;      // injectable clock (tests)
+  budgetMs?: number;       // total time for all model calls in one request
 }
+
+// One deadline for every model call, retry and rewrite in a request. It stays well
+// under the browser's timeout (75 s) and the Edge Function wall-clock limit (150 s),
+// so a slow provider produces a clean "not counted" reply instead of a killed function
+// that has already consumed the student's quota.
+export const MODEL_BUDGET_MS = 50_000;
+const MIN_CALL_MS = 5_000; // don't start a call with less time than this
 
 export interface ServiceResponse { status: number; body: Record<string, unknown> }
 
@@ -89,6 +98,7 @@ function quotaError(reason: string, plan: string, retryAfter?: number): ServiceR
 export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unknown): Promise<ServiceResponse> {
   const { repo, providers } = deps;
   const sleep = deps.sleep ?? (ms => new Promise(r => setTimeout(r, ms)));
+  const now = deps.now ?? Date.now;
   const log = deps.log ?? (() => {});
 
   const maxChars = await repo.getSettingNumber("max_message_chars", 4000);
@@ -165,12 +175,17 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   let served: { candidate: RouteCandidate; reply: TutorReply; inputTokens: number; outputTokens: number; latencyMs: number; cost: number | null; rewrite: boolean } | null = null;
   let lastError: ProviderError | null = null;
   let attempts = 0;
+  const deadline = now() + (deps.budgetMs ?? MODEL_BUDGET_MS);
+  const remaining = () => deadline - now();
+  // The model config with its timeout capped to the time left in this request.
+  const withinBudget = (config: RouteCandidate["config"]) => ({ ...config, timeout_ms: Math.min(config.timeout_ms, remaining()) });
   for (const candidate of route) {
     const provider = providers[candidate.config.provider];
     for (let tryNo = 0; tryNo < 2 && !served; tryNo++) {
+      if (remaining() < MIN_CALL_MS) { lastError ??= new ProviderError("timeout", provider.name); break; }
       attempts++;
       try {
-        const res = await provider.chat(candidate.config, { system, messages, schema });
+        const res = await provider.chat(withinBudget(candidate.config), { system, messages, schema });
         const reply = parseTutorJson(res.text);
         let inputTokens = res.inputTokens ?? 0, outputTokens = res.outputTokens ?? 0, latencyMs = res.latencyMs;
         if (!reply) { lastError = new ProviderError("bad_request", provider.name); break; }
@@ -185,8 +200,9 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
           (session.hints_used >= 3 || attemptsNow >= 2 || session.solved);
         if (!earnedSolution && revealsAnswer(reply.message, reply.finalAnswer, studentTexts)) {
           let rewritten: TutorReply | null = null;
-          try {
-            const res2 = await provider.chat(candidate.config, { system, schema, messages: [
+          // No time left for a rewrite: the safe message below is sent instead.
+          if (remaining() >= MIN_CALL_MS) try {
+            const res2 = await provider.chat(withinBudget(candidate.config), { system, schema, messages: [
               ...messages, { role: "assistant", content: JSON.stringify(publicReply(reply)) }, { role: "user", content: REWRITE_REQUEST },
             ] });
             rewritten = parseTutorJson(res2.text);
@@ -204,7 +220,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);
         log({ event: "provider_error", provider: provider.name, role: candidate.role, kind: lastError.kind, status: lastError.status });
         if (!lastError.retryable || lastError.kind === "cancelled") break;
-        if (tryNo === 0) await sleep(Math.min(lastError.retryAfterMs ?? 500, 3000));
+        const wait = Math.min(lastError.retryAfterMs ?? 500, 3000);
+        if (tryNo === 0 && remaining() - wait >= MIN_CALL_MS) await sleep(wait);
       }
     }
     if (served) break;
@@ -219,6 +236,12 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       status: lastError?.kind === "timeout" ? "timeout" : lastError?.kind === "cancelled" ? "cancelled" : "error",
       fallback_used: attempts > 1, answer_rewrite: false, error_code: lastError?.kind ?? "unknown",
     });
+    if (lastError?.kind === "rate_limited") {
+      // The AI provider's own limit (not the student's plan): say how long to wait.
+      const retryAfter = Math.min(Math.max(Math.ceil((lastError.retryAfterMs ?? 30_000) / 1000), 5), 3600);
+      return { status: 503, body: { error: "tutor_busy", retry_after_seconds: retryAfter,
+        message: `Menya is very busy right now. Please try again in about ${retryAfter < 90 ? `${retryAfter} seconds` : `${Math.ceil(retryAfter / 60)} minutes`}. Your message was not counted.` } };
+    }
     return { status: 503, body: { error: "tutor_unavailable", message: "The tutor is temporarily unavailable. Your message was not counted. Please try again." } };
   }
 

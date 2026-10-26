@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test \"tests/**/*.test.ts\"",
-    "dev:local": "node dev/local-server.ts"
+    "dev:local": "node dev/local-server.ts",
+    "bundle:api": "node ../menya/node_modules/esbuild/bin/esbuild functions/api/index.ts --bundle --format=esm --platform=neutral --target=es2022 --external:@supabase/supabase-js --external:@anthropic-ai/sdk --legal-comments=none --outfile=dist/api/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",

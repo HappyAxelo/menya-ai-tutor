@@ -1,0 +1,65 @@
+# Checks every push and pull request. It never deploys: publishing stays a
+# deliberate, manual step (see docs/DEPLOYMENT.md).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No unresolved merge-conflict markers
+        run: |
+          if git grep -nE '^(<<<<<<<|=======|>>>>>>>)( |$)' -- . ':!*.lock' ':!**/package-lock.json'; then
+            echo "::error::Unresolved merge-conflict markers found"; exit 1
+          fi
+      - name: No provider secrets committed
+        run: |
+          if git grep -nE 'gsk_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|service_role"?\s*[:=]\s*"ey' -- . ':!.github/workflows/ci.yml'; then
+            echo "::error::Something that looks like a secret key is committed"; exit 1
+          fi
+
+  web:
+    name: Web app (menya/)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: menya
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: menya/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Built bundle contains no secrets
+        run: |
+          if grep -rlE 'gsk_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|service_role' dist; then
+            echo "::error::A secret ended up in the browser bundle"; exit 1
+          fi
+
+  backend:
+    name: Backend (supabase/)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: supabase
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: supabase/package-lock.json
+      - run: npm ci
+      - run: npm test

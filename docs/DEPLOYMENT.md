@@ -80,6 +80,12 @@ select cron.schedule('menya-purge', '15 3 * * *', $$select public.purge_old_mess
 
 - Schema: add a new file in `supabase/migrations/` (never edit an applied one), then `supabase db push`.
 - API: `supabase functions deploy api`.
+  Without the Supabase CLI: `cd supabase && npm run bundle:api` writes one self-contained file,
+  `supabase/dist/api/index.ts` (npm packages stay as imports, resolved by `functions/deno.json`).
+  Upload it as `index.ts` with `deno.json` as the import map and **verify_jwt off** (dashboard →
+  Edge Functions → api, or the Supabase MCP `deploy_edge_function`). Then check the deployed
+  source matches: download it (dashboard or `get_edge_function`) and compare with the bundle.
+  Deploy the API **before** a web app that depends on its new fields.
 - Limits, prices, model assignments: admin page or `admin_update_plan` / `admin_update_model`
   (audited). No redeploy needed; the API caches model configs for 60 s.
 

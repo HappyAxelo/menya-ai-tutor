@@ -1,0 +1,58 @@
+# Change log
+
+## Phase A — stability and safety (26 October 2026, branch `phase-a-stability`)
+
+Status: done in code and tested locally. **Not deployed**: the API change (time budget, rate-limit
+message) and the web change (75 s wait) go live only after approval.
+
+### What was wrong, why it mattered, what changed
+
+1. **Request time budget (F3).** The browser stopped waiting after 60 s, but the server could spend
+   2 × 45 s on Free (plus a rewrite call) and well over the Edge Function's 150 s limit on Pro and
+   Professional (strong model 2 × 60 s, then the medium model). A killed function had already
+   consumed the student's quota and wrote no usage record; the student saw "Not sent".
+   *Change:* one deadline per request (`MODEL_BUDGET_MS` = 50 s) shared by every model call, retry
+   and rewrite; each call's timeout is capped to the time left; no call starts with < 5 s left; if
+   there is no time for an answer-leak rewrite, the safe guiding message is sent instead. The browser
+   now waits 75 s for tutor requests.
+   *Files:* `supabase/functions/_shared/tutorService.ts`, `menya/src/lib/backend.js`.
+2. **Provider rate limits (F6).** When Groq refused for rate limits, students got a generic
+   "temporarily unavailable". *Change:* error `tutor_busy` with `retry_after_seconds` from the
+   provider and a message saying how long to wait; still "not counted", still retryable.
+   *File:* `tutorService.ts`.
+3. **Root prototype (F4).** The original single-file app at the repository root had three unresolved
+   merge-conflict blocks (`App.jsx` lines 157, 225, 298: a Groq-key screen vs an Anthropic-key screen),
+   failed to parse, called a retired Groq model, and its `npm run deploy` published to the same GitHub
+   Pages site as the product. *Change:* conflicts resolved keeping the Groq side (the only side
+   consistent with the file's own API calls), file marked as a legacy reference; root `package.json`
+   scripts now run `menya/` (dev, build, deploy) and both test suites; root lockfile removed (no root
+   dependencies). Nothing from the product was removed.
+   *Files:* `App.jsx`, `package.json`, `package-lock.json` (deleted).
+4. **CI (F5).** No automated checks existed. *Change:* `.github/workflows/ci.yml` runs on every push
+   and pull request: conflict-marker check, committed-secret check, web tests + build + bundle secret
+   scan, backend tests. It never deploys.
+5. **Reproducible API deploys.** The API had been deployed from a hand-made bundle. *Change:*
+   `npm run bundle:api` in `supabase/` produces it from the repo; `docs/DEPLOYMENT.md` explains the
+   upload and how to confirm the deployed source matches.
+6. **Assessment.** `docs/ASSESSMENT_AND_ROADMAP.md`: current state, findings register, architecture,
+   tutoring plan, security, testing, pilot design, cost model, roadmap, recommendation.
+
+### Tests executed (local, Windows, 26 Oct 2026)
+
+| Command | Result |
+|---|---|
+| `cd menya && npm ci && npm run build` | Build OK; bundle hash identical to the live site before changes |
+| `cd menya && npm test` (Node 26 and Node 24) | 7/7 pass |
+| `cd supabase && npm ci && npm test` (Node 26 and Node 24) | 66/66 pass (62 before + 4 new) |
+| New time-budget and rate-limit tests against the *old* `tutorService.ts` | 4/4 fail (tests detect the defect) |
+| `esbuild App.jsx` (root) | Parse error at line 157 before; parses after |
+| Root `npm run build`, `npm test` | Builds `menya/`; runs both suites |
+| CI hygiene steps simulated locally | Conflict markers: none; committed secrets: none; bundle secrets: none |
+| `npm audit --omit=dev` (menya) | 4 low (KaTeX `trust`-related; Menya leaves `trust` off). No change made |
+
+### Remaining risks after Phase A
+
+- Groq free tier (8K tokens/min) and Supabase Free (pauses after 7 idle days) — owner upgrades (P0).
+- Fixes 1–2 are not live until the API is redeployed; fix 1's browser half until the site is redeployed.
+- CI has not run on GitHub yet (runs on the first push of this branch).
+- No signed-in end-to-end test on the live site since the last deploy.

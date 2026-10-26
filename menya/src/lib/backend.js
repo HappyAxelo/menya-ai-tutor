@@ -100,7 +100,8 @@ export async function deleteSession(id) {
 export function backendTutorClient() {
   let sessionId = null;
   const call = async (body) => {
-    const r = await api("/tutor", { method: "POST", body: { requestId: crypto.randomUUID(), sessionId, ...body } });
+    // The server answers within ~55 s (MODEL_BUDGET_MS); wait a little longer than that.
+    const r = await api("/tutor", { method: "POST", timeoutMs: 75000, body: { requestId: crypto.randomUUID(), sessionId, ...body } });
     if (!r.ok) {
       // Plan limits (quota, session length, hints) get an upgrade/plan button; other failures don't.
       // Plan limits (quota, session length, hints) get a plan button; temporary failures get Retry.
