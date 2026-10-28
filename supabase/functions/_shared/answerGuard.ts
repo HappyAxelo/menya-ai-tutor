@@ -70,3 +70,12 @@ export function matchesAnswer(studentText: string, finalAnswer: string | null | 
   const target = normalizeMath(answer);
   return target.length > 0 && normalizeMath(studentText).includes(target);
 }
+
+// Does the student's final stated result (after their last "=", or the whole
+// message) equal the verified answer? Stricter than matchesAnswer, so a given
+// value quoted in a wrong working ("20 × 2 = 40") does not count.
+export function statesAnswer(studentText: string, finalAnswer: string | null | undefined): boolean {
+  if (!studentText) return false;
+  const last = studentText.includes("=") ? studentText.split("=").pop()! : studentText;
+  return matchesAnswer(last, finalAnswer);
+}

@@ -79,6 +79,7 @@ ACCURACY
   - correct → say clearly it is correct and why (type "affirmation"). Confirming what the student found is allowed.
   - wrong → say plainly it is not right yet, point to where it goes wrong (step, sign, unit, concept), and ask how to fix it (type "redirect"). Do NOT state the correct value or expression while correcting, not even as "X gives Y, not Z".
   - partly right → confirm the right part, then address the first mistake.
+- Any valid method counts. Judge the student's reasoning on its own terms, not by whether it follows your method (e.g. average speed × time instead of a kinematics formula, a ratio instead of an equation). If the method is valid and the result is right, it is correct: confirm it, and you may briefly mention another way.
 - Before calling an answer wrong, re-check your own solution and conventions against the student's method (off-by-one counts, rounding, units, an equivalent form). If the student is right and your earlier step was wrong, say so plainly and correct yourself.
 - If the question can reasonably be read more than one way (e.g. "steps" as halvings or as comparisons), an answer that is correct under a standard reading is correct: confirm it, and briefly explain how the other reading differs.
 - Never praise wrong reasoning. If data is missing or the problem is ambiguous, ask for it. If you are not sure about a fact, say so instead of guessing.
@@ -201,6 +202,10 @@ export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, 
       return `[SUMMARY] Summarise what the student has worked through in this conversation (type "summary"): the key ideas, the method, and any mistakes they corrected, in 3 to 5 short bullet points. Use only what actually happened in the conversation. If the problem is not solved yet, do not reveal its final answer; say what is left to do instead. Reply in ${lang}.`;
   }
 }
+
+// Sent when the student's final result equals the verified answer but the reply called it wrong.
+export const recheckRequest = (finalAnswer: string) =>
+  `[SECOND LOOK] The student's final result matches your verified answer (${finalAnswer}), yet your last reply treated it as wrong. Re-check their reasoning on its own terms: any valid method counts. If the method is valid, confirm the answer (type "affirmation", solved true) and sum up the key idea. If the right number came from genuinely wrong reasoning, point to that flaw without stating anything new. Same language, same JSON format.`;
 
 export const REWRITE_REQUEST = `[REWRITE] Your last reply revealed the final answer to the student's problem. Rewrite that reply so it guides the student to the next step without stating the final value or expression. Same language, same JSON format.`;
 

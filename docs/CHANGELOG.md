@@ -36,9 +36,14 @@ like a student typing; 64/67 automatic checks; 0 free-tier retries; replies in 1
 - The reply language held for every turn (English, Kinyarwanda, French chosen).
 - Questions about recent facts: no invented answers. Python release → "check python.org". President of
   Rwanda → correct name, and the tutor said it has no news after its training data.
-- **Problem found: a correct answer by a different method was rejected.** "Average speed 10 m/s × 2 s
-  = 20 m" is right, but the tutor insisted on its own formula. Fixing this needs a tutor-rules change
-  (backend) and a redeploy.
+- **Problem found and fixed: a correct answer by a different method was rejected.** "Average speed
+  10 m/s × 2 s = 20 m" is right, but the tutor insisted on its own formula. Fix (backend, needs the api
+  function redeployed): a rule that any valid method counts, plus a server check. When the student's final
+  result (after their last "=") equals the verified answer but the reply says "not right", the
+  tutor is asked once to re-check the method (`statesAnswer`, `recheckRequest`). A wrong working that
+  only quotes a given value ("20 × 2 = 40") does not trigger it. Rerun: the same turn is now confirmed
+  ("average speed (20 + 0)/2 = 10 m/s × 2 s = 20 m"); physics 28/28, all four conversations 65/67.
+  Backend tests 72/72 (1 new).
 - "Help me understand Ohm's law with 12 V and 4 Ω" was treated as a concept and answered with 3 A
   straight away (concept-vs-problem routing, already listed for Phase B).
 - The Kinyarwanda summary mixed "you" and "he/she" once: wording needs a native speaker's review.

@@ -7,10 +7,10 @@
 // ============================================================
 import {
   actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, hintRequest, languageNote, problemNote, parseTutorJson, publicReply,
-  REWRITE_REQUEST, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
+  REWRITE_REQUEST, recheckRequest, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
-import { matchesAnswer, revealsAnswer } from "./answerGuard.ts";
+import { matchesAnswer, revealsAnswer, statesAnswer } from "./answerGuard.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
@@ -225,6 +225,28 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             ? { ...reply, type: "question", hintLevel: null, message: SAFE_FALLBACK[reply.language] ?? SAFE_FALLBACK.English }
             : { ...rewritten!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty };
           served = { candidate, reply: finalReply, inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
+        }
+
+        // Second look: the student's final result is the verified answer but the reply
+        // called it wrong (models tend to reject a valid method that differs from theirs).
+        if (!served.rewrite && isAttempt && reply.type === "redirect" && !reply.solved && !newProblem &&
+            statesAnswer(input.message ?? "", reply.finalAnswer) && remaining() >= MIN_CALL_MS) {
+          try {
+            const res3 = await provider.chat(withinBudget(candidate.config), { system, schema, messages: [
+              ...messages, { role: "assistant", content: JSON.stringify(publicReply(reply)) },
+              { role: "user", content: recheckRequest(reply.finalAnswer) },
+            ] });
+            const second = parseTutorJson(res3.text);
+            inputTokens += res3.inputTokens ?? 0; outputTokens += res3.outputTokens ?? 0; latencyMs += res3.latencyMs;
+            cachedTokens += res3.cachedInputTokens ?? 0;
+            const c3 = estimateCostUsd(candidate.config, res3);
+            cost = cost != null && c3 != null ? cost + c3 : cost;
+            log({ event: "answer_recheck", changed: second?.type !== "redirect" });
+            if (second && !revealsAnswer(second.message, reply.finalAnswer, studentTexts)) {
+              served = { candidate, reply: { ...second, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty },
+                         inputTokens, outputTokens, latencyMs, cost, rewrite: false, cachedTokens };
+            }
+          } catch { /* keep the first reply */ }
         }
       } catch (err) {
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);

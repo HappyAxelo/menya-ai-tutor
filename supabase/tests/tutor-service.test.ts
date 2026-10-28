@@ -135,6 +135,30 @@ describe("tutor pipeline", () => {
     assert.equal((await usage(v))[0].status, "timeout");
   });
 
+  test("a right result by another method gets a second look and is confirmed; a wrong working does not", async () => {
+    const u = await createUser(db);
+    const deps = (p: ModelProvider) => ({ repo: pgRepo(db), providers: { groq: p }, sleep: noSleep });
+    const first = await handleTutor(deps(fakeProvider("groq", () => reply({ finalAnswer: "20 m" })).provider), u,
+      ask("A ball is thrown up at 20 m/s, g = 10 m/s². How high does it go?"));
+    const sessionId = first.body.sessionId;
+
+    // Wrong working that quotes a given value ("20"): no second look.
+    const strict = fakeProvider("groq", () => reply({ type: "redirect", message: "Check the second term.", finalAnswer: "20 m" }));
+    const wrong = await handleTutor(deps(strict.provider), u, ask("so the height is 20 × 2 = 40 m", { sessionId }));
+    assert.equal(strict.calls.length, 1);
+    assert.equal((wrong.body.problem as any).solved, false);
+
+    // Right result by average speed: the model first rejects it, the second look confirms it.
+    const model = fakeProvider("groq", (_c, req) => String(req.messages.at(-1)!.content).startsWith("[SECOND LOOK]")
+      ? reply({ type: "affirmation", solved: true, message: "Yes — average speed times time works here.", finalAnswer: "20 m", progressSummary: "Average speed × time gives the height." })
+      : reply({ type: "redirect", message: "Average speed is not how to find the height.", finalAnswer: "20 m" }));
+    const right = await handleTutor(deps(model.provider), u, ask("the average speed is 10 m/s, so 10 × 2 = 20 m", { sessionId }));
+    assert.equal(model.calls.length, 2);
+    assert.match(String(model.calls[1].req.messages.at(-1)!.content), /any valid method counts/);
+    assert.equal((right.body.reply as any).type, "affirmation");
+    assert.equal((right.body.problem as any).solved, true, "counted as a verified solve");
+  });
+
   test("a reply that reveals the answer is rewritten; if it still leaks a safe message is sent", async () => {
     const u = await createUser(db);
     let call = 0;
