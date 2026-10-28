@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/backend.js";
 import { C, Button, Field, inputStyle, Notice } from "./ui.jsx";
 import { BrandLockup } from "../Brand.jsx";
+import { Globe } from "lucide-react";
+import { useT } from "../i18n.js";
+import { useSettings } from "../settings.js";
+import { LANGUAGES } from "../tutor.js";
 
 // Only when the app points at the local development backend
 // (supabase/dev/local-server.ts). Never shown against a real Supabase project.
@@ -41,9 +45,11 @@ const GOOGLE_ICON = (
 // Sign-in: Google (primary) or a one-time email link. No passwords and no
 // API keys: the AI provider key is configured once by the owner, on the server.
 export default function AuthScreen({ inviteToken }) {
+  const { t } = useT();
+  const [settings, update] = useSettings();
   const [email, setEmail] = useState("");
   const [state, setState] = useState("idle"); // idle | sending | sent | error
-  const [error, setError] = useState("");
+  const [error, setError] = useState(""); // a translation key
   const [showEmail, setShowEmail] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(null); // null = checking
 
@@ -62,57 +68,65 @@ export default function AuthScreen({ inviteToken }) {
       provider: "google",
       options: { redirectTo: window.location.origin + window.location.pathname },
     });
-    if (err) setError("Google sign-in isn't available right now. Please try the email link instead.");
+    if (err) setError("auth.googleFailed");
   };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { setError("Please enter a valid email address."); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { setError("auth.invalidEmail"); return; }
     setState("sending"); setError("");
     const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: window.location.origin + window.location.pathname },
     });
-    if (err) { setState("error"); setError("We couldn't send the sign-in link. Please try again in a minute."); }
+    if (err) { setState("error"); setError("auth.sendFailed"); }
     else setState("sent");
   };
+  const [sentBefore, sentAfter] = t("auth.sent").split("{email}");
 
   return (
     <div className="mn-gate">
       <main className="mn-card">
+        <label className="mn-auth-lang">
+          <Globe size={14} aria-hidden="true" />
+          <span className="mn-sr">{t("auth.language")}</span>
+          <select value={settings.language} onChange={e => update({ language: e.target.value })} aria-label={t("auth.language")}>
+            {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" ? t("lang.match") : l.label}</option>)}
+          </select>
+        </label>
         <BrandLockup tagline={false} />
-        <h1 className="mn-auth-title">Work through problems, step by step</h1>
-        <p className="sub">Menya asks what you know, gives hints when you're stuck and explains when you ask. In English, Kinyarwanda, Français, Kiswahili and more.</p>
-        {inviteToken && <Notice kind="info">You've been invited to join your institution on Menya. Sign in with the email address the invitation was sent to.</Notice>}
+        <h1 className="mn-auth-title">{t("auth.title")}</h1>
+        <p className="sub">{t("auth.sub")}</p>
+        {inviteToken && <Notice kind="info">{t("auth.invite")}</Notice>}
         {googleEnabled && <Button onClick={google} variant="ghost" style={{ width: "100%", height: "46px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", fontSize: "14.5px", background: "#fff", color: "#1f1f1f", border: "1px solid #dadce0" }}>
-          {GOOGLE_ICON} Continue with Google
+          {GOOGLE_ICON} {t("auth.google")}
         </Button>}
-        {error && !emailOpen && <div style={{ marginTop: "12px" }}><Notice kind="error">{error}</Notice></div>}
+        {error && !emailOpen && <div style={{ marginTop: "12px" }}><Notice kind="error">{t(error)}</Notice></div>}
         {googleEnabled && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "18px 0 14px", color: C.faint, fontSize: "12px" }}>
-            <span style={{ flex: 1, height: "1px", background: C.border }} />or<span style={{ flex: 1, height: "1px", background: C.border }} />
+            <span style={{ flex: 1, height: "1px", background: C.border }} />{t("auth.or")}<span style={{ flex: 1, height: "1px", background: C.border }} />
           </div>
         )}
         {googleEnabled === null ? null : !emailOpen ? (
           <button onClick={() => setShowEmail(true)} style={{ display: "block", margin: "0 auto", background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: "13.5px" }}>
-            Use an email sign-in link instead
+            {t("auth.emailInstead")}
           </button>
         ) : state === "sent" ? (
-          <Notice kind="ok">Check your inbox: we sent a sign-in link to <strong>{email}</strong>. You can close this tab after clicking it.</Notice>
+          <Notice kind="ok">{sentBefore}<strong>{email}</strong>{sentAfter}</Notice>
         ) : (
           <form onSubmit={submit} noValidate>
-            <Field label="Email address">
-              <input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@university.edu" style={inputStyle} />
+            <Field label={t("auth.emailLabel")}>
+              <input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t("auth.emailPlaceholder")} style={inputStyle} />
             </Field>
-            {error && <Notice kind="error">{error}</Notice>}
+            {error && <Notice kind="error">{t(error)}</Notice>}
             <Button type="submit" disabled={state === "sending" || !email.trim()} style={{ width: "100%" }}>
-              {state === "sending" ? "Sending link…" : "Email me a sign-in link"}
+              {state === "sending" ? t("auth.sending") : t("auth.sendLink")}
             </Button>
           </form>
         )}
         <p className="mn-fine">
-          The Free plan needs no card. We use your name and email to create your account, and save your conversations so you can come back to them.{" "}
-          <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
+          {t("auth.fine")}{" "}
+          <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">{t("privacy")}</a>
         </p>
         {LOCAL_DEMO && <LocalDemoLogin />}
       </main>

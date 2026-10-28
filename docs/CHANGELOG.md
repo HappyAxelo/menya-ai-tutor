@@ -1,5 +1,51 @@
 # Change log
 
+## New logo, Claude-style welcome, whole interface in the chosen language (28 October 2026, branch `brand-welcome-i18n`)
+
+**Logo.** The owner's "m with a question mark" mark (the middle one of the three) is redrawn as SVG and
+used everywhere: header, chat avatar, sign-in, favicon, app icons (192/512/maskable/Apple), social
+preview image. Brand colour #251F8C, lighter #B3AEFF on dark backgrounds so the mark stays visible.
+Wordmark "Menya AI" in Nunito.
+
+**Welcome.** An empty chat now opens like Claude: a greeting for the time of day on the learner's own
+clock ("Good morning, Aline" 5–11, afternoon 12–16, evening 17–21, "Still up" 22–4, first name from the
+Google profile), "What are you working on today?", and the message box in the centre with the three
+starting points and subject examples underneath. After the first message the box moves to the bottom.
+The greeting updates every minute. On phones the page no longer opens scrolled past the greeting.
+
+**Language.** Changing the language now changes the whole interface, not only the tutor's replies:
+chat, buttons, hints counter, errors, settings, history, progress, account, plans and the sign-in
+page (which gained its own language picker). Full translations: English, Kinyarwanda, French,
+Kiswahili (about 250 strings each, `menya/src/locales.js`). With "Match my language" the interface
+follows the language of the current conversation, or the device language before the first message.
+Other reply languages keep the English interface. Server errors are shown in the interface language
+using their error codes. Staff-only pages (organisation, admin) stay in English.
+
+**Tests.** Frontend 16/16 (8 new: language choice, "match my language", greeting by hour, fallback,
+every locale has every string with the same {placeholders}, hints-left count). Backend 71/71.
+`supabase/dev/try-long-conversations.ts` runs long real-model conversations (results below).
+
+**Long real-model conversations (28 October 2026, 4 conversations, 32 turns, turns paced 12 s apart
+like a student typing; 64/67 automatic checks; 0 free-tier retries; replies in 1–4 s).**
+- Hints get more specific in order and never give the answer away: 1 names the idea (n = m/M; "use
+  the SUVAT formula"), 2 gives the formula with the values, 3 leaves only the last blank.
+- The context holds across 13 turns: the tutor still worked on the same problem and knew the earlier
+  steps (for example, "you used only the first term of s = ut + ½at²").
+- Wrong answers get a specific diagnosis: "multiply instead of divide" in French, "forgot to subtract 5"
+  in Kinyarwanda. Correct answers are confirmed and recorded as solved (Kinyarwanda, French).
+- The reply language held for every turn (English, Kinyarwanda, French chosen).
+- Questions about recent facts: no invented answers. Python release → "check python.org". President of
+  Rwanda → correct name, and the tutor said it has no news after its training data.
+- **Problem found: a correct answer by a different method was rejected.** "Average speed 10 m/s × 2 s
+  = 20 m" is right, but the tutor insisted on its own formula. Fixing this needs a tutor-rules change
+  (backend) and a redeploy.
+- "Help me understand Ohm's law with 12 V and 4 Ω" was treated as a concept and answered with 3 A
+  straight away (concept-vs-problem routing, already listed for Phase B).
+- The Kinyarwanda summary mixed "you" and "he/she" once: wording needs a native speaker's review.
+
+**Still open.** Translations need review by native speakers (Kinyarwanda first). The tutor has no
+internet access: it cannot know news or releases after its training data, and is instructed to say so.
+
 ## Kinyarwanda questions answered in English (fix, 26 October 2026, branch `fix-kinyarwanda-replies`)
 
 **What was wrong.** The app's reply-language setting defaulted to "English" and was sent with every

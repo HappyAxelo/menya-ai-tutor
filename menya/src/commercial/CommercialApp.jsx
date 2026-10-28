@@ -11,14 +11,20 @@ import AdminPage from "./AdminPage.jsx";
 import HistoryDrawer, { HistorySidebar } from "./HistoryDrawer.jsx";
 import ProgressPage from "./ProgressPage.jsx";
 import { Notice, ErrorBoundary } from "./ui.jsx";
+import { useT } from "../i18n.js";
 
-const PLAN_NAMES = { free: "Free", pro: "Pro", professional: "Professional" };
+// First name for the greeting, from the Google profile (or nothing).
+function firstName(user) {
+  const full = user?.user_metadata?.given_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "";
+  return String(full).trim().split(/\s+/)[0] || null;
+}
 
 export default function CommercialApp() {
   const [session, setSession] = useState(undefined); // undefined = still loading
   const [account, setAccount] = useState(null);
   const [page, setPage] = useState("tutor");
-  const [banner, setBanner] = useState(null);
+  const [banner, setBanner] = useState(null); // { kind, key }
+  const { t } = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [resume, setResume] = useState(null);
@@ -43,8 +49,8 @@ export default function CommercialApp() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const checkout = params.get("checkout");
-    if (checkout === "done") setBanner({ kind: "info", text: "Thanks! Your plan changes as soon as the payment provider confirms the payment, usually within a minute." });
-    if (checkout === "cancelled") setBanner({ kind: "warn", text: "Checkout was cancelled. You have not been charged." });
+    if (checkout === "done") setBanner({ kind: "info", key: "banner.checkoutDone" });
+    if (checkout === "cancelled") setBanner({ kind: "warn", key: "banner.checkoutCancelled" });
     if (params.has("invite") || params.has("checkout")) window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
@@ -52,7 +58,7 @@ export default function CommercialApp() {
   useEffect(() => {
     api("/health").then(r => {
       if (r.ok && r.data.tutorReady === false) {
-        setBanner({ kind: "warn", text: "Menya's tutor is still being set up, so replies aren't available yet. Please check back soon." });
+        setBanner({ kind: "warn", key: "banner.notReady" });
       }
     });
   }, []);
@@ -65,7 +71,7 @@ export default function CommercialApp() {
 
   const refresh = useCallback(async () => {
     try { setAccount(await getAccount()); }
-    catch { setBanner({ kind: "error", text: "Couldn't load your account. Some information may be out of date." }); }
+    catch { setBanner({ kind: "error", key: "banner.accountError" }); }
   }, []);
 
   useEffect(() => {
@@ -75,8 +81,8 @@ export default function CommercialApp() {
         const r = await api("/org/accept", { method: "POST", body: { token: inviteToken } });
         store.del("menya_invite");
         setBanner(r.ok
-          ? { kind: "ok", text: r.data.seat_assigned ? "You've joined your institution. Your institution's plan is now active." : "You've joined your institution. An administrator will assign you a seat." }
-          : { kind: "error", text: r.data.error === "invitation_for_another_email" ? "This invitation was sent to a different email address." : "This invitation is invalid or has expired." });
+          ? { kind: "ok", key: r.data.seat_assigned ? "banner.inviteSeat" : "banner.inviteNoSeat" }
+          : { kind: "error", key: r.data.error === "invitation_for_another_email" ? "banner.inviteWrongEmail" : "banner.inviteInvalid" });
       }
       refresh();
     })();
@@ -113,7 +119,7 @@ export default function CommercialApp() {
       setShowHistory(false); setPage("tutor");
     } catch {
       if (quiet) store.del("menya_current"); // e.g. deleted on another device
-      else setBanner({ kind: "error", text: "Couldn't open that conversation. Check your connection and try again." });
+      else setBanner({ kind: "error", key: "banner.openError" });
     }
     setOpening(null);
   }, []);
@@ -129,33 +135,34 @@ export default function CommercialApp() {
     onDeleted: (id) => { if (id === currentId) setNewChatKey(k => k + 1); },
   };
   const links = [
-    ["Account", () => setPage("account")],
-    ["Plans", () => setPage("pricing")],
-    ...(account?.org_admin_of?.length > 0 ? [["Institution", () => setPage("org")]] : []),
-    ...(account?.is_admin ? [["Admin", () => setPage("admin")]] : []),
-    ["Sign out", () => supabase.auth.signOut()],
+    [t("menu.account"), () => setPage("account")],
+    [t("menu.plans"), () => setPage("pricing")],
+    ...(account?.org_admin_of?.length > 0 ? [[t("menu.institution"), () => setPage("org")]] : []),
+    ...(account?.is_admin ? [[t("menu.admin"), () => setPage("admin")]] : []),
+    [t("menu.signOut"), () => supabase.auth.signOut()],
   ];
+  const planName = account ? t(`plan.${account.plan}`) : "";
   const daysLeft = account ? Math.max(account.limits.daily - account.used.daily, 0) : null;
   const nav = (
     <>
-      <button className="mn-btn mn-hide-lg" onClick={() => setShowHistory(true)} aria-label="History" title="Your conversations">
-        <HistoryIcon size={16} /><span className="mn-hide-md">History</span>
+      <button className="mn-btn mn-hide-lg" onClick={() => setShowHistory(true)} aria-label={t("header.history")} title={t("header.historyTitle")}>
+        <HistoryIcon size={16} /><span className="mn-hide-md">{t("header.history")}</span>
       </button>
-      <button className="mn-btn" onClick={() => setPage("progress")} aria-label="Progress" title="Progress">
-        <BarChart3 size={16} /><span className="mn-hide-md">Progress</span>
+      <button className="mn-btn" onClick={() => setPage("progress")} aria-label={t("header.progress")} title={t("header.progress")}>
+        <BarChart3 size={16} /><span className="mn-hide-md">{t("header.progress")}</span>
       </button>
       {account && (
-        <button onClick={() => setPage("account")} className="mn-pill mn-hide-sm" title="Messages left today on your plan">
-          {PLAN_NAMES[account.plan] ?? account.plan} · {daysLeft} left today
+        <button onClick={() => setPage("account")} className="mn-pill mn-hide-sm" title={t("header.planPillTitle")}>
+          {t("header.planPill", { plan: planName, n: daysLeft })}
         </button>
       )}
       <span className="mn-menu">
-        <button className="mn-btn icon" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label="Account menu"><Menu size={17} /></button>
+        <button className="mn-btn icon" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label={t("header.menu")}><Menu size={17} /></button>
         {menuOpen && (
           <>
             <div className="mn-menu-scrim" onClick={() => setMenuOpen(false)} />
             <div role="menu" className="mn-menu-list">
-              {account && <div className="mn-menu-note">{PLAN_NAMES[account.plan] ?? account.plan} plan · {daysLeft} messages left today</div>}
+              {account && <div className="mn-menu-note">{t("menu.note", { plan: planName, n: daysLeft })}</div>}
               {links.map(([label, act]) => (
                 <button key={label} role="menuitem" onClick={() => { setMenuOpen(false); act(); }}>{label}</button>
               ))}
@@ -171,14 +178,14 @@ export default function CommercialApp() {
       {banner && (
         <div className="mn-banner">
           <Notice kind={banner.kind}>
-            {banner.text} <button onClick={() => setBanner(null)} className="mn-link">Dismiss</button>
+            {t(banner.key)} <button onClick={() => setBanner(null)} className="mn-link">{t("banner.dismiss")}</button>
           </Notice>
         </div>
       )}
       {/* The tutor stays mounted so a conversation survives visiting other pages. */}
       <div style={{ display: page === "tutor" ? "block" : "none" }}>
         <AITutor client={client} headerExtras={nav} onUsage={onUsage} account={account} onNavigate={setPage} resume={resume}
-          onSessionChange={onSessionChange} newChatKey={newChatKey}
+          onSessionChange={onSessionChange} newChatKey={newChatKey} userName={firstName(session.user)}
           sidebar={<HistorySidebar {...historyProps} onNew={() => setNewChatKey(k => k + 1)} />} />
       </div>
       {showHistory && <HistoryDrawer onClose={() => setShowHistory(false)} {...historyProps} />}

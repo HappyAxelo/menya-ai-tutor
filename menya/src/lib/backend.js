@@ -33,7 +33,7 @@ export async function api(path, { method = "GET", body, timeoutMs = 60000 } = {}
       return { ok: false, status: 0, data: { error: "timeout", message: "This is taking much longer than usual, so we stopped waiting. Please try again." } };
     }
     const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-    return { ok: false, status: 0, data: { error: "network", message: offline
+    return { ok: false, status: 0, data: { error: offline ? "offline" : "network", message: offline
       ? "You're offline. Reconnect to the internet and try again."
       : "Couldn't reach Menya. Check your connection and try again." } };
   } finally {
@@ -103,11 +103,12 @@ export function backendTutorClient() {
     // The server answers within ~55 s (MODEL_BUDGET_MS); wait a little longer than that.
     const r = await api("/tutor", { method: "POST", timeoutMs: 75000, body: { requestId: crypto.randomUUID(), sessionId, ...body } });
     if (!r.ok) {
-      // Plan limits (quota, session length, hints) get an upgrade/plan button; other failures don't.
       // Plan limits (quota, session length, hints) get a plan button; temporary failures get Retry.
+      // The error code lets the app show the message in the learner's language.
       const isLimit = ["daily_limit", "monthly_limit", "premium_limit", "premium_not_included", "org_limit", "session_limit", "hint_limit"].includes(r.data.error);
       const retryable = r.status === 0 || r.status >= 500 || r.data.error === "rate_limited";
       return { ok: false, status: r.status, error: r.data.error, isLimit, retryable, upgradeTo: r.data.upgrade_to ?? null,
+               retryAfter: r.data.retry_after_seconds ?? null,
                message: r.data.message ?? "Something went wrong. Please try again." };
     }
     sessionId = r.data.sessionId;

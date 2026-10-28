@@ -3,6 +3,7 @@
 // page follows one design system and the light/dark theme.
 import { Component } from "react";
 import { ArrowLeft } from "lucide-react";
+import { useT } from "../i18n.js";
 
 // Keeps one failing page from blanking the whole app.
 export class ErrorBoundary extends Component {
@@ -11,12 +12,7 @@ export class ErrorBoundary extends Component {
   componentDidCatch(err) { console.error(err); }
   render() {
     if (!this.state.failed) return this.props.children;
-    return (
-      <main className="mn-page">
-        <Notice kind="error">This page hit an unexpected problem. Your account and data are safe.</Notice>
-        <Button variant="ghost" onClick={() => { this.setState({ failed: false }); this.props.onReset?.(); }}>Back to tutor</Button>
-      </main>
-    );
+    return <Crashed onBack={() => { this.setState({ failed: false }); this.props.onReset?.(); }} />;
   }
 }
 
@@ -28,10 +24,21 @@ export const C = {
 export const mono = "var(--font-mono)";
 export const serif = "var(--font-display)";
 
-export function Page({ title, subtitle, children, onBack }) {
+function Crashed({ onBack }) {
+  const { t } = useT();
   return (
     <main className="mn-page">
-      {onBack && <button onClick={onBack} className="mn-back"><ArrowLeft size={15} aria-hidden="true" />Back to tutor</button>}
+      <Notice kind="error">{t("page.crashed")}</Notice>
+      <Button variant="ghost" onClick={onBack}>{t("page.back")}</Button>
+    </main>
+  );
+}
+
+export function Page({ title, subtitle, children, onBack }) {
+  const { t } = useT();
+  return (
+    <main className="mn-page">
+      {onBack && <button onClick={onBack} className="mn-back"><ArrowLeft size={15} aria-hidden="true" />{t("page.back")}</button>}
       <h1>{title}</h1>
       {subtitle && <p className="mn-page-sub">{subtitle}</p>}
       {children}
@@ -56,13 +63,14 @@ export function Button({ children, onClick, variant = "primary", disabled, type 
 export const linkBtn = { background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: "13px", padding: 0, textDecoration: "underline" };
 
 export function Meter({ label, used, limit }) {
+  const { t } = useT();
   const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const left = Math.max(limit - used, 0);
   return (
     <div className="mn-meter" role="meter" aria-label={label} aria-valuenow={used} aria-valuemin={0} aria-valuemax={limit}>
       <div className="mn-meter-row">
         <span>{label}</span>
-        <span className={pct >= 90 ? "low" : ""}>{limit > 0 ? `${left} of ${limit} left` : "Not included"}</span>
+        <span className={pct >= 90 ? "low" : ""}>{limit > 0 ? t("meter.left", { left, limit }) : t("meter.none")}</span>
       </div>
       <div className="mn-bar-track"><div className={`mn-bar-fill${pct >= 90 ? " low" : ""}`} style={{ width: `${pct}%` }} /></div>
     </div>
@@ -87,8 +95,9 @@ export function Notice({ kind = "info", children }) {
   return <div role={kind === "error" ? "alert" : "status"} className={`mn-notice ${kind}`}>{children}</div>;
 }
 
-export function Loading({ label = "Loading…" }) {
-  return <div role="status" className="mn-loading">{label}</div>;
+export function Loading({ label }) {
+  const { t } = useT();
+  return <div role="status" className="mn-loading">{label ?? t("page.loading")}</div>;
 }
 
 export function Table({ columns, rows, empty = "Nothing here yet." }) {

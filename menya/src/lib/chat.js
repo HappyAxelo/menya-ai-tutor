@@ -18,7 +18,7 @@ export function availableActions({ hasConversation, loading, hintsUsed, problem,
   if (!hasConversation || loading || lastType === "error" || lastType === "limit") return [];
   const solved = Boolean(problem?.solved);
   const actions = [];
-  if (!solved && hintsUsed < 3) actions.push({ id: "hint", label: "Give me a hint", detail: `${3 - hintsUsed} left` });
+  if (!solved && hintsUsed < 3) actions.push({ id: "hint", label: "Give me a hint", detail: `${3 - hintsUsed} left`, left: 3 - hintsUsed });
   if (!solved) actions.push({ id: "simpler", label: "Explain more simply" });
   if (!solved) actions.push({ id: "example", label: "Show a worked example" });
   actions.push({ id: "practice", label: solved ? "Try a similar question" : "Give me a similar question", primary: solved });

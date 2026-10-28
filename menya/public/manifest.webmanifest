@@ -1,16 +1,33 @@
 {
-  "name": "Menya AI Tutor",
+  "name": "Menya AI",
   "short_name": "Menya",
-  "description": "Learn better. Think deeper. A tutor that guides you to answers with accurate, step-by-step hints, in your language.",
+  "description": "Work through problems step by step, with hints when you are stuck. In your language.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#000614",
-  "theme_color": "#000614",
+  "background_color": "#FFFFFF",
+  "theme_color": "#251F8C",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "menya-mark.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "menya-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
   ]
 }

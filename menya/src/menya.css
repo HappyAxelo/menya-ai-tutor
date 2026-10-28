@@ -3,7 +3,7 @@
    gradient appears only in the logo itself. Dark is the default; light
    follows the system setting or the in-app toggle (data-theme on <html>).
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Montserrat:wght@500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Nunito:wght@700;800&display=swap');
 
 :root {
   --bg: #050a17;
@@ -20,13 +20,15 @@
   --brand-1: #2a6cf3;
   --brand-2: #ec5a8c;
   /* The logo's gradient (docs/brand/menya-brand-board.webp) */
-  --brand: linear-gradient(120deg, #36b8ff 0%, #2a6cf3 28%, #8b4fd8 55%, #ec5a8c 80%, #fb9e5a 100%);
-  --font-brand: 'Montserrat', var(--font);
-  --accent: #7ea6ff;
-  --accent-soft: rgba(126, 166, 255, 0.13);
-  --ring: #7ea6ff;
-  --primary: #2a6cf3;
-  --primary-hover: #3b7bff;
+  --brand: #251F8C;           /* the logo's indigo */
+  --brand-tile: #2F28A8;      /* avatar tile on dark backgrounds */
+  --brand-ink: #B3AEFF;       /* the mark and wordmark on dark backgrounds */
+  --font-brand: 'Nunito', var(--font);
+  --accent: #B3AEFF;
+  --accent-soft: rgba(179, 174, 255, 0.13);
+  --ring: #B3AEFF;
+  --primary: #4B43D6;
+  --primary-hover: #5B53E6;
   --on-primary: #ffffff;
   --success: #34d399;
   --success-soft: rgba(52, 211, 153, 0.12);
@@ -49,8 +51,9 @@
   :root:not([data-theme="dark"]) {
     --bg: #f6f7fb; --bg-elev: #ffffff; --surface: #ffffff; --surface-2: #f1f3f9; --surface-3: #e8ecf5;
     --border: #e3e7f0; --border-strong: #cfd6e4; --text: #0f172a; --text-2: #334155; --muted: #536179; --faint: #6b788d;
-    --accent: #1f58d6; --accent-soft: rgba(31, 88, 214, 0.08); --ring: #1f58d6;
-    --primary: #2160e0; --primary-hover: #1a52c4;
+    --accent: #2B249E; --accent-soft: rgba(37, 31, 140, 0.08); --ring: #2B249E;
+    --brand-tile: #251F8C; --brand-ink: #251F8C;
+    --primary: #251F8C; --primary-hover: #1C1772;
     --success: #059669; --warn: #b45309; --danger: #dc2626; --info: #0284c7;
     --shadow-lg: 0 24px 60px -24px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(15, 23, 42, 0.04);
     --shadow-md: 0 10px 30px -14px rgba(15, 23, 42, 0.25);
@@ -60,8 +63,9 @@
 :root[data-theme="light"] {
   --bg: #f6f7fb; --bg-elev: #ffffff; --surface: #ffffff; --surface-2: #f1f3f9; --surface-3: #e8ecf5;
   --border: #e3e7f0; --border-strong: #cfd6e4; --text: #0f172a; --text-2: #334155; --muted: #536179; --faint: #6b788d;
-  --accent: #1f58d6; --accent-soft: rgba(31, 88, 214, 0.08); --ring: #1f58d6;
-  --primary: #2160e0; --primary-hover: #1a52c4;
+  --accent: #2B249E; --accent-soft: rgba(37, 31, 140, 0.08); --ring: #2B249E;
+  --brand-tile: #251F8C; --brand-ink: #251F8C;
+  --primary: #251F8C; --primary-hover: #1C1772;
   --success: #059669; --warn: #b45309; --danger: #dc2626; --info: #0284c7;
   --shadow-lg: 0 24px 60px -24px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(15, 23, 42, 0.04);
   --shadow-md: 0 10px 30px -14px rgba(15, 23, 42, 0.25);
@@ -110,7 +114,7 @@ a.mn-btn { text-decoration: none; justify-content: center; }
   color: #fff; font-size: 11px; display: inline-grid; place-items: center; font-weight: 600; }
 .mn-select { position: relative; display: inline-flex; align-items: center; }
 .mn-select select { appearance: none; height: 36px; padding: 0 30px 0 32px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text-2); font-size: 13px; cursor: pointer; max-width: 170px; }
+  background: var(--surface); color: var(--text-2); font-size: 13px; cursor: pointer; max-width: 230px; }
 .mn-select select:hover { border-color: var(--border-strong); }
 .mn-select .lead { position: absolute; left: 10px; pointer-events: none; color: var(--muted); }
 .mn-select .trail { position: absolute; right: 9px; pointer-events: none; color: var(--muted); }
@@ -125,21 +129,14 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 
 /* ---------- Brand ---------- */
 .mn-logo { display: block; flex: none; object-fit: contain; user-select: none; }
-.mn-avatar { flex: none; display: grid; place-items: center; border-radius: 30%; background: var(--brand);
+.mn-avatar { flex: none; display: grid; place-items: center; border-radius: 28%; background: var(--brand-tile); color: #fff;
   margin-top: 2px; }
-.mn-avatar img { width: 74%; height: 74%; object-fit: contain; }
-.mn-word { display: inline-flex; flex-direction: column; align-items: center; line-height: 1; font-family: var(--font-brand); color: var(--text); }
-.mn-word .name { font-weight: 600; letter-spacing: .12em; white-space: nowrap; }
-.mn-word .ai { background: linear-gradient(120deg, #8b4fd8, #ec5a8c 55%, #fb9e5a); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.mn-word .tutor { display: flex; align-items: center; gap: 6px; font-weight: 500; letter-spacing: .42em; color: var(--text-2); margin-top: 4px; padding-left: .42em; }
-.mn-word .tutor i { display: block; height: 1.5px; border-radius: 2px; flex: 1; min-width: 10px; }
-.mn-word .tutor i:first-child { background: linear-gradient(90deg, transparent, #2a6cf3, #8b4fd8); }
-.mn-word .tutor i:last-child { background: linear-gradient(90deg, #ec5a8c, #fb9e5a, transparent); }
-.mn-word.md .name { font-size: 16px; }
-.mn-word.md .tutor { font-size: 8.5px; }
-.mn-word.lg .name { font-size: 30px; }
-.mn-word.lg .tutor { font-size: 12px; margin-top: 8px; gap: 10px; }
-.mn-word.lg .tutor i { min-width: 40px; }
+.mn-mark-ink { display: inline-flex; color: var(--brand-ink); flex: none; }
+.mn-word { font-family: var(--font-brand); font-weight: 800; color: var(--brand-ink); letter-spacing: -0.01em;
+  white-space: nowrap; line-height: 1; }
+.mn-word .ai { color: var(--muted); }
+.mn-word.md { font-size: 20px; }
+.mn-word.lg { font-size: 34px; }
 .mn-lockup { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
 .mn-tagline { font-family: var(--font-brand); font-size: 11.5px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
 
@@ -488,3 +485,28 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .mn-history li.current .t { font-weight: 600; }
 .mn-history-del { opacity: .6; flex: none; }
 .mn-history li:hover .mn-history-del, .mn-history-del:focus-visible { opacity: 1; }
+
+/* ---------- Welcome (new conversation) ---------- */
+.mn-welcome { max-width: 720px; margin: 0 auto; padding: clamp(16px, 14vh, 140px) 0 24px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.mn-greeting { display: flex; align-items: center; justify-content: center; gap: 14px; font-family: var(--font-display);
+  font-size: clamp(28px, 4.4vw, 42px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 6px; color: var(--text); }
+.mn-greeting .mn-mark-ink { margin-top: 4px; }
+.mn-welcome .mn-hero-sub { margin-bottom: 18px; color: var(--muted); font-size: 16px; }
+.mn-welcome-composer { width: 100%; margin-bottom: 16px; text-align: left; }
+.mn-welcome-composer .mn-composer { max-width: none; }
+.mn-welcome-composer .mn-composer textarea { min-height: 52px; }
+.mn-welcome .mn-intents { justify-content: center; margin-bottom: 18px; }
+.mn-welcome .mn-subjects { display: flex; flex-direction: column; align-items: center; }
+.mn-welcome .mn-subject-row { justify-content: center; }
+.mn-welcome .mn-examples { width: 100%; text-align: left; }
+.mn-welcome .mn-intro { text-align: left; margin-top: 4px; }
+.mn-welcome .mn-data-note { margin-top: 6px; max-width: 560px; }
+.mn-app.is-empty .mn-thread-inner { padding-bottom: 32px; }
+@media (max-width: 720px) {
+  .mn-greeting { flex-direction: column; gap: 8px; }
+  .mn-greeting .mn-mark-ink svg { width: 32px; height: auto; }
+}
+.mn-card { position: relative; }
+.mn-auth-lang { position: absolute; top: 14px; right: 14px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.mn-auth-lang select { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 8px;
+  height: 30px; padding: 0 8px; font-size: 13px; cursor: pointer; }

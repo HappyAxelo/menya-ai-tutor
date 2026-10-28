@@ -9,6 +9,7 @@ import SettingsPanel from "./SettingsPanel.jsx";
 import PlansView from "./PlansView.jsx";
 import { callTutor, actionRequest, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
 import { ACTION_LABELS, availableActions } from "./lib/chat.js";
+import { useT, greeting, setConversationLanguage } from "./i18n.js";
 // The Markdown + maths renderer is a separate download, fetched while the
 // first reply is being prepared, so the first screen stays light.
 const loadMarkdown = () => import("./Markdown.jsx");
@@ -16,38 +17,26 @@ const Markdown = lazy(loadMarkdown);
 import { BrandMark, BrandAvatar, BrandLockup, Wordmark } from "./Brand.jsx";
 import "./menya.css";
 
-// Example questions per subject. Clicking one sends it as the student's question.
-const SUBJECTS = {
-  Maths: ["How do I differentiate f(x) = x² · sin(x)?", "Solve 2x + 7 = 19 and explain each step."],
-  Physics: ["A car goes from 0 to 20 m/s in 5 s. What is its acceleration?", "Why does a heavier object not fall faster in a vacuum?"],
-  Chemistry: ["How many moles are in 36 g of water?", "What is the difference between ionic and covalent bonds?"],
-  Biology: ["Explain how osmosis differs from diffusion.", "Quiz me on the stages of mitosis."],
-  "Computer science": ["Why does this never stop? def f(n): return n * f(n - 1)", "What does O(log n) mean, with an example?"],
-  "Electrical eng.": ["A 12 V battery is connected across a 4 Ω resistor. How do I find the current?", "Explain Kirchhoff's current law."],
-};
+// Subjects with example questions (text in locales.js). Clicking one sends it.
+const SUBJECTS = ["maths", "physics", "chemistry", "biology", "cs", "ee"];
 
 // Shortcuts that start the student's message; they finish it in their own words.
 const INTENTS = [
-  { label: "Explain a concept", prefix: "Explain this concept: ", icon: BookOpen },
-  { label: "Help me solve a problem", prefix: "Help me solve this problem: ", icon: GraduationCap },
-  { label: "Quiz me on a topic", prefix: "Quiz me on ", icon: HelpCircle },
+  { id: "explain", icon: BookOpen },
+  { id: "solve", icon: GraduationCap },
+  { id: "quiz", icon: HelpCircle },
 ];
 
 const REPLY_STYLE = {
-  question:        { label: "Your turn", icon: HelpCircle, cls: "" },
-  affirmation:     { label: "Correct", icon: CheckCircle2, cls: "ok" },
-  hint:            { label: "Hint", icon: Lightbulb, cls: "hint" },
-  redirect:        { label: "Not quite yet", icon: RotateCcw, cls: "redirect" },
-  summary:         { label: "Summary", icon: Flag, cls: "info" },
-  explanation:     { label: "Explanation", icon: BookOpen, cls: "info" },
-  worked_solution: { label: "Worked solution", icon: GraduationCap, cls: "ok" },
-  limit:           { label: "Plan limit", icon: TriangleAlert, cls: "hint" },
-  error:           { label: "Not sent", icon: TriangleAlert, cls: "redirect" },
-};
-
-const LOADING_LABEL = {
-  message: "Thinking", hint: "Preparing a hint", simpler: "Rephrasing", example: "Working through an example",
-  check: "Checking your answer", practice: "Writing a practice question", summary: "Summarising",
+  question:        { icon: HelpCircle, cls: "" },
+  affirmation:     { icon: CheckCircle2, cls: "ok" },
+  hint:            { icon: Lightbulb, cls: "hint" },
+  redirect:        { icon: RotateCcw, cls: "redirect" },
+  summary:         { icon: Flag, cls: "info" },
+  explanation:     { icon: BookOpen, cls: "info" },
+  worked_solution: { icon: GraduationCap, cls: "ok" },
+  limit:           { icon: TriangleAlert, cls: "hint" },
+  error:           { icon: TriangleAlert, cls: "redirect" },
 };
 
 const INTRO_KEY = "menya-intro-dismissed";
@@ -62,6 +51,23 @@ function useOnline() {
     return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); };
   }, []);
   return online;
+}
+
+// The current hour, refreshed every minute, so the greeting follows the clock.
+function useHour() {
+  const [hour, setHour] = useState(() => new Date().getHours());
+  useEffect(() => {
+    const id = setInterval(() => setHour(new Date().getHours()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return hour;
+}
+
+// A server error code -> the learner's language; the server's English text otherwise.
+function errorText(t, code, fallback, vars) {
+  const key = `err.${code}`;
+  const text = code ? t(key, vars) : key;
+  return text === key ? (fallback || t("err.generic")) : text;
 }
 
 // ============================================================
@@ -133,13 +139,14 @@ function useReveal(text, animate) {
 }
 
 function UserMessage({ msg }) {
+  const { t } = useT();
   if (msg.control && msg.control !== "check") {
-    return <div className="mn-msg user"><div className="mn-user-action">{msg.content}</div></div>;
+    return <div className="mn-msg user"><div className="mn-user-action">{t(`action.${msg.control}`)}</div></div>;
   }
   return (
     <div className="mn-msg user">
       <div className="mn-user-bubble" dir="auto">
-        {msg.control === "check" && <span className="mn-user-label"><ClipboardCheck size={13} />Check my answer</span>}
+        {msg.control === "check" && <span className="mn-user-label"><ClipboardCheck size={13} />{t("action.check")}</span>}
         {msg.content}
       </div>
     </div>
@@ -147,10 +154,13 @@ function UserMessage({ msg }) {
 }
 
 function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisabled }) {
+  const { t } = useT();
   const shown = useReveal(msg.content, animate);
   const done = shown === msg.content;
   const [copied, setCopied] = useState(false);
-  const style = msg.solved ? { label: "Correct — answer checked", icon: CheckCircle2, cls: "ok" } : REPLY_STYLE[msg.type] ?? REPLY_STYLE.question;
+  const style = msg.solved ? { icon: CheckCircle2, cls: "ok" } : REPLY_STYLE[msg.type] ?? REPLY_STYLE.question;
+  const label = msg.solved ? t("chip.solved") : msg.type === "hint" ? t("chip.hint", { n: msg.hintLevel || 1 })
+    : t(`chip.${REPLY_STYLE[msg.type] ? msg.type : "question"}`);
   const Icon = style.icon;
   const plain = msg.type === "error" || msg.type === "limit";
 
@@ -164,7 +174,7 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
       <div className="mn-assistant">
         <div className={`mn-chip ${style.cls}`}>
           <Icon size={13} strokeWidth={2.4} aria-hidden="true" />
-          {msg.type === "hint" && !msg.solved ? `Hint ${msg.hintLevel || 1} of 3` : style.label}
+          {label}
         </div>
         <div className="mn-content" dir="auto">
           {plain ? <p>{shown}</p> : <Suspense fallback={<p style={{ whiteSpace: "pre-wrap" }}>{shown}</p>}><Markdown>{shown}</Markdown></Suspense>}
@@ -172,24 +182,24 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
         {done && (
           <>
             {msg.misconceptionDetected && (
-              <div className="mn-callout warn"><TriangleAlert size={16} aria-hidden="true" /><div><b>Watch out for this</b>{msg.misconceptionDetected}</div></div>
+              <div className="mn-callout warn"><TriangleAlert size={16} aria-hidden="true" /><div><b>{t("callout.misconception")}</b>{msg.misconceptionDetected}</div></div>
             )}
             {msg.progressSummary && (
-              <div className="mn-callout ok"><Flag size={16} aria-hidden="true" /><div><b>Key idea</b>{msg.progressSummary}</div></div>
+              <div className="mn-callout ok"><Flag size={16} aria-hidden="true" /><div><b>{t("callout.keyIdea")}</b>{msg.progressSummary}</div></div>
             )}
             {msg.type === "limit" && (
-              <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={onPlans}>{msg.upgradeTo ? "Compare plans" : "View your plan"}</button>
+              <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={onPlans}>{msg.upgradeTo ? t("msg.comparePlans") : t("msg.viewPlan")}</button>
             )}
             {msg.type === "error" && msg.retry && (
-              <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={() => onRetry(msg.retry)} disabled={retryDisabled}><RotateCcw size={14} />Try again</button>
+              <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={() => onRetry(msg.retry)} disabled={retryDisabled}><RotateCcw size={14} />{t("msg.tryAgain")}</button>
             )}
             {showTags && msg.conceptsDetected?.length > 0 && (
-              <div className="mn-tags" aria-label="Topics">{msg.conceptsDetected.map((c, i) => <span key={i} className="mn-tag-chip">{c}</span>)}</div>
+              <div className="mn-tags" aria-label={t("msg.topics")}>{msg.conceptsDetected.map((c, i) => <span key={i} className="mn-tag-chip">{c}</span>)}</div>
             )}
-            {msg.advanced && <div className="mn-advanced"><Sparkles size={12} aria-hidden="true" /> Advanced reasoning used</div>}
+            {msg.advanced && <div className="mn-advanced"><Sparkles size={12} aria-hidden="true" /> {t("msg.advanced")}</div>}
             {!plain && (
               <div className="mn-msg-actions">
-                <button className="mn-btn" onClick={copy} aria-label="Copy reply">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy"}</button>
+                <button className="mn-btn" onClick={copy} aria-label={t("msg.copyAria")}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? t("msg.copied") : t("msg.copy")}</button>
               </div>
             )}
           </>
@@ -200,62 +210,68 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
 }
 
 function ActionBar({ actions, onAction }) {
+  const { t } = useT();
   if (!actions.length) return null;
   return (
-    <div className="mn-action-bar" role="group" aria-label="Next steps">
+    <div className="mn-action-bar" role="group" aria-label={t("msg.nextSteps")}>
       {actions.map(a => (
         <button key={a.id} className={`mn-action${a.primary ? " primary" : ""}`} onClick={() => onAction(a.id)}>
           {a.id === "hint" && <Lightbulb size={14} aria-hidden="true" />}
-          {a.label}
-          {a.detail && <span className="mn-action-detail">{a.detail}</span>}
+          {t(a.id === "practice" && a.primary ? "next.practiceSolved" : `next.${a.id}`)}
+          {a.left != null && <span className="mn-action-detail">{t("next.hintsLeft", { n: a.left })}</span>}
         </button>
       ))}
     </div>
   );
 }
 
-function EmptyState({ client, onExample, onIntent, introOpen, onDismissIntro }) {
+// The new-conversation screen: greeting for the time of day, the input in the
+// middle, then shortcuts and examples underneath (the way Claude welcomes you).
+function Welcome({ client, userName, composer, onExample, onIntent, introOpen, onDismissIntro }) {
+  const { t, lang } = useT();
+  const hour = useHour();
   const [subject, setSubject] = useState(null);
   return (
-    <section className="mn-hero">
-      <h1>What are you working on?</h1>
-      <p className="mn-hero-sub">Type a question or paste a problem, in any language. Menya works through it with you.</p>
-
-      {introOpen && (
-        <div className="mn-intro" role="note" aria-label="How Menya works">
-          <ul>
-            <li><b>It asks before it tells.</b> You'll be asked what you know and what you'd try first.</li>
-            <li><b>Hints when you're stuck.</b> Up to three per problem, each more specific than the last.</li>
-            <li><b>Explanations when you ask.</b> Simpler wording, a worked example, or the full solution once you've had a real go.</li>
-          </ul>
-          <button className="mn-btn" onClick={onDismissIntro}>Got it</button>
-        </div>
-      )}
+    <section className="mn-welcome">
+      <h1 className="mn-greeting"><BrandMark size={40} /><span>{greeting(lang, hour, userName)}</span></h1>
+      <p className="mn-hero-sub">{t("welcome.sub")}</p>
+      {composer}
 
       <div className="mn-intents">
-        {INTENTS.map(({ label, prefix, icon: Icon }) => (
-          <button key={label} className="mn-intent" onClick={() => onIntent(prefix)}><Icon size={16} aria-hidden="true" />{label}</button>
+        {INTENTS.map(({ id, icon: Icon }) => (
+          <button key={id} className="mn-intent" onClick={() => onIntent(t(`intent.${id}.prefix`))}><Icon size={16} aria-hidden="true" />{t(`intent.${id}`)}</button>
         ))}
       </div>
 
       <div className="mn-subjects">
-        <div className="mn-section-label" id="mn-subjects-label">Or pick a subject for an example</div>
+        <div className="mn-section-label" id="mn-subjects-label">{t("subjects.label")}</div>
         <div className="mn-subject-row" role="group" aria-labelledby="mn-subjects-label">
-          {Object.keys(SUBJECTS).map(s => (
-            <button key={s} className="mn-subject" aria-pressed={subject === s} onClick={() => setSubject(subject === s ? null : s)}>{s}</button>
+          {SUBJECTS.map(s => (
+            <button key={s} className="mn-subject" aria-pressed={subject === s} onClick={() => setSubject(subject === s ? null : s)}>{t(`subject.${s}`)}</button>
           ))}
         </div>
         {subject && (
           <div className="mn-examples">
-            {SUBJECTS[subject].map(q => <button key={q} className="mn-example" onClick={() => onExample(q)}>{q}</button>)}
+            {t(`examples.${subject}`).map(q => <button key={q} className="mn-example" onClick={() => onExample(q)}>{q}</button>)}
           </div>
         )}
       </div>
 
+      {introOpen && (
+        <div className="mn-intro" role="note" aria-label={t("intro.title")}>
+          <ul>
+            <li><b>{t("intro.1b")}</b> {t("intro.1")}</li>
+            <li><b>{t("intro.2b")}</b> {t("intro.2")}</li>
+            <li><b>{t("intro.3b")}</b> {t("intro.3")}</li>
+          </ul>
+          <button className="mn-btn" onClick={onDismissIntro}>{t("intro.gotIt")}</button>
+        </div>
+      )}
+
       <p className="mn-data-note">
         {client
-          ? <>Your conversations are saved to your account, so you can come back and continue any of them later. They're deleted after 180 days. <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a></>
-          : "Developer mode: nothing is saved. Refreshing the page clears the conversation."}
+          ? <>{t("data.note")} <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">{t("privacy")}</a></>
+          : t("data.dev")}
       </p>
     </section>
   );
@@ -270,8 +286,9 @@ function EmptyState({ client, onExample, onIntent, introOpen, onDismissIntro }) 
 // sidebar: conversation list shown beside the chat on wide screens.
 // onSessionChange(id): the saved conversation now on screen (null for a new one).
 // newChatKey: changing it starts a new conversation (the sidebar's "New conversation").
+// userName: first name for the greeting (from the Google profile), if known.
 export default function AITutor({ client = null, headerExtras = null, onUsage = null, account = null, onNavigate = null, resume = null,
-                                  sidebar = null, onSessionChange = null, newChatKey = 0 }) {
+                                  sidebar = null, onSessionChange = null, newChatKey = 0, userName = null }) {
   const [apiKey, setApiKey] = useState(null);
   const [messages, setMessages] = useState([]);
   const [apiMessages, setApiMessages] = useState([]); // developer mode only: what the model sees
@@ -288,6 +305,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const [showPlans, setShowPlans] = useState(false);
   const [introOpen, setIntroOpen] = useState(() => !readFlag(INTRO_KEY));
   const online = useOnline();
+  const { t, lang } = useT();
   const language = settings.language;
   const setLanguage = (l) => updateSettings({ language: l });
   const theme = effectiveTheme(settings.theme);
@@ -295,7 +313,12 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, loading]);
+  // Follow the conversation; an empty chat stays at the top so the greeting shows.
+  useEffect(() => { if (messages.length) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, loading]);
+
+  // The interface follows the conversation's language in "match my language" mode.
+  useEffect(() => { setConversationLanguage(lastLanguage); }, [lastLanguage]);
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
   // Auto-grow the composer
   useLayoutEffect(() => {
@@ -303,7 +326,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, [input]);
+  }, [input, messages.length]);
 
   // Reopen a saved conversation.
   useEffect(() => {
@@ -342,7 +365,10 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       let parsed, advanced = false;
       if (client) {
         const r = await client.act(action, { text, language, ...prefs });
-        if (!r.ok) throw Object.assign(new Error(r.message), { limit: r.isLimit ? r : null, retryable: r.retryable });
+        if (!r.ok) {
+          const message = errorText(t, r.error, r.message, { seconds: r.retryAfter ?? 30 });
+          throw Object.assign(new Error(message), { limit: r.isLimit ? r : null, retryable: r.retryable });
+        }
         parsed = r.reply; advanced = r.advanced;
         setHintsUsed(r.hintsUsed ?? 0);
         setProblem(r.problem);
@@ -367,12 +393,12 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       });
     } catch (err) {
       if (err.limit) pushAssistant({ content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo });
-      else pushAssistant({ content: err.message || "Something went wrong. Please try again.", type: "error",
+      else pushAssistant({ content: err.message || t("err.generic"), type: "error",
                            retry: client ? (err.retryable ? { action, text } : null) : { action, text } });
     }
     setLoading(false);
     if (action === "message" || action === "check") inputRef.current?.focus();
-  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, onUsage, onSessionChange, pushAssistant]);
+  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, onUsage, onSessionChange, pushAssistant, t]);
 
   const retry = useCallback(({ action, text }) => runAction(action, text, { retry: true }), [runAction]);
 
@@ -402,7 +428,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   };
 
   const clearConversation = () => {
-    if (confirm(client ? "Clear this conversation from the screen? The saved copy stays in History until you delete it there." : "Clear this conversation?")) newProblem();
+    if (confirm(client ? t("confirm.clear") : t("confirm.clearDev"))) newProblem();
   };
 
   const useIntent = (prefix) => { setInput(prefix); requestAnimationFrame(() => { const el = inputRef.current; el?.focus(); el?.setSelectionRange(prefix.length, prefix.length); }); };
@@ -410,39 +436,68 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
 
   if (!client && !apiKey) return <ApiKeyModal onSave={setApiKey} />;
 
+  const empty = messages.length === 0;
   const assistantReplies = messages.filter(m => m.role === "assistant").length;
   const last = messages.at(-1);
   const actions = availableActions({
     hasConversation: messages.length > 0, loading, hintsUsed, problem, assistantReplies,
     lastType: last?.role === "assistant" ? last.type : "error",
   });
-  const canCheck = messages.length > 0 && input.trim().length > 0 && !loading && online && !problem?.solved;
+  const canCheck = !empty && input.trim().length > 0 && !loading && online && !problem?.solved;
+
+  // One composer: in the middle of the welcome screen, at the bottom once a conversation starts.
+  const composer = (
+    <form className="mn-composer" onSubmit={e => { e.preventDefault(); runAction("message", input); }}>
+      <textarea ref={inputRef} dir="auto" rows={empty ? 2 : 1} value={input} onChange={e => setInput(e.target.value)}
+        onKeyDown={e => {
+          if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+          const send = settings.enterToSend ? !e.shiftKey : (e.ctrlKey || e.metaKey);
+          if (send) { e.preventDefault(); runAction("message", input); }
+        }}
+        maxLength={4000}
+        placeholder={empty ? t("composer.placeholder") : t("composer.placeholderFollowUp")}
+        aria-label={t("composer.aria")} />
+      <div className="mn-composer-row">
+        {!empty && (
+          <button type="button" className="mn-check-btn" onClick={() => runAction("check", input)} disabled={!canCheck}
+            aria-describedby="mn-check-help">
+            <ClipboardCheck size={15} aria-hidden="true" />{t("composer.check")}
+          </button>
+        )}
+        {!empty && <span id="mn-check-help" className="mn-sr">{t("composer.checkHelp")}</span>}
+        <span className="spacer" />
+        <span className="mn-kbd mn-hide-sm">{settings.enterToSend ? t("composer.kbdEnter") : t("composer.kbdCtrl")}</span>
+        <button type="submit" className="mn-send" disabled={loading || !input.trim() || !online} aria-label={t("composer.send")}><ArrowUp size={18} strokeWidth={2.5} /></button>
+      </div>
+    </form>
+  );
+  const offlineNote = !online && <div className="mn-offline" role="status"><WifiOff size={15} aria-hidden="true" />{t("offline")}</div>;
 
   return (
-    <div className="mn-app">
+    <div className={`mn-app${empty ? " is-empty" : ""}`}>
       <header className="mn-topbar">
         <div className="mn-brand">
-          <BrandMark size={34} decorative={false} />
+          <BrandMark size={32} decorative={false} />
           <Wordmark size="md" />
         </div>
         <div className="mn-actions">
-          <label className="mn-select" title="Reply language">
+          <label className="mn-select" title={t("lang.label")}>
             <Globe size={15} className="lead" aria-hidden="true" />
-            <select value={language} onChange={e => setLanguage(e.target.value)} aria-label="Reply language">
-              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" && lastLanguage ? `Auto · ${lastLanguage}` : l.label}</option>)}
+            <select value={language} onChange={e => setLanguage(e.target.value)} aria-label={t("lang.label")}>
+              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.code === "auto" ? (lastLanguage ? t("lang.matchCurrent", { lang: lastLanguage }) : t("lang.match")) : l.label}</option>)}
             </select>
             <ChevronDown size={14} className="trail" aria-hidden="true" />
           </label>
-          <button className="mn-btn" onClick={newProblem} disabled={messages.length === 0} aria-label="New problem" title="New problem">
-            <SquarePen size={16} /><span className="mn-hide-sm">New problem</span>
+          <button className="mn-btn" onClick={newProblem} disabled={empty} aria-label={t("header.newProblem")} title={t("header.newProblem")}>
+            <SquarePen size={16} /><span className="mn-hide-sm">{t("header.newProblem")}</span>
           </button>
-          <button className="mn-btn icon mn-hide-sm" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title="Theme">
+          <button className="mn-btn icon mn-hide-sm" onClick={toggleTheme} aria-label={theme === "dark" ? t("header.toLight") : t("header.toDark")} title={theme === "dark" ? t("header.toLight") : t("header.toDark")}>
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
           {!client && (
-            <button className="mn-btn" onClick={openPlans} title="Plans"><Crown size={16} /><span className="mn-hide-sm">Plans</span></button>
+            <button className="mn-btn" onClick={openPlans} title={t("header.plans")}><Crown size={16} /><span className="mn-hide-sm">{t("header.plans")}</span></button>
           )}
-          <button className="mn-btn icon" onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings"><SettingsIcon size={16} /></button>
+          <button className="mn-btn icon" onClick={() => setShowSettings(true)} aria-label={t("header.settings")} title={t("header.settings")}><SettingsIcon size={16} /></button>
           {client && headerExtras}
         </div>
       </header>
@@ -452,9 +507,10 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       <div className="mn-body">
         <main className="mn-thread">
           <div className="mn-thread-inner">
-            {messages.length === 0 && (
-              <EmptyState client={client} onExample={q => runAction("message", q)} onIntent={useIntent}
-                introOpen={introOpen} onDismissIntro={dismissIntro} />
+            {empty && (
+              <Welcome client={client} userName={userName} onExample={q => runAction("message", q)} onIntent={useIntent}
+                introOpen={introOpen} onDismissIntro={dismissIntro}
+                composer={<div className="mn-welcome-composer">{offlineNote}{composer}</div>} />
             )}
 
             <div aria-live="polite" aria-relevant="additions">
@@ -469,47 +525,25 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
             {loading && (
               <div className="mn-thinking" role="status">
                 <BrandAvatar size={28} />
-                <span className="label">{LOADING_LABEL[loadingKind] ?? "Thinking"}<span className="mn-dots" aria-hidden="true"><i /><i /><i /></span></span>
-                {waitSeconds && <span className="wait">Groq is busy, retrying in {waitSeconds}s</span>}
+                <span className="label">{t(`loading.${loadingKind}`)}<span className="mn-dots" aria-hidden="true"><i /><i /><i /></span></span>
+                {waitSeconds && <span className="wait">{t("loading.wait", { n: waitSeconds })}</span>}
               </div>
             )}
             <div ref={bottomRef} />
           </div>
         </main>
 
-        <div className="mn-composer-wrap">
-          {!online && <div className="mn-offline" role="status"><WifiOff size={15} aria-hidden="true" />You're offline. Reconnect to send messages.</div>}
-          <form className="mn-composer" onSubmit={e => { e.preventDefault(); runAction("message", input); }}>
-            <textarea ref={inputRef} dir="auto" rows={1} value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-                const send = settings.enterToSend ? !e.shiftKey : (e.ctrlKey || e.metaKey);
-                if (send) { e.preventDefault(); runAction("message", input); }
-              }}
-              maxLength={4000}
-              placeholder={messages.length ? "Your next step, your answer, or a question…" : "Ask a question or paste a problem…"}
-              aria-label="Message Menya" />
-            <div className="mn-composer-row">
-              {messages.length > 0 && (
-                <button type="button" className="mn-check-btn" onClick={() => runAction("check", input)} disabled={!canCheck}
-                  aria-describedby="mn-check-help">
-                  <ClipboardCheck size={15} aria-hidden="true" />Check my answer
-                </button>
-              )}
-              {messages.length > 0 && (
-                <span id="mn-check-help" className="mn-sr">Sends what you've typed as your answer, for Menya to check.</span>
-              )}
-              <span className="spacer" />
-              <span className="mn-kbd mn-hide-sm">{settings.enterToSend ? "Shift + Enter for a new line" : "Ctrl + Enter to send"}</span>
-              <button type="submit" className="mn-send" disabled={loading || !input.trim() || !online} aria-label="Send message"><ArrowUp size={18} strokeWidth={2.5} /></button>
-            </div>
-          </form>
-          <div className="mn-footnote">Menya can make mistakes. Check important results{client ? "" : " · Developer mode"}.</div>
-        </div>
+        {!empty && (
+          <div className="mn-composer-wrap">
+            {offlineNote}
+            {composer}
+            <div className="mn-footnote">{t("footnote")}{client ? "" : " · Developer mode"}</div>
+          </div>
+        )}
 
         {showSettings && (
           <SettingsPanel settings={settings} update={updateSettings} reset={resetSettings}
-            mode={client ? "commercial" : "dev"} account={account} hasConversation={messages.length > 0}
+            mode={client ? "commercial" : "dev"} account={account} hasConversation={!empty}
             onClose={() => setShowSettings(false)} onPlans={openPlans}
             onAccount={() => { setShowSettings(false); onNavigate?.("account"); }}
             onExport={exportConversation} onClear={clearConversation}

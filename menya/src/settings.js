@@ -1,6 +1,8 @@
 // Per-viewer preferences, kept in this browser (localStorage). They're
 // conveniences, so the app works the same if storage is unavailable.
-import { useCallback, useEffect, useState } from "react";
+// One shared store: every screen (chat, header, account, sign-in) sees the
+// same settings, so changing the language changes the whole interface at once.
+import { useSyncExternalStore } from "react";
 
 export const DEFAULT_SETTINGS = {
   language: "auto",         // "auto": reply in the language the learner writes in (English when unclear)
@@ -34,20 +36,38 @@ function load() {
   }
 }
 
+let current = null;
+const listeners = new Set();
+
+function apply(settings) {
+  try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch { /* storage unavailable */ }
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (settings.theme === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", settings.theme);
+  root.setAttribute("data-text-size", settings.textSize);
+}
+
+function snapshot() {
+  if (!current) { current = load(); apply(current); }
+  return current;
+}
+
+export function updateSettings(patch) {
+  current = { ...snapshot(), ...patch };
+  apply(current);
+  listeners.forEach(l => l());
+}
+
+export function resetSettings() {
+  updateSettings({ ...DEFAULT_SETTINGS, v: VERSION });
+}
+
+const subscribe = (l) => { listeners.add(l); return () => listeners.delete(l); };
+
 export function useSettings() {
-  const [settings, setSettings] = useState(load);
-
-  useEffect(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch { /* storage unavailable */ }
-    const root = document.documentElement;
-    if (settings.theme === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", settings.theme);
-    root.setAttribute("data-text-size", settings.textSize);
-  }, [settings]);
-
-  const update = useCallback((patch) => setSettings(s => ({ ...s, ...patch })), []);
-  const reset = useCallback(() => setSettings({ ...DEFAULT_SETTINGS, v: VERSION }), []);
-  return [settings, update, reset];
+  const settings = useSyncExternalStore(subscribe, snapshot, snapshot);
+  return [settings, updateSettings, resetSettings];
 }
 
 export function effectiveTheme(theme) {

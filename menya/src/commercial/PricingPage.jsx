@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, formatPrice } from "../lib/backend.js";
 import { Check } from "lucide-react";
-import { C, Page, Card, Button, Field, inputStyle, Notice, Loading } from "./ui.jsx";
+import { useT } from "../i18n.js";
+import { Page, Card, Button, Field, inputStyle, Notice, Loading } from "./ui.jsx";
 
 const CONTACT = "muyombanohappy@gmail.com";
 
 export default function PricingPage({ account, onBack }) {
+  const { t } = useT();
   const [plans, setPlans] = useState(null);
   const [checkoutAvailable, setCheckoutAvailable] = useState(false);
   const [interval, setBillingInterval] = useState("month");
@@ -16,33 +18,36 @@ export default function PricingPage({ account, onBack }) {
     api("/plans").then(r => {
       setPlans(r.ok ? r.data.plans : []);
       setCheckoutAvailable(Boolean(r.ok && r.data.checkoutAvailable));
-      if (!r.ok) setNotice({ kind: "error", text: "Couldn't load plans. Check your connection and refresh the page." });
+      if (!r.ok) setNotice({ kind: "error", text: t("pricing.loadError") });
     });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const yearlyOffered = checkoutAvailable && plans?.some(p => p.id !== "free" && p.price_yearly_cents != null);
+  // Plan names, taglines and features come from the server in English; show the
+  // translation when there is one.
+  const tr = (key, english) => { const s = t(key); return s === key ? english : s; };
+  const [before, after] = t("pricing.noPayment").split("{email}");
 
   const upgrade = async (plan) => {
     setBusy(plan.id); setNotice(null);
     const r = await api("/billing/checkout", { method: "POST", body: { plan: plan.id, interval } });
     setBusy(null);
     if (r.ok && r.data.url) { window.location.href = r.data.url; return; }
-    setNotice({ kind: "error", text: r.data.message ?? "Checkout is temporarily unavailable. Please try again later." });
+    setNotice({ kind: "error", text: t("pricing.checkoutError") });
   };
 
   return (
-    <Page title="Plans" subtitle="Every plan has the same tutor. Paid plans add more messages each day, longer conversations and stronger reasoning on hard problems. All limits are listed; nothing is unlimited." onBack={onBack}>
+    <Page title={t("pricing.title")} subtitle={t("pricing.sub")} onBack={onBack}>
       {notice && <Notice kind={notice.kind}>{notice.text}</Notice>}
       {plans && !checkoutAvailable && (
         <Notice kind="info">
-          Online payment isn't set up yet. To move to Pro or Professional, email{" "}
-          <a href={`mailto:${CONTACT}?subject=Menya%20plan%20upgrade`}>{CONTACT}</a> from the address you sign in with, and we'll arrange it with you.
+          {before}<a href={`mailto:${CONTACT}?subject=Menya%20plan%20upgrade`}>{CONTACT}</a>{after}
         </Notice>
       )}
       {yearlyOffered && (
-        <div className="mn-seg" role="radiogroup" aria-label="Billing period" style={{ maxWidth: 260, marginBottom: 16 }}>
+        <div className="mn-seg" role="radiogroup" aria-label={t("pricing.title")} style={{ maxWidth: 260, marginBottom: 16 }}>
           {["month", "year"].map(i => (
-            <button key={i} type="button" role="radio" aria-checked={interval === i} onClick={() => setBillingInterval(i)}>{i === "month" ? "Monthly" : "Yearly"}</button>
+            <button key={i} type="button" role="radio" aria-checked={interval === i} onClick={() => setBillingInterval(i)}>{i === "month" ? t("pricing.monthly") : t("pricing.yearly")}</button>
           ))}
         </div>
       )}
@@ -52,28 +57,29 @@ export default function PricingPage({ account, onBack }) {
             const current = account?.plan === p.id;
             const cents = interval === "year" ? p.price_yearly_cents : p.price_monthly_cents;
             const unavailable = p.id !== "free" && cents == null;
+            const name = tr(`plan.${p.id}`, p.name);
             return (
               <div key={p.id} className={`mn-plan${current ? " highlight" : ""}`}>
-                {current && <span className="ribbon">Your plan</span>}
-                <div className="pname">{p.name}</div>
-                <div className="ptag">{p.tagline}</div>
+                {current && <span className="ribbon">{t("pricing.yourPlan")}</span>}
+                <div className="pname">{name}</div>
+                <div className="ptag">{tr(`plan.tagline.${p.id}`, p.tagline)}</div>
                 <div className="price">
                   {unavailable ? "—" : formatPrice(cents, p.currency)}
-                  {!unavailable && cents > 0 && <small> / {interval}</small>}
+                  {!unavailable && cents > 0 && <small> {t(`pricing.per.${interval}`)}</small>}
                 </div>
                 <ul>
-                  {p.features.map(f => <li key={f}><Check size={15} aria-hidden="true" />{f}</li>)}
+                  {p.features.map(f => <li key={f}><Check size={15} aria-hidden="true" />{tr(`feature.${f}`, f)}</li>)}
                 </ul>
                 <div className="limits">
-                  {p.daily_request_limit} messages a day · {p.monthly_request_limit} a month<br />
-                  Conversations up to {p.max_session_turns} exchanges
-                  {p.monthly_premium_limit > 0 && <><br />Advanced reasoning: {p.monthly_premium_limit} requests a month</>}
+                  {t("pricing.limits", { day: p.daily_request_limit, month: p.monthly_request_limit })}<br />
+                  {t("pricing.turns", { n: p.max_session_turns })}
+                  {p.monthly_premium_limit > 0 && <><br />{t("pricing.premium", { n: p.monthly_premium_limit })}</>}
                 </div>
-                {current ? <Button variant="ghost" disabled>Current plan</Button>
+                {current ? <Button variant="ghost" disabled>{t("pricing.current")}</Button>
                   : p.id === "free" ? null
                   : checkoutAvailable
-                    ? <Button onClick={() => upgrade(p)} disabled={busy === p.id || unavailable}>{busy === p.id ? "Opening checkout…" : unavailable ? "Not offered yearly yet" : `Choose ${p.name}`}</Button>
-                    : <a className="mn-btn outline" href={`mailto:${CONTACT}?subject=${encodeURIComponent(`Menya ${p.name} plan`)}`}>Email us about {p.name}</a>}
+                    ? <Button onClick={() => upgrade(p)} disabled={busy === p.id || unavailable}>{busy === p.id ? t("pricing.opening") : unavailable ? t("pricing.notYearly") : t("pricing.choose", { plan: name })}</Button>
+                    : <a className="mn-btn outline" href={`mailto:${CONTACT}?subject=${encodeURIComponent(`Menya ${p.name} plan`)}`}>{t("pricing.emailUs", { plan: name })}</a>}
               </div>
             );
           })}
@@ -85,6 +91,7 @@ export default function PricingPage({ account, onBack }) {
 }
 
 function QuoteForm() {
+  const { t } = useT();
   const [form, setForm] = useState({ institution: "", contact_name: "", contact_email: "", country: "", learners: "", message: "", website: "" });
   const [state, setState] = useState("idle");
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -95,23 +102,21 @@ function QuoteForm() {
     setState(r.ok ? "sent" : r.status === 429 ? "throttled" : "error");
   };
   return (
-    <Card title="Universities, schools and teams">
-      <p className="mn-panel-text">
-        Institutional plans are priced by number of learners, usage and support needs. Learners get seats under your institution; administrators see aggregate learning analytics, never individual conversations.
-      </p>
-      {state === "sent" ? <Notice kind="ok">Thank you. We'll contact you about a quotation.</Notice> : (
+    <Card title={t("quote.title")}>
+      <p className="mn-panel-text">{t("quote.text")}</p>
+      {state === "sent" ? <Notice kind="ok">{t("quote.sent")}</Notice> : (
         <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 14px" }}>
-          <Field label="Institution"><input required value={form.institution} onChange={set("institution")} style={inputStyle} /></Field>
-          <Field label="Your name"><input required value={form.contact_name} onChange={set("contact_name")} style={inputStyle} /></Field>
-          <Field label="Email"><input required type="email" value={form.contact_email} onChange={set("contact_email")} style={inputStyle} /></Field>
-          <Field label="Country"><input value={form.country} onChange={set("country")} style={inputStyle} /></Field>
-          <Field label="Number of learners"><input type="number" min="1" value={form.learners} onChange={set("learners")} style={inputStyle} /></Field>
+          <Field label={t("quote.institution")}><input required value={form.institution} onChange={set("institution")} style={inputStyle} /></Field>
+          <Field label={t("quote.name")}><input required value={form.contact_name} onChange={set("contact_name")} style={inputStyle} /></Field>
+          <Field label={t("quote.email")}><input required type="email" value={form.contact_email} onChange={set("contact_email")} style={inputStyle} /></Field>
+          <Field label={t("quote.country")}><input value={form.country} onChange={set("country")} style={inputStyle} /></Field>
+          <Field label={t("quote.learners")}><input type="number" min="1" value={form.learners} onChange={set("learners")} style={inputStyle} /></Field>
           <input aria-hidden="true" tabIndex={-1} autoComplete="off" value={form.website} onChange={set("website")} style={{ position: "absolute", left: "-9999px" }} />
           <div style={{ gridColumn: "1 / -1" }}>
-            <Field label="What do you need?"><textarea rows={3} value={form.message} onChange={set("message")} style={{ ...inputStyle, resize: "vertical" }} /></Field>
-            {state === "error" && <Notice kind="error">Please check the form and try again.</Notice>}
-            {state === "throttled" && <Notice kind="warn">We already have your request. We'll be in touch soon.</Notice>}
-            <Button type="submit" disabled={state === "sending"}>{state === "sending" ? "Sending…" : "Request a quotation"}</Button>
+            <Field label={t("quote.need")}><textarea rows={3} value={form.message} onChange={set("message")} style={{ ...inputStyle, resize: "vertical" }} /></Field>
+            {state === "error" && <Notice kind="error">{t("quote.error")}</Notice>}
+            {state === "throttled" && <Notice kind="warn">{t("quote.throttled")}</Notice>}
+            <Button type="submit" disabled={state === "sending"}>{state === "sending" ? t("quote.sending") : t("quote.send")}</Button>
           </div>
         </form>
       )}
