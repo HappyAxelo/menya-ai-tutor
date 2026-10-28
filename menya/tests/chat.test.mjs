@@ -82,3 +82,12 @@ test("settings: the old English default becomes 'match my language'; a later cho
   assert.equal(migrateSettings({ language: "French" }).language, "French", "a real choice is kept");
   assert.equal(migrateSettings({ language: "English", v: 2 }).language, "English", "English picked after the update is kept");
 });
+
+test("the browser tab shows the first question, shortened; nothing before a conversation", async () => {
+  const { tabTitle } = await import("../src/lib/chat.js");
+  assert.equal(tabTitle([]), null);
+  assert.equal(tabTitle([{ role: "user", control: "hint", content: "Hint" }]), null);
+  assert.equal(tabTitle([{ role: "user", content: "What is **entropy**?\n" }, { role: "assistant", content: "…" }]), "What is entropy?");
+  const long = tabTitle([{ role: "user", content: "A ball is thrown straight up at 20 m/s. Taking g = 10 m/s², how high does it go before falling?" }]);
+  assert.ok(long.length <= 61 && long.endsWith("…") && !long.includes("  "), long);
+});

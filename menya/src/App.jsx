@@ -8,7 +8,7 @@ import { useSettings, effectiveTheme } from "./settings.js";
 import SettingsPanel from "./SettingsPanel.jsx";
 import PlansView from "./PlansView.jsx";
 import { callTutor, actionRequest, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
-import { ACTION_LABELS, availableActions } from "./lib/chat.js";
+import { ACTION_LABELS, availableActions, tabTitle } from "./lib/chat.js";
 import { useT, greeting, setConversationLanguage } from "./i18n.js";
 // The Markdown + maths renderer is a separate download, fetched while the
 // first reply is being prepared, so the first screen stays light.
@@ -327,6 +327,10 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [input, messages.length]);
+
+  // The browser tab shows the problem being worked on, or just the name.
+  const conversationTitle = tabTitle(messages);
+  useEffect(() => { document.title = conversationTitle ?? "Menya AI"; }, [conversationTitle]);
 
   // Reopen a saved conversation.
   useEffect(() => {

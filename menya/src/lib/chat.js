@@ -96,3 +96,14 @@ export function groupByDay(sessions, now = new Date()) {
   }
   return groups;
 }
+
+// Browser-tab title: the conversation's first question, shortened (like ChatGPT
+// and Claude). Null before the first message.
+export function tabTitle(messages, max = 60) {
+  const first = messages.find(m => m.role === "user" && !m.control)?.content;
+  if (!first) return null;
+  const text = first.replace(/[*_`#>$\\]/g, "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > max * 0.6 ? cut.lastIndexOf(" ") : max).trimEnd()}…`;
+}
