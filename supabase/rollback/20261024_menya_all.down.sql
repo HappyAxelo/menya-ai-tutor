@@ -8,7 +8,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists
   public.submit_feedback(uuid, bigint, text), public.admin_overview_json(uuid), public.admin_feedback_export(uuid),
-  public.admin_users_export(uuid), public.hpc_register(text, text, text), public.hpc_unregister(),
+  public.admin_users_export(uuid), public.media_allow(uuid, text, int), public.hpc_register(text, text, text), public.hpc_unregister(),
   public.org_roster_json(uuid, uuid), public.export_my_data(uuid), public.admin_config(uuid),
   public.admin_list_users_json(uuid, text, int), public.admin_unit_economics_json(date), public.public_plans(),
   public.submit_quote(jsonb), public.admin_list_users(uuid, text, int), public.admin_update_model(uuid, text, jsonb),
@@ -24,7 +24,7 @@ drop function if exists
   public.is_platform_admin(uuid), public.handle_new_user() cascade;
 
 drop table if exists
-  public.learner_objectives, public.assessment_attempts, public.served_items, public.session_items, public.tutor_feedback, public.learning_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
+  public.media_usage, public.learner_objectives, public.assessment_attempts, public.served_items, public.session_items, public.tutor_feedback, public.learning_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
   public.usage_records, public.request_reservations, public.rate_buckets, public.usage_counters,
   public.payment_events, public.subscriptions, public.org_invitations, public.org_members,
   public.organizations, public.profiles, public.model_configs, public.plans, public.app_settings cascade;

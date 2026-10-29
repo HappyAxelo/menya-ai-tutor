@@ -8,6 +8,7 @@ import { WebhookSignatureError, type BillingProvider } from "./billing.ts";
 import type { ModelProvider } from "./providers.ts";
 import type { Repo } from "./repo.ts";
 import { buildXlsx, type Cell } from "./xlsx.ts";
+import { MediaError, readImage, transcribe, type MediaOptions } from "./media.ts";
 
 export interface Db {
   // Calls a SQL function; throws DbError on failure.
@@ -31,6 +32,7 @@ export interface ApiContext {
   appUrl: string;            // public URL of the web app (for invite/checkout links)
   allowedOrigins: string[];
   log(event: Record<string, unknown>): void;
+  media?: MediaOptions;      // voice transcription and image reading (Groq); absent = not offered
   hpcSecret?: string;        // HPC_REGISTER_SECRET: lets the Slurm job register its model server
 }
 
@@ -185,6 +187,7 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     try { return json(200, await ctx.db.rpc("org_accept_invite", { p_user: user.id, p_token_hash: await sha256Hex(b.token) })); }
     catch (err) { return dbErrorResponse(err) ?? json(400, { error: "invalid_or_expired_invitation" }); }
   }
+  if ((path === "/media/transcribe" || path === "/media/read-image") && method === "POST") return mediaRoute(path, req, ctx, user);
   if (path.startsWith("/org/")) return orgRoutes(path, req, ctx, user);
   if (path.startsWith("/admin/")) return adminRoutes(path, req, ctx, user, url);
 
@@ -374,4 +377,34 @@ function constantTimeEqual(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+// Voice notes and photos of problems. Each learner has a daily allowance per kind
+// (app_settings media_transcribe_daily / media_read_image_daily).
+async function mediaRoute(path: string, req: Request, ctx: ApiContext, user: AuthUser): Promise<Response> {
+  if (!ctx.media) return json(501, { error: "media_not_configured" });
+  const kind = path === "/media/transcribe" ? "transcribe" : "read_image";
+  let form: FormData;
+  try { form = await req.formData(); } catch { return json(400, { error: "invalid_upload" }); }
+  const file = form.get("file");
+  if (!(file instanceof Blob) || file.size === 0) return json(400, { error: "invalid_upload" });
+  const cap = await ctx.repo.getSettingNumber(`media_${kind}_daily`, kind === "transcribe" ? 60 : 30);
+  if (!(await ctx.db.rpc<boolean>("media_allow", { p_user: user.id, p_kind: kind, p_cap: cap }))) {
+    return json(429, { error: "media_limit", message: "You've reached today's limit for this. It resets at midnight UTC." });
+  }
+  const started = Date.now();
+  try {
+    if (kind === "transcribe") {
+      const language = typeof form.get("language") === "string" ? String(form.get("language")) : null;
+      const r = await transcribe(ctx.media, file, (file as File).name ?? "voice.webm", language);
+      ctx.log({ level: "info", event: "media", kind, ms: Date.now() - started, seconds: r.seconds });
+      return json(200, r);
+    }
+    const text = await readImage(ctx.media, new Uint8Array(await file.arrayBuffer()), file.type);
+    ctx.log({ level: "info", event: "media", kind, ms: Date.now() - started });
+    return json(200, { text });
+  } catch (err) {
+    if (err instanceof MediaError) return json(err.status, { error: err.message });
+    throw err;
+  }
 }

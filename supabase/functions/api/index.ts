@@ -70,6 +70,7 @@ const ctx: ApiContext = {
   // Defaults match the public GitHub Pages site, so the only secret the owner
   // must set is the AI provider key. Override with APP_URL / ALLOWED_ORIGINS.
   appUrl: (env("APP_URL") ?? "https://happyaxelo.github.io/menya-ai-tutor").replace(/\/$/, ""),
+  media: env("GROQ_API_KEY") ? { apiKey: env("GROQ_API_KEY")! } : undefined,
   hpcSecret: env("HPC_REGISTER_SECRET"),
   allowedOrigins: (env("ALLOWED_ORIGINS") ?? "https://happyaxelo.github.io,http://localhost:5173")
     .split(",").map(s => s.trim()).filter(Boolean),

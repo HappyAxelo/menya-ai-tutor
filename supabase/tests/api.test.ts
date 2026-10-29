@@ -182,6 +182,62 @@ describe("HPC model registration", () => {
   });
 });
 
+describe("voice and image input", () => {
+  // A stand-in for Groq's transcription and vision endpoints.
+  const groqCalls: string[] = [];
+  const fakeGroq = (async (url: string, init: RequestInit) => {
+    groqCalls.push(url);
+    if (url.endsWith("/audio/transcriptions")) {
+      const form = init.body as FormData;
+      if (form.get("model") === "whisper-large-v3" && groqCalls.filter(u => u.endsWith("transcriptions")).length === 1) {
+        return new Response("{}", { status: 429 });                       // first model busy: falls back to turbo
+      }
+      return new Response(JSON.stringify({ text: " A 12-volt battery is across a 4-ohm resistor. What current flows?", language: "english", duration: 4.2 }));
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: "<think>reading</think>Solve for x: 3x + 5 = 20" } }] }));
+  }) as unknown as typeof fetch;
+
+  const upload = (path: string, token: string | undefined, file: Blob | null, fields: Record<string, string> = {}) => {
+    const form = new FormData();
+    if (file) form.append("file", file, path.includes("transcribe") ? "voice.webm" : "photo.png");
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    return handleApi(new Request(`https://x.supabase.co/functions/v1/api${path}`, {
+      method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {}, body: form }), { ...ctx, media: { apiKey: "test", fetchImpl: fakeGroq } });
+  };
+
+  test("a voice note becomes text; Whisper falls back to the turbo model when busy", async () => {
+    const learner = await user();
+    assert.equal((await upload("/media/transcribe", undefined, new Blob([new Uint8Array(100)]))).status, 401);
+    const res = await upload("/media/transcribe", learner.token, new Blob([new Uint8Array(2000)], { type: "audio/webm" }), { language: "English" });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.match(body.text, /^A 12-volt battery/);
+    assert.equal(body.seconds, 4.2);
+    assert.equal((await upload("/media/transcribe", learner.token, null)).status, 400);
+  });
+
+  test("a photo of a problem is read to text, without the model's private reasoning", async () => {
+    const learner = await user();
+    const png = new Blob([new Uint8Array([137, 80, 78, 71, 1, 2, 3])], { type: "image/png" });
+    const res = await upload("/media/read-image", learner.token, png);
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).text, "Solve for x: 3x + 5 = 20");
+    assert.equal((await upload("/media/read-image", learner.token, new Blob(["x"], { type: "application/zip" }))).status, 415);
+  });
+
+  test("each learner has a daily allowance for voice and images", async () => {
+    const learner = await user();
+    await db.query("insert into public.app_settings (key, value) values ('media_read_image_daily', '2') on conflict (key) do update set value = excluded.value");
+    const png = () => new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
+    assert.equal((await upload("/media/read-image", learner.token, png())).status, 200);
+    assert.equal((await upload("/media/read-image", learner.token, png())).status, 200);
+    const third = await upload("/media/read-image", learner.token, png());
+    assert.equal(third.status, 429);
+    assert.equal((await third.json()).error, "media_limit");
+    await db.query("delete from public.app_settings where key = 'media_read_image_daily'");
+  });
+});
+
 describe("billing webhooks", () => {
   const event = (userId: string, id = `evt_${randomUUID()}`) => JSON.stringify({ id, type: "subscription.created", occurred_at: new Date().toISOString(),
     subscription: { provider_subscription_id: `sub_${userId}`, user_id: userId, plan_id: "pro", status: "active", current_period_end: iso(30) } });
