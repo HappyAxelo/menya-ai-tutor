@@ -10,6 +10,7 @@ import { detectLanguage } from "../functions/_shared/policy.ts";
 import { ProviderError, type ModelProvider, type ChatRequest, type ModelConfig } from "../functions/_shared/providers.ts";
 import { matchesAnswer, revealsAnswer } from "../functions/_shared/answerGuard.ts";
 import { classifyDifficulty, planRoute } from "../functions/_shared/router.ts";
+import { checkEquation } from "../functions/_shared/chemistry.ts";
 
 let db: PGlite;
 before(async () => { db = await freshDb(); });
@@ -157,6 +158,66 @@ describe("tutor pipeline", () => {
     assert.match(String(model.calls[1].req.messages.at(-1)!.content), /any valid method counts/);
     assert.equal((right.body.reply as any).type, "affirmation");
     assert.equal((right.body.problem as any).solved, true, "counted as a verified solve");
+  });
+
+  test("chemical equations: atoms are counted exactly; formulas like I = V/R are not equations", () => {
+    assert.equal(checkEquation("H2 + O2 → 2H2O?")!.balanced, false);
+    assert.deepEqual(checkEquation("H2 + O2 → 2H2O")!.counts.H, [2, 4]);
+    assert.equal(checkEquation("so it is 2 H₂ + O₂ → 2 H₂O")!.balanced, true);
+    assert.equal(checkEquation("Ca(OH)2 + 2HCl -> CaCl2 + 2H2O")!.balanced, true);
+    assert.equal(checkEquation("Fe + O2 → Fe2O3")!.balanced, false);
+    assert.equal(checkEquation("I = V/R = 9/3 = 3 A"), null);
+    assert.equal(checkEquation("Xy + Q → Z"), null, "not elements");
+  });
+
+  test("an unbalanced equation is never confirmed, even when the model insists", async () => {
+    const u = await createUser(db);
+    const deps = (p: ModelProvider) => ({ repo: pgRepo(db), providers: { groq: p }, sleep: noSleep });
+    const eq = "2H2 + O2 → 2H2O";
+    const first = await handleTutor(deps(fakeProvider("groq", () => reply({ finalAnswer: eq })).provider), u, ask("Balance H2 + O2 → H2O"));
+    const sessionId = first.body.sessionId;
+
+    // The model calls the wrong equation right; the second look corrects it.
+    const fixes = fakeProvider("groq", (_c, req) => String(req.messages.at(-1)!.content).startsWith("[SECOND LOOK]")
+      ? reply({ type: "redirect", message: "Not yet: compare the hydrogen atoms on each side.", finalAnswer: eq })
+      : reply({ type: "affirmation", solved: true, message: "Correct!", finalAnswer: eq }));
+    const r1 = await handleTutor(deps(fixes.provider), u, ask("H2 + O2 → 2H2O?", { sessionId }));
+    assert.match(String(fixes.calls[1].req.messages.at(-1)!.content), /NOT balanced.*H 2, 4/);
+    assert.equal((r1.body.reply as any).type, "redirect");
+    assert.equal((r1.body.problem as any).solved, false);
+
+    // Still insisting: a fixed "not balanced yet" message is sent instead.
+    const stubborn = fakeProvider("groq", () => reply({ type: "affirmation", solved: true, message: "Correct!", finalAnswer: "2" }));
+    const r2 = await handleTutor(deps(stubborn.provider), u, ask("H2 + O2 → 2H2O", { sessionId }));
+    assert.match((r2.body.reply as any).message, /Not balanced yet/);
+    assert.equal((r2.body.problem as any).solved, false, "a matching coefficient is not a solve");
+
+    // The balanced equation is confirmed as usual.
+    const ok = fakeProvider("groq", () => reply({ type: "affirmation", solved: true, message: "Balanced.", finalAnswer: eq }));
+    const r3 = await handleTutor(deps(ok.provider), u, ask("2H2 + O2 → 2H2O", { sessionId }));
+    assert.equal(ok.calls.length, 1);
+    assert.equal((r3.body.problem as any).solved, true);
+  });
+
+  test("confirming a correct attempt in another form is not treated as a leak", async () => {
+    const u = await createUser(db);
+    const deps = (p: ModelProvider) => ({ repo: pgRepo(db), providers: { groq: p }, sleep: noSleep });
+    const ans = "2x·sin(x) + x²·cos(x)";
+    const first = await handleTutor(deps(fakeProvider("groq", () => reply({ finalAnswer: ans })).provider), u, ask("Differentiate x² sin x"));
+    const model = fakeProvider("groq", () => reply({ type: "affirmation", solved: true, finalAnswer: ans,
+      message: "Correct: x(2 sin x + x cos x) is the factored form of 2x·sin(x) + x²·cos(x)." }));
+    const r = await handleTutor(deps(model.provider), u, ask("f'(x) = x(2 sin x + x cos x)", { sessionId: first.body.sessionId }));
+    assert.equal(model.calls.length, 1, "no rewrite");
+    assert.match((r.body.reply as any).message, /factored form/);
+    assert.equal((await usage(u)).at(-1).answer_rewrite, false);
+  });
+
+  test("leak guard: a value with a longer unit in the question (20 m/s) is not the answer (20 m)", () => {
+    const question = ["A ball is thrown straight up at 20 m/s. How high does it go?"];
+    assert.equal(revealsAnswer("The extra distance is 20 m, so the height is 40 m − 20 m.", "20 m", question), true);
+    assert.equal(revealsAnswer("It starts at 20 m/s.", "20 m", []), false);
+    assert.equal(revealsAnswer("The pipe is 20 mm wide.", "20 m", []), false);
+    assert.equal(revealsAnswer("Yes, 20 m.", "20 m", ["so it's 20 m"]), false, "the student said it first");
   });
 
   test("a reply that reveals the answer is rewritten; if it still leaks a safe message is sent", async () => {

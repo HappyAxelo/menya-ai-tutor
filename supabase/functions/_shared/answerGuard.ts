@@ -13,6 +13,7 @@ export function normalizeMath(s: string): string {
     .replace(/\$/g, "")
     .toLowerCase()
     .replace(/[²³¹⁴⁰]/g, ch => SUPERSCRIPTS[ch])
+    .replace(/[₀-₉]/g, ch => String(ch.charCodeAt(0) - 0x2080)) // H₂O is H2O
     .replace(/[\s·×*()\[\]{}]/g, "")
     .replace(/−/g, "-")
     .replace(/,(?=\d)/g, ".");
@@ -40,7 +41,7 @@ export function revealsAnswer(message: string, finalAnswer: string | null | unde
   if (num) {
     const v = escapeRe(num.value);
     const patterns = [new RegExp(`(=|≈|≅)\\s*${v}(?![\\d.])`)];
-    if (num.unit) patterns.push(new RegExp(`(?<![\\d.])${v}\\s*${escapeRe(num.unit)}`, "i"));
+    if (num.unit) patterns.push(new RegExp(`(?<![\\d.])${v}\\s*${escapeRe(num.unit)}(?![\\p{L}\\d/²³])`, "iu")); // "20 m" is not "20 m/s"
     const leaked = (text: string) => patterns.some(p => p.test(text.replace(/,(?=\d)/g, ".")));
     if (!leaked(message)) return false;
     // Repeating back an answer the student already gave is a confirmation, not a leak.

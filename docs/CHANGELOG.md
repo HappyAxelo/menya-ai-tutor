@@ -1,5 +1,43 @@
 # Change log
 
+## Tutor training round, browser tab title (29 October 2026, branch `tutor-training`)
+
+**Browser tab.** Shows the logo and "Menya AI" on the welcome screen, and the conversation's first
+question (shortened) once a conversation starts, like ChatGPT and Claude.
+
+**Training method.** The models are hosted free on Groq and can't be fine-tuned without cost and a
+large dataset. "Training" here means: a larger set of realistic conversations run through the real
+pipeline (`supabase/dev/try-long-conversations.ts`, suites `core`, `extra`, `current`: 16
+conversations, 53 turns), fix what fails (rules and server checks), re-run.
+
+**Failures found and fixed.**
+- "Help me understand Ohm's law with 9 V and 3 Ω" was answered with the student's own result. Rule:
+  numbers in an "understand" request make it a problem; explain with different numbers that give a
+  different result, then let the student compute theirs.
+- An unbalanced equation ("H2 + O2 → 2H2O") was called correct and counted as solved. The server
+  now counts atoms exactly (`chemistry.ts`). An unbalanced equation is never confirmed or counted
+  as solved; the model gets a second look with the counts, and if it still insists, the student
+  gets a fixed "not balanced yet" message instead.
+- The tutor invented a news story ("last week the president announced…"). New rule: no internet,
+  nothing after its training data; say so, never invent; these are factual questions, not problems.
+  Re-run: all 6 current-information questions (English and Kinyarwanda) answered honestly.
+- Leak guard: "20 m/s" in the question counted as the student having said "20 m" (the answer), so an
+  "explain more simply" reply that spelled out the answer got through. Units now match whole.
+- Leak guard no longer blocks the tutor confirming a correct attempt in another form (the factored
+  derivative was replaced by a "you're close" message). Solves still need the server's answer match.
+- A first-message fallback that made sense ("Let's work through it together…") instead of "You're
+  close, carry out the step…".
+
+**Results (real model).** Final full run: 13 of 16 conversations fully passed. The three flagged were
+two false alarms in the check itself (a curly apostrophe; a correct, caveated 2022 World Cup answer)
+and the physics leak fixed above. Focused re-run of the core four: average-speed answer accepted and
+cross-checked, current-information answers honest; one Ohm's-law example happened to give the same
+result as the student's problem (rule tightened); 3 turns failed on Groq's free-tier limits.
+Backend tests 76/76 (4 new), frontend 17/17 (1 new).
+
+**Limit reached.** These runs used most of a day's free Groq allowance, which live students share.
+Run the suites sparingly (`SUITE=core|extra|current`), ideally at quiet hours.
+
 ## New logo, Claude-style welcome, whole interface in the chosen language (28 October 2026, branch `brand-welcome-i18n`)
 
 **Logo.** The owner's "m with a question mark" mark (the middle one of the three) is redrawn as SVG and

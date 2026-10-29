@@ -7,10 +7,11 @@
 // ============================================================
 import {
   actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, hintRequest, languageNote, problemNote, parseTutorJson, publicReply,
-  REWRITE_REQUEST, recheckRequest, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
+  REWRITE_REQUEST, recheckRequest, unbalancedRequest, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
 import { matchesAnswer, revealsAnswer, statesAnswer } from "./answerGuard.ts";
+import { checkEquation } from "./chemistry.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
@@ -47,6 +48,23 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const NEXT_PLAN: Record<string, string | null> = { free: "pro", pro: "professional", professional: null };
 
 // Shown only if a reply still revealed the answer after one rewrite.
+// Before the student has tried anything, a "you're close" message makes no sense.
+const START_FALLBACK: Record<string, string> = {
+  English: "Let's work through it together. Which idea or formula links the quantities you're given, and how would you start?",
+  French: "Avançons ensemble. Quelle notion ou quelle formule relie les grandeurs données, et par quoi commencerais-tu ?",
+  Spanish: "Trabajémoslo juntos. ¿Qué idea o fórmula relaciona las magnitudes que tienes, y cómo empezarías?",
+  Swahili: "Tufanye pamoja. Ni wazo au fomula gani inayounganisha vipimo ulivyopewa, na ungeanzaje?",
+};
+const fallbackFor = (language: string, starting: boolean) =>
+  (starting ? START_FALLBACK : SAFE_FALLBACK)[language] ?? (starting ? START_FALLBACK : SAFE_FALLBACK).English;
+
+// Sent instead of a reply that called an unbalanced equation correct.
+const UNBALANCED_FALLBACK: Record<string, string> = {
+  English: "Not balanced yet. Count the atoms of each element on both sides of the arrow: which element has a different number on the left and on the right?",
+  French: "Pas encore équilibrée. Compte les atomes de chaque élément des deux côtés de la flèche : quel élément n'a pas le même nombre à gauche et à droite ?",
+  Spanish: "Todavía no está balanceada. Cuenta los átomos de cada elemento a ambos lados de la flecha: ¿qué elemento tiene un número distinto a la izquierda y a la derecha?",
+  Swahili: "Bado haijasawazishwa. Hesabu atomu za kila elementi pande zote mbili za mshale: ni elementi gani yenye idadi tofauti kushoto na kulia?",
+};
 const SAFE_FALLBACK: Record<string, string> = {
   English: "You're close. Carry out the step you've just set up and tell me what you get.",
   French: "Tu y es presque. Effectue l'étape que tu viens de poser et dis-moi ce que tu obtiens.",
@@ -141,6 +159,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     .filter((t): t is string => Boolean(t));
   const isAttempt = input.action === "check" || (input.action === "message" && Boolean(input.sessionId));
   if (input.action === "message" || input.action === "check") studentTexts.push(input.message!);
+  const studentEquation = isAttempt ? checkEquation(input.message ?? "") : null;
   const newProblem = input.action === "practice";
   const attemptsNow = newProblem ? 0 : session.attempts + (isAttempt ? 1 : 0);
 
@@ -207,7 +226,10 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         // Answer-leak guard (earned worked solutions are exempt)
         const earnedSolution = reply.type === "worked_solution" && ent.worked_solutions && !newProblem &&
           (session.hints_used >= 3 || attemptsNow >= 2 || session.solved);
-        if (!earnedSolution && revealsAnswer(reply.message, reply.finalAnswer, studentTexts)) {
+        // Confirming a student's own correct attempt may restate it in another form
+        // (x(2 sin x + x cos x) as 2x·sin x + x²·cos x); a solve still needs matchesAnswer below.
+        const confirmsAttempt = isAttempt && !newProblem && reply.solved && reply.type === "affirmation";
+        if (!earnedSolution && !confirmsAttempt && revealsAnswer(reply.message, reply.finalAnswer, studentTexts)) {
           let rewritten: TutorReply | null = null;
           // No time left for a rewrite: the safe message below is sent instead.
           if (remaining() >= MIN_CALL_MS) try {
@@ -222,31 +244,42 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
           } catch { /* fall through to the safe message */ }
           const stillLeaks = !rewritten || revealsAnswer(rewritten.message, reply.finalAnswer, studentTexts);
           const finalReply: TutorReply = stillLeaks
-            ? { ...reply, type: "question", hintLevel: null, message: SAFE_FALLBACK[reply.language] ?? SAFE_FALLBACK.English }
+            ? { ...reply, type: "question", hintLevel: null, message: fallbackFor(reply.language, attemptsNow === 0 && session.hints_used === 0 && !newProblem) }
             : { ...rewritten!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty };
           served = { candidate, reply: finalReply, inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
         }
 
-        // Second look: the student's final result is the verified answer but the reply
-        // called it wrong (models tend to reject a valid method that differs from theirs).
-        if (!served.rewrite && isAttempt && reply.type === "redirect" && !reply.solved && !newProblem &&
-            statesAnswer(input.message ?? "", reply.finalAnswer) && remaining() >= MIN_CALL_MS) {
-          try {
+        // Second look, when the reply's verdict contradicts a check the server can do itself:
+        // - the student's final result is the verified answer but the reply called it wrong
+        //   (models tend to reject a valid method that differs from theirs);
+        // - the student's chemical equation is unbalanced but the reply called it right.
+        const unbalanced = studentEquation && !studentEquation.balanced && (reply.solved || reply.type === "affirmation");
+        const rejectedRight = reply.type === "redirect" && !reply.solved && statesAnswer(input.message ?? "", reply.finalAnswer);
+        if (!served.rewrite && isAttempt && !newProblem && (unbalanced || rejectedRight)) {
+          let second: TutorReply | null = null;
+          if (remaining() >= MIN_CALL_MS) try {
             const res3 = await provider.chat(withinBudget(candidate.config), { system, schema, messages: [
               ...messages, { role: "assistant", content: JSON.stringify(publicReply(reply)) },
-              { role: "user", content: recheckRequest(reply.finalAnswer) },
+              { role: "user", content: unbalanced ? unbalancedRequest(studentEquation!) : recheckRequest(reply.finalAnswer!) },
             ] });
-            const second = parseTutorJson(res3.text);
+            second = parseTutorJson(res3.text);
             inputTokens += res3.inputTokens ?? 0; outputTokens += res3.outputTokens ?? 0; latencyMs += res3.latencyMs;
             cachedTokens += res3.cachedInputTokens ?? 0;
             const c3 = estimateCostUsd(candidate.config, res3);
             cost = cost != null && c3 != null ? cost + c3 : cost;
-            log({ event: "answer_recheck", changed: second?.type !== "redirect" });
-            if (second && !revealsAnswer(second.message, reply.finalAnswer, studentTexts)) {
-              served = { candidate, reply: { ...second, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty },
-                         inputTokens, outputTokens, latencyMs, cost, rewrite: false, cachedTokens };
-            }
-          } catch { /* keep the first reply */ }
+          } catch { /* handled below */ }
+          log({ event: "answer_recheck", reason: unbalanced ? "unbalanced_equation" : "rejected_right", changed: second?.type !== reply.type });
+          const usable = second && !revealsAnswer(second.message, reply.finalAnswer, studentTexts) &&
+            !(unbalanced && (second.solved || second.type === "affirmation"));
+          if (usable) {
+            served = { candidate, reply: { ...second!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty },
+                       inputTokens, outputTokens, latencyMs, cost, rewrite: false, cachedTokens };
+          } else if (unbalanced) {
+            // Never confirm an unbalanced equation, even if the model insists.
+            served = { candidate, reply: { ...reply, type: "redirect", solved: false, progressSummary: null,
+                         message: UNBALANCED_FALLBACK[reply.language] ?? UNBALANCED_FALLBACK.English },
+                       inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
+          }
         }
       } catch (err) {
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);
@@ -285,7 +318,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
 
   // A solve counts only if the model says so AND the student's own text contains the verified answer.
   const verifiedSolve = !newProblem && !session.solved && reply.solved && isAnswerAction(input.action) &&
-    matchesAnswer(input.message ?? "", reply.finalAnswer);
+    matchesAnswer(input.message ?? "", reply.finalAnswer) &&
+    !(studentEquation && !studentEquation.balanced);
   const userMeta: Record<string, unknown> =
     input.action === "message" ? {}
     : input.action === "hint" ? { control: "hint", level: session.hints_used + 1 }
