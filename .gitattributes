@@ -1,0 +1,5 @@
+# Shell scripts run on Linux (the HPC cluster): always LF line endings.
+*.sh text eol=lf
+*.sbatch text eol=lf
+hpc/*.py text eol=lf
+hpc/*.example text eol=lf
