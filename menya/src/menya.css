@@ -536,3 +536,34 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .mn-mastery-line { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .mn-reviews { width: 100%; max-width: 720px; margin: 14px auto 0; text-align: center; }
 @media (max-width: 720px) { .mn-mode button { padding: 4px 8px; } .mn-menu { min-width: 200px; } }
+
+/* Voice and attachments */
+.mn-composer { position: relative; }
+.mn-composer.dragging { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(43,36,158,.15); }
+.mn-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--accent); font-weight: 600; z-index: 2; pointer-events: none; }
+.mn-file-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
+.mn-file-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; border: 1px solid var(--border); background: var(--surface-2, rgba(127,127,127,.08));
+  border-radius: 10px; padding: 4px 6px 4px 8px; font-size: 12.5px; color: var(--text-2, var(--text)); }
+.mn-file-chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.mn-file-chip .state { color: var(--muted); font-size: 11.5px; }
+.mn-file-chip.error { border-color: rgba(180,35,24,.4); color: #b42318; }
+.mn-file-chip.error .state { color: #b42318; }
+.mn-file-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px; display: inline-flex; border-radius: 6px; }
+.mn-file-chip button:hover { color: var(--text); background: rgba(127,127,127,.15); }
+.mn-file-chip.sent { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.35); color: inherit; }
+.mn-user-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mn-mic { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text-2, var(--text));
+  display: inline-grid; place-items: center; cursor: pointer; margin-right: 6px; flex: none; }
+.mn-mic:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mn-mic.live { background: #d92d20; border-color: #d92d20; color: #fff; animation: mn-pulse 1.4s ease-in-out infinite; }
+.mn-mic:disabled { opacity: .5; cursor: default; }
+@keyframes mn-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,45,32,.45); } 50% { box-shadow: 0 0 0 7px rgba(217,45,32,0); } }
+.mn-voice-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); margin-right: 8px; min-width: 0; }
+.mn-rec-dot { width: 8px; height: 8px; border-radius: 50%; background: #d92d20; flex: none; animation: mn-pulse 1.4s ease-in-out infinite; }
+.mn-level { width: 60px; height: 4px; border-radius: 4px; background: rgba(127,127,127,.25); overflow: hidden; flex: none; }
+.mn-level span { display: block; height: 100%; background: #d92d20; transform-origin: left; transition: transform .08s linear; }
+.mn-voice-error { max-width: 780px; margin: 6px auto 0; font-size: 12.5px; color: #b42318; pointer-events: auto; display: flex; gap: 6px; align-items: center; }
+.mn-spin { animation: mn-spin 1s linear infinite; }
+@keyframes mn-spin { to { transform: rotate(360deg); } }
+@media (max-width: 720px) { .mn-voice-status .mn-level { display: none; } .mn-file-chip .name { max-width: 140px; } }

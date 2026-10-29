@@ -15,6 +15,8 @@ export const ACTION_LABELS = {
   stuck: "Said I'm stuck",
 };
 
+const STUCK_LABELS = { start: "I don't know where to start", step: "I'm stuck on a step", mistake: "I can't find my mistake", concept: "I don't understand the idea" };
+
 // Which follow-up actions make sense under the latest reply.
 // problem: { solved, practice, attempts } from the server (or null in developer mode).
 // engine: { objective, item } from the server's tutoring engine (null in developer mode).
@@ -40,7 +42,11 @@ export function historyToMessages(rows) {
   return rows.map(r => {
     if (r.role === "user") {
       const control = r.meta?.control;
-      if (!control) return { role: "user", content: r.content };
+      // A message with files shows what was typed and the file names (the model saw the files' text).
+      if (!control) return r.meta?.attachments
+        ? { role: "user", content: r.meta.display ?? "", attachments: r.meta.attachments.map(a => ({ name: a.name, kind: a.kind })) }
+        : { role: "user", content: r.content };
+      if (control === "stuck") return { role: "user", control, content: STUCK_LABELS[r.meta.reason] ?? "I'm stuck" };
       return { role: "user", control, content: control === "check" ? String(r.meta.text ?? "") : ACTION_LABELS[control] ?? "Action" };
     }
     return {

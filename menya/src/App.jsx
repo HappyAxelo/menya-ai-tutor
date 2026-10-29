@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, lazy, Suspense } from "react";
 import {
-  ArrowUp, Meh, ThumbsDown, ThumbsUp, BookOpen, CircleHelp, NotebookPen, RefreshCw, Target, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
+  ArrowUp, Meh, ThumbsDown, ThumbsUp, BookOpen, CircleHelp, NotebookPen, RefreshCw, Target, Mic, Square, Paperclip, X, FileText, Image as ImageIcon, LoaderCircle, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
   HelpCircle, Lightbulb, Moon, RotateCcw, Sparkles, SquarePen, Sun, TriangleAlert, WifiOff,
   Settings as SettingsIcon, Crown,
 } from "lucide-react";
@@ -10,6 +10,8 @@ import PlansView from "./PlansView.jsx";
 import { callTutor, actionRequest, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
 import { ACTION_LABELS, availableActions, tabTitle } from "./lib/chat.js";
 import { useT, greeting, setConversationLanguage } from "./i18n.js";
+import { readAttachment } from "./lib/attachments.js";
+import { browserDictation, dictationSupported, recordVoice, voiceSupported } from "./lib/voice.js";
 // The Markdown + maths renderer is a separate download, fetched while the
 // first reply is being prepared, so the first screen stays light.
 const loadMarkdown = () => import("./Markdown.jsx");
@@ -141,13 +143,18 @@ function useReveal(text, animate) {
 function UserMessage({ msg }) {
   const { t } = useT();
   if (msg.control && msg.control !== "check") {
-    return <div className="mn-msg user"><div className="mn-user-action">{t(`action.${msg.control}`)}</div></div>;
+    return <div className="mn-msg user"><div className="mn-user-action">{msg.control === "stuck" ? msg.content : t(`action.${msg.control}`)}</div></div>;
   }
   return (
     <div className="mn-msg user">
       <div className="mn-user-bubble" dir="auto">
         {msg.control === "check" && <span className="mn-user-label"><ClipboardCheck size={13} />{t("action.check")}</span>}
         {msg.content}
+        {msg.attachments?.length > 0 && (
+          <span className="mn-user-files">
+            {msg.attachments.map((a, i) => <span key={i} className="mn-file-chip sent">{a.kind === "image" ? <ImageIcon size={13} /> : <FileText size={13} />}{a.name}</span>)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -359,6 +366,12 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const [mode, setMode] = useState("learn");     // learn: guided step by step; explain: direct explanation
   const [scratchOpen, setScratchOpen] = useState(false);
   const [scratch, setScratch] = useState("");
+  const [files, setFiles] = useState([]);       // [{ id, name, kind, status: reading|ready|error, text, error }]
+  const [voice, setVoice] = useState(null);     // { phase: recording|transcribing|dictating, seconds, level }
+  const [voiceError, setVoiceError] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const recorderRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [lastLanguage, setLastLanguage] = useState(null);
   const [waitSeconds, setWaitSeconds] = useState(null);
   const [animateIndex, setAnimateIndex] = useState(-1);
@@ -415,24 +428,25 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const openPlans = useCallback(() => { setShowSettings(false); onNavigate ? onNavigate("pricing") : setShowPlans(true); }, [onNavigate]);
 
   // One path for every learner action: a typed message, an answer to check, or a button.
-  const runAction = useCallback(async (action, text = "", { retry = false, stuck = null, objective = null } = {}) => {
+  const runAction = useCallback(async (action, text = "", { retry = false, stuck = null, objective = null, attachments = null } = {}) => {
     if (loading || !online) return;
-    if ((action === "message" || action === "check") && !text.trim()) return;
+    if ((action === "message" || action === "check") && !text.trim() && !attachments?.length) return;
     loadMarkdown();
     setLoading(true); setLoadingKind(action);
-    const userMsg = action === "message" ? { role: "user", content: text }
+    const userMsg = action === "message" ? { role: "user", content: text, attachments: attachments?.map(a => ({ name: a.name, kind: a.kind })) }
       : { role: "user", control: action, content: action === "check" ? text : action === "stuck" ? t(`stuck.${stuck}`) : ACTION_LABELS[action] };
     setMessages(prev => {
       const base = retry && prev.at(-1)?.type === "error" ? prev.slice(0, -1) : prev;
       return retry ? base : [...base, userMsg];
     });
-    if (action === "message" || action === "check") setInput("");
+    if (action === "message" || action === "check") { setInput(""); if (attachments) setFiles([]); }
     const prefs = { learnerLevel: settings.level, style: settings.style };
     const lang = language !== "auto" ? language : lastLanguage;
     try {
       let parsed, advanced = false, engineView = null;
       if (client) {
-        const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined });
+        const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined,
+          attachments: attachments?.map(({ name, kind, text: body }) => ({ name, kind, text: body })) });
         if (!r.ok) {
           const message = errorText(t, r.error, r.message, { seconds: r.retryAfter ?? 30 });
           throw Object.assign(new Error(message), { limit: r.isLimit ? r : null, retryable: r.retryable });
@@ -464,13 +478,88 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     } catch (err) {
       if (err.limit) pushAssistant({ content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo });
       else pushAssistant({ content: err.message || t("err.generic"), type: "error",
-                           retry: client ? (err.retryable ? { action, text, stuck, objective } : null) : { action, text } });
+                           retry: client ? (err.retryable ? { action, text, stuck, objective, attachments } : null) : { action, text } });
     }
     setLoading(false);
     if (action === "message" || action === "check") inputRef.current?.focus();
   }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, mode, onUsage, onSessionChange, pushAssistant, t]);
 
-  const retry = useCallback(({ action, text, stuck, objective }) => runAction(action, text, { retry: true, stuck, objective }), [runAction]);
+  const retry = useCallback(({ action, text, stuck, objective, attachments }) => runAction(action, text, { retry: true, stuck, objective, attachments }), [runAction]);
+
+  // ---------------- attachments ----------------
+  const addFiles = useCallback((list) => {
+    if (!client) return;
+    const incoming = [...list].slice(0, Math.max(0, 5 - files.length));
+    for (const file of incoming) {
+      const id = `${Date.now()}-${Math.random()}`;
+      setFiles(f => [...f, { id, name: file.name || "file", kind: null, status: "reading" }]);
+      readAttachment(file, { readImage: client.readImage, transcribe: blob => client.transcribe(blob, language) })
+        .then(a => setFiles(f => f.map(x => x.id === id ? { ...x, ...a, status: "ready" } : x)))
+        .catch(err => setFiles(f => f.map(x => x.id === id ? { ...x, status: "error", error: err.code ?? "generic" } : x)));
+    }
+  }, [client, files.length, language]);
+  const readyFiles = files.filter(f => f.status === "ready");
+  const filesBusy = files.some(f => f.status === "reading");
+  const send = () => {
+    if (filesBusy) return;
+    runAction("message", input, { attachments: readyFiles.length ? readyFiles : null });
+  };
+
+  // ---------------- voice ----------------
+  const kinyarwanda = language === "Kinyarwanda" || (language === "auto" && lang === "rw");
+  const insertText = (text) => {
+    if (!text) return;
+    setInput(i => (i.trim() ? `${i.trimEnd()} ${text}` : text));
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const voiceFail = (code) => { setVoice(null); recorderRef.current = null; setVoiceError(code); };
+  const startWhisper = async () => {
+    try {
+      const rec = await recordVoice({
+        onLevel: level => setVoice(v => v && { ...v, level }),
+        onTick: seconds => setVoice(v => v && { ...v, seconds }),
+        onAutoStop: () => stopVoice(),
+      });
+      recorderRef.current = { kind: "record", ...rec };
+      setVoice({ phase: "recording", seconds: 0, level: 0 });
+    } catch (err) {
+      voiceFail(err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "denied" : "unsupported");
+    }
+  };
+  const startVoice = async () => {
+    setVoiceError(null);
+    if (kinyarwanda && dictationSupported()) {
+      const base = input;
+      const rec = browserDictation("rw-RW", {
+        onText: (finalText, interim) => setInput(`${base ? `${base.trimEnd()} ` : ""}${finalText} ${interim}`.trimEnd()),
+        onEnd: () => { setVoice(null); recorderRef.current = null; },
+        onError: (code) => { if (code === "language-not-supported" || code === "service-not-allowed") { setInput(base); startWhisper(); } else if (code === "not-allowed") voiceFail("denied"); },
+      });
+      recorderRef.current = { kind: "dictate", ...rec };
+      setVoice({ phase: "dictating", seconds: 0, level: 0 });
+      return;
+    }
+    if (!voiceSupported()) { voiceFail("unsupported"); return; }
+    await startWhisper();
+  };
+  const stopVoice = async () => {
+    const rec = recorderRef.current;
+    if (!rec) return;
+    if (rec.kind === "dictate") { rec.stop(); return; }
+    recorderRef.current = null;
+    setVoice({ phase: "transcribing", seconds: 0, level: 0 });
+    try {
+      const blob = await rec.stop();
+      if (blob.size < 1500) { voiceFail("empty"); return; }
+      const text = await client.transcribe(blob, language);
+      if (!text.trim()) { voiceFail("empty"); return; }
+      insertText(text.trim());
+      setVoice(null);
+    } catch (err) {
+      voiceFail(err?.code === "media_limit" ? "limit" : "failed");
+    }
+  };
+  const cancelVoice = () => { recorderRef.current?.cancel(); recorderRef.current = null; setVoice(null); };
 
   const newProblem = () => {
     client?.newProblem();
@@ -540,13 +629,31 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const composer = (
     <>
     {scratchpad}
-    <form className="mn-composer" onSubmit={e => { e.preventDefault(); runAction("message", input); }}>
+    <form className={`mn-composer${dragging ? " dragging" : ""}`} onSubmit={e => { e.preventDefault(); send(); }}
+      onDragOver={e => { if (client && e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragging(true); } }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={e => { if (!client) return; e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}>
+      {dragging && <div className="mn-drop-hint">{t("attach.drop")}</div>}
+      {files.length > 0 && (
+        <div className="mn-file-row">
+          {files.map(f => (
+            <span key={f.id} className={`mn-file-chip ${f.status}`} title={f.status === "error" ? t(`attach.failed.${f.error}`) : f.name}>
+              {f.status === "reading" ? <LoaderCircle size={13} className="mn-spin" /> : f.kind === "image" ? <ImageIcon size={13} /> : <FileText size={13} />}
+              <span className="name">{f.name}</span>
+              {f.status === "reading" && <span className="state">{t("attach.reading")}</span>}
+              {f.status === "error" && <span className="state">{t(`attach.failed.${f.error}`) === `attach.failed.${f.error}` ? t("attach.failed.generic") : t(`attach.failed.${f.error}`)}</span>}
+              <button type="button" onClick={() => setFiles(x => x.filter(y => y.id !== f.id))} aria-label={t("attach.remove", { name: f.name })}><X size={12} /></button>
+            </span>
+          ))}
+        </div>
+      )}
       <textarea ref={inputRef} dir="auto" rows={empty ? 2 : 1} value={input} onChange={e => setInput(e.target.value)}
         onKeyDown={e => {
           if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-          const send = settings.enterToSend ? !e.shiftKey : (e.ctrlKey || e.metaKey);
-          if (send) { e.preventDefault(); runAction("message", input); }
+          const go = settings.enterToSend ? !e.shiftKey : (e.ctrlKey || e.metaKey);
+          if (go) { e.preventDefault(); send(); }
         }}
+        onPaste={e => { const pasted = [...(e.clipboardData?.files ?? [])]; if (client && pasted.length) { e.preventDefault(); addFiles(pasted); } }}
         maxLength={4000}
         placeholder={empty ? t("composer.placeholder") : t("composer.placeholderFollowUp")}
         aria-label={t("composer.aria")} />
@@ -564,11 +671,40 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
             <NotebookPen size={15} />
           </button>
         )}
+        {client && (
+          <>
+            <button type="button" className="mn-btn icon" onClick={() => fileInputRef.current?.click()} disabled={files.length >= 5}
+              title={files.length >= 5 ? t("attach.max") : t("attach.button")} aria-label={t("attach.button")}>
+              <Paperclip size={15} />
+            </button>
+            <input ref={fileInputRef} type="file" multiple hidden onChange={e => { addFiles(e.target.files); e.target.value = ""; }} />
+          </>
+        )}
         <span className="spacer" />
-        <span className="mn-kbd mn-hide-sm">{settings.enterToSend ? t("composer.kbdEnter") : t("composer.kbdCtrl")}</span>
-        <button type="submit" className="mn-send" disabled={loading || !input.trim() || !online} aria-label={t("composer.send")}><ArrowUp size={18} strokeWidth={2.5} /></button>
+        {voice && (
+          <span className="mn-voice-status" role="status">
+            {voice.phase === "transcribing" ? <><LoaderCircle size={14} className="mn-spin" />{t("voice.transcribing")}</>
+              : voice.phase === "dictating" ? <><span className="mn-rec-dot" />{t("voice.dictating")}</>
+              : <>
+                  <span className="mn-rec-dot" />
+                  {t("voice.recording", { time: `${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, "0")}` })}
+                  <span className="mn-level" aria-hidden="true"><span style={{ transform: `scaleX(${Math.max(0.05, voice.level)})` }} /></span>
+                </>}
+            {voice.phase !== "transcribing" && <button type="button" className="mn-btn icon" onClick={cancelVoice} aria-label={t("voice.cancel")} title={t("voice.cancel")}><X size={14} /></button>}
+          </span>
+        )}
+        {!voice && <span className="mn-kbd mn-hide-sm">{settings.enterToSend ? t("composer.kbdEnter") : t("composer.kbdCtrl")}</span>}
+        {client && (
+          <button type="button" className={`mn-mic${voice && voice.phase !== "transcribing" ? " live" : ""}`} disabled={voice?.phase === "transcribing" || loading}
+            onClick={() => (voice ? stopVoice() : startVoice())}
+            aria-label={voice ? t("voice.stop") : t("voice.start")} title={voice ? t("voice.stop") : t("voice.start")}>
+            {voice ? <Square size={14} fill="currentColor" /> : <Mic size={17} />}
+          </button>
+        )}
+        <button type="submit" className="mn-send" disabled={loading || filesBusy || (!input.trim() && !readyFiles.length) || !online || Boolean(voice)} aria-label={t("composer.send")}><ArrowUp size={18} strokeWidth={2.5} /></button>
       </div>
     </form>
+    {voiceError && <div className="mn-voice-error" role="alert">{t(`voice.${voiceError}`)} <button type="button" className="mn-link" onClick={() => setVoiceError(null)}><X size={12} /></button></div>}
     </>
   );
   const offlineNote = !online && <div className="mn-offline" role="status"><WifiOff size={15} aria-hidden="true" />{t("offline")}</div>;

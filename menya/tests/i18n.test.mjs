@@ -53,3 +53,10 @@ test("the hint button reports how many hints are left", () => {
   const a = availableActions({ hasConversation: true, loading: false, hintsUsed: 1, problem: { solved: false }, assistantReplies: 2, lastType: "hint" });
   assert.equal(a.find(x => x.id === "hint").left, 2);
 });
+
+test("every button action shown in the chat has a label in every language", async () => {
+  const { ACTION_LABELS } = await import("../src/lib/chat.js");
+  for (const lang of Object.keys(LOCALES)) for (const action of Object.keys(ACTION_LABELS)) {
+    assert.ok(LOCALES[lang][`action.${action}`] ?? LOCALES.en[`action.${action}`], `${lang}: action.${action}`);
+  }
+});

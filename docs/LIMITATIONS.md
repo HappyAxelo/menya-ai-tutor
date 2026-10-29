@@ -29,6 +29,15 @@ Stated plainly so nobody overclaims. Updated 29 October 2026.
   back to a model-written problem, which is **not** deterministically verified. Add more
   templates before relying on those objectives for mastery.
 
+- **Voice in Kinyarwanda.** Whisper (used for voice notes) doesn't support Kinyarwanda. For
+  Kinyarwanda, Menya uses the browser's own speech recognition (Chrome, Edge) when the browser
+  offers it; otherwise the recording goes to Whisper, which will transcribe it poorly. Not tested
+  with native speakers.
+- **Attachments**: up to 5 files and ~8,000 characters of their text per message (Groq free-tier
+  token limits); longer files are cut, and the tutor is told so. Videos and old Office formats
+  (.doc/.ppt/.xls) are not read. Scanned PDFs: only the first 3 pages are read (as images).
+  Handwriting recognition depends on the vision model and photo quality.
+
 ## Implemented but not yet verified in production
 
 - **IremboPay**: built from the public API documentation and tested against signed sample

@@ -1,5 +1,34 @@
 # Change log
 
+## Voice input and file attachments (29 October 2026, branch `voice-and-files`)
+
+**Voice.** A microphone button records the question (noise suppression, echo cancellation,
+live level meter, up to 3 minutes); Groq Whisper large-v3 (turbo as fallback), nudged toward
+STEM vocabulary, writes it into the message box to check, edit and send. Kinyarwanda uses the
+browser's own recogniser when available. Test: a spoken "A 12-volt battery is connected across a
+4-ohm resistor. What current flows through it?" was transcribed exactly in 1.4 s (the turbo model
+alone wrote "Watt current"; the full model with the subject hint fixed it).
+
+**Attachments.** Paperclip, drag and drop, or paste. Read instantly in the browser: PDF (pdf.js;
+scanned PDFs go to the image reader), Word, PowerPoint, Excel (read from their XML, no library),
+text, code, CSV, JSON, Jupyter notebooks. Photos/scans/screenshots: a Groq vision model
+(`qwen/qwen3.8-27b`) copies out the problem exactly, without solving it; audio files are
+transcribed. The tutor receives the text as clearly marked student material (never as
+instructions), works out the problem and starts guiding. Test with real models: a handwriting-
+style photo ("R1 = 30 Ω and R2 = 33 Ω in series to a 5 V battery…") was read exactly in 1.4 s,
+and the tutor opened with "What is the total resistance…?" (DIAGNOSE) in 2.1 s.
+
+**Limits and privacy.** Per-learner daily allowance for voice notes (60) and images (30), kept
+apart from the tutoring quota (`media_usage`). Documents never leave the device; photos and
+audio go to Groq to be read and are not stored. Privacy page updated.
+
+**Fix.** Chat bubbles for "I'm stuck", "Check yourself" and reviews showed raw label keys
+(`action.verify`); now labelled in all four languages, with a test that catches it.
+
+**Tests.** Backend 118 (5 new), frontend 22 (4 new, including real compressed Word, PowerPoint
+and Excel files). The readers were also checked in a real browser engine (PDF made by Edge,
+Office files, a photo, drag and drop).
+
 ## Scaling up: tutoring engine, feedback and analytics, IremboPay, HPC (29 October 2026, branch `scale-and-engine`)
 
 **Tutoring engine** (docs/ENGINE_DESIGN.md). The server decides each turn's teaching move before

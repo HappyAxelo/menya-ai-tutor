@@ -20,14 +20,15 @@ async function token() {
 
 // timeoutMs: tutor replies can take a while on hard problems, but not forever.
 export async function api(path, { method = "GET", body, timeoutMs = 60000 } = {}) {
-  const headers = { "Content-Type": "application/json" };
+  const upload = typeof FormData !== "undefined" && body instanceof FormData;   // files: the browser sets the multipart header
+  const headers = upload ? {} : { "Content-Type": "application/json" };
   const t = await token();
   if (t) headers.Authorization = `Bearer ${t}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal });
+    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : upload ? body : JSON.stringify(body), signal: controller.signal });
   } catch (err) {
     if (err?.name === "AbortError") {
       return { ok: false, status: 0, data: { error: "timeout", message: "This is taking much longer than usual, so we stopped waiting. Please try again." } };
@@ -118,8 +119,25 @@ export function backendTutorClient() {
   return {
     // action: message | hint | simpler | example | check | practice | summary | verify | review | stuck
     // mode: learn | explain; stuck: start | step | mistake | concept; objective: for review
-    act: (action, { text, language, learnerLevel, style, mode, stuck, objective }) =>
-      call({ action, message: text, language, learnerLevel, style, mode, stuck, objective }),
+    act: (action, { text, language, learnerLevel, style, mode, stuck, objective, attachments }) =>
+      call({ action, message: text, language, learnerLevel, style, mode, stuck, objective, attachments }),
+    // Voice note -> text (Whisper). language: the learner's chosen reply language, if any.
+    transcribe: async (blob, language) => {
+      const form = new FormData();
+      form.append("file", blob, `voice.${/mp4|m4a/.test(blob.type) ? "m4a" : /ogg/.test(blob.type) ? "ogg" : /wav/.test(blob.type) ? "wav" : /mpeg|mp3/.test(blob.type) ? "mp3" : "webm"}`);
+      if (language && language !== "auto") form.append("language", language);
+      const r = await api("/media/transcribe", { method: "POST", body: form, timeoutMs: 90000 });
+      if (!r.ok) throw Object.assign(new Error(r.data.error ?? "transcription_failed"), { code: r.data.error });
+      return r.data.text ?? "";
+    },
+    // Photo or scan of a problem -> the problem as text.
+    readImage: async (blob) => {
+      const form = new FormData();
+      form.append("file", blob, "image");
+      const r = await api("/media/read-image", { method: "POST", body: form, timeoutMs: 90000 });
+      if (!r.ok) throw Object.assign(new Error(r.data.error ?? "read_failed"), { code: r.data.error });
+      return r.data.text ?? "";
+    },
     // Objectives due for spaced review (readable by the learner; no answers in them).
     dueReviews: async () => {
       const { data } = await supabase.from("learner_objectives").select("objective_id, next_review_at, status")
