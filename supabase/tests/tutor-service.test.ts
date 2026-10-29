@@ -7,7 +7,7 @@ import { freshDb, createUser, rpc } from "./db.ts";
 import { pgRepo } from "./pgRepo.ts";
 import { handleTutor } from "../functions/_shared/tutorService.ts";
 import { detectLanguage } from "../functions/_shared/policy.ts";
-import { ProviderError, type ModelProvider, type ChatRequest, type ModelConfig } from "../functions/_shared/providers.ts";
+import { ProviderError, openAICompatibleProvider, type ModelProvider, type ChatRequest, type ModelConfig } from "../functions/_shared/providers.ts";
 import { matchesAnswer, revealsAnswer } from "../functions/_shared/answerGuard.ts";
 import { classifyDifficulty, planRoute } from "../functions/_shared/router.ts";
 import { checkEquation } from "../functions/_shared/chemistry.ts";
@@ -218,6 +218,37 @@ describe("tutor pipeline", () => {
     assert.equal(revealsAnswer("It starts at 20 m/s.", "20 m", []), false);
     assert.equal(revealsAnswer("The pipe is 20 mm wide.", "20 m", []), false);
     assert.equal(revealsAnswer("Yes, 20 m.", "20 m", ["so it's 20 m"]), false, "the student said it first");
+  });
+
+  test("free plan: the HPC model answers when it is up; when its job is gone, Groq answers instead", async () => {
+    await db.query("update public.model_configs set enabled = true, model = 'openai/gpt-oss-20b' where role = 'local_small'");
+    try {
+      const u = await createUser(db);
+      const groq = fakeProvider("groq", () => reply({ message: "From Groq." }));
+      let hpcUrl: string | null = "https://job.trycloudflare.com/v1";
+      const hpcCalls: string[] = [];
+      const hpc = openAICompatibleProvider({ name: "openai_compatible", baseUrl: "", jsonMode: "json_schema",
+        resolveBaseUrl: async () => hpcUrl,
+        fetchImpl: (async (url: string) => {
+          hpcCalls.push(url);
+          return new Response(JSON.stringify({ choices: [{ message: { content: reply({ message: "From the HPC." }) } }], usage: { prompt_tokens: 900, completion_tokens: 80 } }));
+        }) as unknown as typeof fetch });
+      const deps = { repo: pgRepo(db), providers: { groq: groq.provider, openai_compatible: hpc }, sleep: noSleep };
+
+      const up = await handleTutor(deps, u, ask("What is 2 + 2?"));
+      assert.equal((up.body.reply as any).message, "From the HPC.");
+      assert.equal(hpcCalls[0], "https://job.trycloudflare.com/v1/chat/completions");
+      assert.equal(groq.calls.length, 0);
+      assert.equal((await usage(u)).at(-1).model_role, "local_small");
+
+      hpcUrl = null; // the job ended (no heartbeat)
+      const down = await handleTutor(deps, u, ask("What is 3 + 3?"));
+      assert.equal((down.body.reply as any).message, "From Groq.");
+      assert.equal((await usage(u)).at(-1).fallback_used, true);
+      assert.equal(hpcCalls.length, 1, "no request is sent to a job that is gone");
+    } finally {
+      await db.query("update public.model_configs set enabled = false where role = 'local_small'");
+    }
   });
 
   test("a reply that reveals the answer is rewritten; if it still leaks a safe message is sent", async () => {

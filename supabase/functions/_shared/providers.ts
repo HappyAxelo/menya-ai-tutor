@@ -86,6 +86,9 @@ function kindForStatus(status: number): ProviderErrorKind {
 export interface OpenAICompatibleOptions {
   name: string;
   baseUrl: string;            // e.g. https://api.groq.com/openai/v1 or http://gpu-host:8000/v1
+  // Looked up on every request instead of baseUrl (a Slurm job's address changes with each
+  // job). Null means the server is not running: fail at once so routing falls back.
+  resolveBaseUrl?: () => Promise<string | null>;
   apiKey?: string;
   fetchImpl?: typeof fetch;
   // Groq: strict json_schema + hidden reasoning. Local servers: json_schema
@@ -100,6 +103,8 @@ export function openAICompatibleProvider(o: OpenAICompatibleOptions): ModelProvi
   return {
     name: o.name,
     async chat(config, req) {
+      const baseUrl = o.resolveBaseUrl ? await o.resolveBaseUrl() : o.baseUrl;
+      if (!baseUrl) throw new ProviderError("unavailable", o.name);
       const jsonMode = (config.options.json_mode as string) ?? o.jsonMode ?? "json_schema_strict";
       const body: Record<string, unknown> = {
         model: config.model,
@@ -117,7 +122,7 @@ export function openAICompatibleProvider(o: OpenAICompatibleOptions): ModelProvi
       const started = Date.now();
       let res: Response;
       try {
-        res = await doFetch(`${o.baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(body), signal: t.signal });
+        res = await doFetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(body), signal: t.signal });
       } catch (err) {
         t.done();
         const reason = String((t.signal.reason as Error)?.message ?? err);
@@ -141,9 +146,11 @@ export function openAICompatibleProvider(o: OpenAICompatibleOptions): ModelProvi
       };
     },
     async health() {
+      const baseUrl = o.resolveBaseUrl ? await o.resolveBaseUrl() : o.baseUrl;
+      if (!baseUrl) return { ok: false, detail: "no HPC job registered" };
       const t = withTimeout(5000);
       try {
-        const res = await doFetch(`${o.baseUrl}/models`, { headers, signal: t.signal });
+        const res = await doFetch(`${baseUrl}/models`, { headers, signal: t.signal });
         await res.body?.cancel();
         return { ok: res.ok, detail: res.ok ? undefined : `HTTP ${res.status}` };
       } catch {
@@ -223,7 +230,8 @@ export interface ProviderEnv {
   LOCAL_LLM_JSON_MODE?: string;
 }
 
-export function buildProviders(env: ProviderEnv): Record<string, ModelProvider> {
+// resolveLocalBaseUrl: the address of a model server that registers itself (the HPC job).
+export function buildProviders(env: ProviderEnv, resolveLocalBaseUrl?: () => Promise<string | null>): Record<string, ModelProvider> {
   const providers: Record<string, ModelProvider> = {};
   if (env.GROQ_API_KEY) {
     providers.groq = openAICompatibleProvider({
@@ -232,9 +240,10 @@ export function buildProviders(env: ProviderEnv): Record<string, ModelProvider> 
     });
   }
   if (env.ANTHROPIC_API_KEY) providers.anthropic = anthropicProvider(env.ANTHROPIC_API_KEY);
-  if (env.LOCAL_LLM_BASE_URL) {
+  if (env.LOCAL_LLM_BASE_URL || resolveLocalBaseUrl) {
     providers.openai_compatible = openAICompatibleProvider({
-      name: "openai_compatible", baseUrl: env.LOCAL_LLM_BASE_URL.replace(/\/$/, ""), apiKey: env.LOCAL_LLM_API_KEY,
+      name: "openai_compatible", baseUrl: (env.LOCAL_LLM_BASE_URL ?? "").replace(/\/$/, ""), apiKey: env.LOCAL_LLM_API_KEY,
+      resolveBaseUrl: env.LOCAL_LLM_BASE_URL ? undefined : resolveLocalBaseUrl,
       jsonMode: (env.LOCAL_LLM_JSON_MODE as OpenAICompatibleOptions["jsonMode"]) ?? "json_schema",
     });
   }

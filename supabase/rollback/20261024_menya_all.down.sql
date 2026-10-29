@@ -8,7 +8,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists
   public.submit_feedback(uuid, bigint, text), public.admin_overview_json(uuid), public.admin_feedback_export(uuid),
-  public.admin_users_export(uuid),
+  public.admin_users_export(uuid), public.hpc_register(text, text, text), public.hpc_unregister(),
   public.org_roster_json(uuid, uuid), public.export_my_data(uuid), public.admin_config(uuid),
   public.admin_list_users_json(uuid, text, int), public.admin_unit_economics_json(date), public.public_plans(),
   public.submit_quote(jsonb), public.admin_list_users(uuid, text, int), public.admin_update_model(uuid, text, jsonb),

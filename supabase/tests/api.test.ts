@@ -9,6 +9,7 @@ import { handleApi, DbError, parseRosterCsv, type ApiContext } from "../function
 import { testBillingProvider, signTestWebhook } from "../functions/_shared/billing.ts";
 
 const SECRET = "test-secret-test-secret-test-secret-123";
+const HPC_SECRET = "hpc-register-secret-0123456789abcdef";
 let db: PGlite;
 let ctx: ApiContext;
 const deleted: string[] = [];
@@ -31,6 +32,7 @@ before(async () => {
     appUrl: "https://app.test",
     allowedOrigins: ["https://app.test"],
     log: () => {},
+    hpcSecret: HPC_SECRET,
   };
 });
 
@@ -146,6 +148,37 @@ describe("feedback and analytics", () => {
     assert.equal(String.fromCharCode(bytes[0], bytes[1]), "PK", "a zip (xlsx) file");
     const text = new TextDecoder().decode(bytes);
     for (const s of ["Summary", "Users", "Feedback", learner.email, "Bad"]) assert.ok(text.includes(s), s);
+  });
+});
+
+describe("HPC model registration", () => {
+  const register = (body: unknown, token?: string) => call("POST", "/hpc/register", { token, body });
+
+  test("only the HPC job, with the shared secret, can register a model server", async () => {
+    const body = { url: "https://quiet-river.trycloudflare.com", model: "openai/gpt-oss-20b", job: "123456" };
+    assert.equal((await register(body)).status, 401);
+    assert.equal((await register(body, "wrong-secret-wrong-secret-wrong-sec")).status, 401);
+    const learner = await user();
+    assert.equal((await register(body, learner.token)).status, 401, "a user token is not enough");
+    for (const bad of [{ ...body, url: "http://insecure.example" }, { ...body, url: "javascript:alert(1)" }, { ...body, model: "x; drop" }]) {
+      assert.equal((await register(bad, HPC_SECRET)).status, 400, JSON.stringify(bad));
+    }
+  });
+
+  test("registering enables the HPC route with the job's model; unregistering disables it", async () => {
+    const r = await register({ url: "https://quiet-river.trycloudflare.com/", model: "openai/gpt-oss-20b", job: "777" }, HPC_SECRET);
+    assert.equal(r.status, 200);
+    const setting = (await db.query<any>("select value from public.app_settings where key = 'hpc_llm'")).rows[0].value;
+    assert.equal(setting.url, "https://quiet-river.trycloudflare.com");
+    let model = (await db.query<any>("select * from public.model_configs where role = 'local_small'")).rows[0];
+    assert.equal(model.enabled, true);
+    assert.equal(model.model, "openai/gpt-oss-20b");
+    assert.ok(model.timeout_ms <= 25000, "a slow HPC job must leave time for the fallback");
+
+    assert.equal((await call("POST", "/hpc/unregister", { token: HPC_SECRET })).status, 200);
+    model = (await db.query<any>("select * from public.model_configs where role = 'local_small'")).rows[0];
+    assert.equal(model.enabled, false);
+    assert.equal((await db.query("select 1 from public.app_settings where key = 'hpc_llm'")).rows.length, 0);
   });
 });
 

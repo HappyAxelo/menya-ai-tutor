@@ -31,6 +31,7 @@ export interface ApiContext {
   appUrl: string;            // public URL of the web app (for invite/checkout links)
   allowedOrigins: string[];
   log(event: Record<string, unknown>): void;
+  hpcSecret?: string;        // HPC_REGISTER_SECRET: lets the Slurm job register its model server
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -127,6 +128,7 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     return json(200, { ok: true });
   }
   if (path.startsWith("/billing/webhook") && method === "POST") return billingWebhook(req, ctx);
+  if (path.startsWith("/hpc/") && method === "POST") return hpcRoutes(path, req, ctx);
 
   // ---------------- Authenticated ----------------
   const jwt = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
@@ -345,4 +347,31 @@ export function analyticsSheets(overview: any, users: any[], feedback: any[]) {
       ["When (UTC)", "Learner", "Plan", "Rating", "Language", "Reply type", "Learner's message", "Tutor's reply"],
       ...feedback.map(r => [when(r.created_at), r.email, r.plan, RATING_LABEL[r.rating] ?? r.rating, r.language, r.reply_type, r.question, r.reply])] },
   ];
+}
+
+// The HPC model job registers its current address (it changes with every Slurm job) and
+// sends a heartbeat. Authenticated with HPC_REGISTER_SECRET, never a user token.
+const HPC_URL_RE = /^https:\/\/[a-z0-9.-]+(:\d+)?(\/[\w./-]*)?$/i;
+async function hpcRoutes(path: string, req: Request, ctx: ApiContext): Promise<Response> {
+  const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  const secret = ctx.hpcSecret ?? "";
+  if (secret.length < 32 || given.length !== secret.length || !constantTimeEqual(given, secret)) return json(401, { error: "unauthenticated" });
+  if (path === "/hpc/register") {
+    const b = await readJson(req);
+    const url = typeof b?.url === "string" ? b.url.replace(/\/$/, "") : "";
+    if (!HPC_URL_RE.test(url) || typeof b?.model !== "string" || !/^[\w.:/-]{2,120}$/.test(b.model)) return json(400, { error: "invalid_registration" });
+    await ctx.db.rpc("hpc_register", { p_url: url, p_model: b.model, p_job: typeof b.job === "string" ? b.job.slice(0, 60) : null });
+    return json(200, { ok: true });
+  }
+  if (path === "/hpc/unregister") {
+    await ctx.db.rpc("hpc_unregister", {});
+    return json(200, { ok: true });
+  }
+  return json(404, { error: "not_found" });
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
