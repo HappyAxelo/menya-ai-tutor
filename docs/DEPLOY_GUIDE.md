@@ -38,8 +38,16 @@ Check: Table editor shows `tutor_feedback`, `learner_objectives`, `assessment_at
 
 ## Step 2 — API function
 
-Deploy `supabase/functions/api` (bundle: `cd supabase && npm run bundle:api`, then deploy
-`dist/api/index.ts` with `deno.json`, **verify_jwt off**). Check:
+Easiest (how version 8 was deployed on 29 October 2026): in Supabase → Edge Functions → `api`,
+deploy an `index.ts` containing only an import of the server code at a **tested commit** of
+this repository, plus the same `deno.json` (**verify_jwt off**):
+
+```ts
+import "https://raw.githubusercontent.com/HappyAxelo/menya-ai-tutor/<commit>/supabase/functions/api/index.ts";
+```
+
+Supabase fetches and bundles that exact commit (pinned by its hash, so it can't change).
+Alternatively deploy the bundle: `cd supabase && npm run bundle:api`, then `dist/api/index.ts`. Check:
 `https://tgrihnmngbamxxjnedlc.supabase.co/functions/v1/api/health` → `{"ok":true,"tutorReady":true}`.
 
 ## Step 3 — Website
