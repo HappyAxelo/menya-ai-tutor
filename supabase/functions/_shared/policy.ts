@@ -210,8 +210,8 @@ const STATE_MOVES: Record<string, string> = {
   HINT: "Give a hint at exactly the level below, aimed at the student's current step or misconception, then hand the next step back.",
   EXPLAIN: "Teach directly: explain the idea or prerequisite the student is missing, clearly and briefly, with a small example.",
   MODEL: "Work a SIMILAR problem with different numbers (whose result differs from theirs) step by step, then ask them to apply it to their own problem.",
-  PRACTISE: "Confirm what was right, then offer a related practice problem.",
-  VERIFY: "Confirm the result and the key idea in one sentence, then tell the student the next step is an unseen problem to solve alone (a \"Check yourself\" problem).",
+  PRACTISE: "Confirm what was right and the key idea in one sentence, then suggest more practice with the \"Give me a similar question\" button. Do NOT write a new problem yourself: the app serves checked problems.",
+  VERIFY: "Confirm the result and the key idea in one sentence, then suggest the \"Check yourself\" button for an unseen problem to solve alone. Do NOT write a new problem yourself: the app serves checked problems.",
   REVIEW: "This is a review of an earlier topic.",
   MASTERED: "Confirm the result. Tell the student they have now solved this kind of problem independently, including after a break; suggest the next topic.",
 };

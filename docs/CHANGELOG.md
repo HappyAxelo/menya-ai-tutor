@@ -1,5 +1,40 @@
 # Change log
 
+## Scaling up: tutoring engine, feedback and analytics, IremboPay, HPC (29 October 2026, branch `scale-and-engine`)
+
+**Tutoring engine** (docs/ENGINE_DESIGN.md). The server decides each turn's teaching move before
+the model writes it: states DIAGNOSE, GUIDE, HINT, EXPLAIN, MODEL, PRACTISE, VERIFY, REVIEW,
+MASTERED; a 0–5 help ladder chosen from evidence (misconception, repeats, why the learner is
+stuck, attempts); Learn and Explain modes; the model's structured assessment is validated and the
+server's own check always wins. A deterministic bank (12 objectives, 11 templates: algebra,
+calculus, circuits, digital logic, programming) serves unseen problems with verified answers and
+detects misconceptions from the wrong answers they produce. Mastery is a Beta estimate from
+verified evidence only, needing independent and delayed successes, with spaced reviews.
+
+**Interface.** Learn/Explain switch; "I'm stuck" (where to start / a step / my mistake / the
+idea); "Check yourself" after a solve; private scratchpad; "Checked: correct / not right yet";
+objective and mastery line under replies; reviews on the welcome screen; learning objectives
+on the progress page. All in English, Kinyarwanda, French and Kiswahili.
+
+**Feedback and admin.** Bad / Fair / Good on every reply ("Thanks for the feedback"); admin
+overview of learners by plan (free, pro, professional), activity, solves and feedback;
+"Download Excel" (.xlsx: Summary, Users, Feedback).
+
+**Payments: IremboPay** adapter (invoice checkout, signed notifications, one period per
+payment). Built from the public docs; needs a sandbox payment before going live.
+
+**HPC.** `hpc/` kit for a Slurm cluster (vLLM, self-test, tunnel, registration heartbeat,
+automatic resubmission); free-plan requests use it and fall back to Groq when it's gone.
+
+**Tests.** Backend 113 (31 new: the ten scenarios, the bank, the pipeline, feedback, analytics,
+IremboPay, HPC). Frontend 18. Real-model demonstration: docs/DEMO.md. It found two problems that
+were fixed: a "Check yourself" problem could repeat the practice question (different seeds, same
+text; now tracked by question text, product-rule variety increased), and replies proposed
+model-written problems instead of the verified ones (now forbidden).
+
+**Not done / not verified:** see docs/LIMITATIONS.md (course-material retrieval, code sandbox,
+IremboPay sandbox, a real Slurm run, native-speaker review, learning outcomes).
+
 ## Tutor training round, browser tab title (29 October 2026, branch `tutor-training`)
 
 **Browser tab.** Shows the logo and "Menya AI" on the welcome screen, and the conversation's first

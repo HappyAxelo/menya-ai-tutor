@@ -136,6 +136,14 @@ describe("assessment bank", () => {
       assert.ok(qs.size >= 3, `${id} has only ${qs.size} distinct questions`);
     }
   });
+  test("'unseen' is about the question: different seeds giving the same text count as seen", async () => {
+    const { questionKey } = await import("../functions/_shared/engine/bank.ts");
+    const a = generateItem("calc.product_rule", 1)!, same = { ...a, seed: 999 };
+    assert.equal(questionKey(a.question), questionKey(same.question));
+    const texts = new Set(Array.from({ length: 200 }, (_, i) => generateItem("calc.product_rule", i)!.question));
+    assert.ok(texts.size >= 40, `product rule has ${texts.size} distinct questions`);
+  });
+
   test("misconceptions are recognised from the wrong answer they produce", () => {
     const ohm = TEMPLATES.find(t => t.id === "ee.ohm")!.generate(7);
     const [V, R] = ohm.question.match(/[\d.]+(?= V| Ω)/g)!.map(Number);

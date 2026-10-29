@@ -7,6 +7,7 @@ import { freshDb, createUser } from "./db.ts";
 import { pgRepo } from "./pgRepo.ts";
 import { handleTutor } from "../functions/_shared/tutorService.ts";
 import type { ChatRequest, ModelProvider } from "../functions/_shared/providers.ts";
+import { questionKey } from "../functions/_shared/engine/bank.ts";
 
 let db: PGlite;
 before(async () => { db = await freshDb(); });
@@ -71,7 +72,7 @@ describe("tutoring engine in the pipeline", () => {
     assert.doesNotMatch(JSON.stringify(res.body), new RegExp(it.answer.replace(".", "\\.")), "the answer key is not in the response");
     const served = (await db.query<any>("select * from public.served_items where user_id = $1", [u])).rows;
     assert.equal(served.length, 1);
-    assert.equal(served[0].seed, it.seed);
+    assert.equal(served[0].seed, questionKey(it.question), "recorded by question text");
   });
 
   test("a misconception is diagnosed from the answer; a wrong 'correct' from the model is overruled", async () => {

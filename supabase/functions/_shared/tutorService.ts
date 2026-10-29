@@ -16,7 +16,7 @@ import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts"
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
 import { asksForAnswer, decideTurn, isUnexplained, reconcile, type CheckedVerdict, type EngineAction, type Mode, type StuckReason } from "./engine/state.ts";
-import { generateItem, markItem, misconceptionText, objective as objectiveInfo, OBJECTIVE_IDS, type Item } from "./engine/bank.ts";
+import { generateItem, markItem, questionKey, misconceptionText, objective as objectiveInfo, OBJECTIVE_IDS, type Item } from "./engine/bank.ts";
 import { emptyRecord, estimate, evidenceKind, update as updateMastery } from "./engine/mastery.ts";
 
 export interface TutorInput {
@@ -228,12 +228,16 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     objectiveKnown: Boolean(objectiveId && generateItem(objectiveId, 1)),
   });
 
+  log({ event: "engine_turn", state: plan.state, hintLevel: plan.hintLevel, verdict: checked, rationale: plan.rationale,
+        misconception: marking?.misconception ?? null, objective: objectiveId, mode });
+
   // Serve an unseen bank problem (practice, independent check, or review).
   let presented: { kind: "practice" | "verify" | "review"; item: Item } | null = null;
   if (plan.presentItem && objectiveId) {
     for (let k = 0; k < 8 && !presented; k++) {
       const item = generateItem(objectiveId, Math.floor(Math.random() * 2 ** 31));
-      if (item && await repo.markServed(userId, item.templateId, item.seed, plan.presentItem)) presented = { kind: plan.presentItem, item };
+      // "Unseen" means a question text the learner hasn't been shown (different seeds can give the same question).
+      if (item && await repo.markServed(userId, item.templateId, questionKey(item.question), plan.presentItem)) presented = { kind: plan.presentItem, item };
     }
     if (presented) await repo.setSessionItem(session.id, userId, presented);
   }

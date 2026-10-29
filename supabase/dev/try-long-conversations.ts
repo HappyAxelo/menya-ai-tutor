@@ -21,7 +21,16 @@ if (!process.env.GROQ_API_KEY && existsSync(envFile)) {
 if (!process.env.GROQ_API_KEY) throw new Error("Set GROQ_API_KEY");
 
 const db = await freshDb();
-const deps = { repo: pgRepo(db), providers: buildProviders({ GROQ_API_KEY: process.env.GROQ_API_KEY }),
+// To test a model on the HPC instead of Groq for the free plan:
+//   LOCAL_LLM_BASE_URL=https://<tunnel>/v1 LOCAL_LLM_API_KEY=<key> LOCAL_LLM_MODEL=openai/gpt-oss-120b node dev/try-long-conversations.ts
+if (process.env.LOCAL_LLM_BASE_URL) {
+  await db.query("update public.model_configs set enabled = true, model = $1, timeout_ms = 25000 where role = 'local_small'",
+    [process.env.LOCAL_LLM_MODEL ?? "openai/gpt-oss-120b"]);
+  console.log(`Free-plan requests go to the local model at ${process.env.LOCAL_LLM_BASE_URL} (Groq as fallback).`);
+}
+const deps = { repo: pgRepo(db), providers: buildProviders({ GROQ_API_KEY: process.env.GROQ_API_KEY,
+    LOCAL_LLM_BASE_URL: process.env.LOCAL_LLM_BASE_URL, LOCAL_LLM_API_KEY: process.env.LOCAL_LLM_API_KEY,
+    LOCAL_LLM_JSON_MODE: process.env.LOCAL_LLM_JSON_MODE }),
   log: (e: Record<string, unknown>) => { if (e.event === "answer_recheck") console.log(`  (second look: ${JSON.stringify(e)})`); } };
 
 const PACE_MS = Number(process.env.PACE_MS ?? 12000);

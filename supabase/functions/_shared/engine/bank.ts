@@ -122,12 +122,13 @@ export const TEMPLATES: Template[] = [
       one_term_only: "kept only one of the two product-rule terms",
     },
     generate(seed) {
-      const r = rng(seed); const n = int(r, 2, 4), f = pick(r, ["sin x", "cos x", "e^x"]);
+      const r = rng(seed); const n = int(r, 2, 5), a = pick(r, [1, 1, 2, 3, 4, 5]), f = pick(r, ["sin x", "cos x", "e^x"]);
       const df = { "sin x": "cos x", "cos x": "(-sin x)", "e^x": "e^x" }[f]!;
       const fx = f === "e^x" ? "exp(x)" : f, dfx = df === "e^x" ? "exp(x)" : df;
+      const c = a === 1 ? "" : String(a);
       return { templateId: this.id, objective: this.objective, seed, difficulty: this.difficulty,
-        question: `Differentiate f(x) = x^${n} · ${f}`,
-        answer: `${n}x^${n - 1}·${fx} + x^${n}·${dfx}`,
+        question: `Differentiate f(x) = ${c}x^${n} · ${f}`,
+        answer: `${a * n}x^${n - 1}·${fx} + ${c}x^${n}·${dfx}`,
         rubric: "Identify u = x^n and v; compute u' and v'; combine u'v + uv'.",
         steps: [`u = x^${n}, v = ${f}`, `u' = ${n}x^${n - 1}, v' = ${df}`, `f'(x) = u'v + uv'`] };
     },
@@ -137,9 +138,10 @@ export const TEMPLATES: Template[] = [
       if (ok === null) return { verdict: "unreadable", misconception: null, note: "could not read the expression" };
       if (ok) return { verdict: "correct", misconception: null, note: "equivalent to u'v + uv' at random points" };
       const [t1, t2] = item.answer.split(" + ");
-      const n = Number(/x\^(\d)/.exec(item.question)![1]);
+      const [, cs, ns] = /= (\d*)x\^(\d)/.exec(item.question)!;
+      const n = Number(ns), a = Number(cs || 1);
       const dfx = t2.split("·")[1];
-      if (equivalent(student, `${n}x^${n - 1}·${dfx}`)) return { verdict: "incorrect", misconception: "product_of_derivatives", note: "equals u'·v'" };
+      if (equivalent(student, `${a * n}x^${n - 1}·${dfx}`)) return { verdict: "incorrect", misconception: "product_of_derivatives", note: "equals u'·v'" };
       if (equivalent(student, t1) || equivalent(student, t2)) return { verdict: "incorrect", misconception: "one_term_only", note: "only one product-rule term" };
       return { verdict: "incorrect", misconception: null, note: "not equivalent to the derivative" };
     },
@@ -355,3 +357,10 @@ export function markItem(item: Item, studentText: string): Marking {
 
 export const misconceptionText = (item: Item, id: string | null) =>
   id ? TEMPLATES.find(t => t.id === item.templateId)?.misconceptions[id] ?? id : null;
+
+// A stable 31-bit key for a question's text (what "seen before" is checked against).
+export function questionKey(question: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < question.length; i++) h = Math.imul(h ^ question.charCodeAt(i), 16777619);
+  return (h >>> 1) & 0x7fffffff;
+}
