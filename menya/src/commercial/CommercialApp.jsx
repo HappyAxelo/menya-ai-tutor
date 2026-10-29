@@ -31,6 +31,7 @@ export default function CommercialApp() {
   const [opening, setOpening] = useState(null);
   const [currentId, setCurrentId] = useState(null);   // conversation on screen
   const [listKey, setListKey] = useState(0);          // bump to reload the conversation list
+  const [reviewRequest, setReviewRequest] = useState(null); // { objective, key } from the progress page
   const [newChatKey, setNewChatKey] = useState(0);    // bump to start a new conversation
   // The open conversation is remembered for this tab, so a page refresh reopens it.
   const onSessionChange = useCallback((id) => {
@@ -185,14 +186,14 @@ export default function CommercialApp() {
       {/* The tutor stays mounted so a conversation survives visiting other pages. */}
       <div style={{ display: page === "tutor" ? "block" : "none" }}>
         <AITutor client={client} headerExtras={nav} onUsage={onUsage} account={account} onNavigate={setPage} resume={resume}
-          onSessionChange={onSessionChange} newChatKey={newChatKey} userName={firstName(session.user)}
+          onSessionChange={onSessionChange} newChatKey={newChatKey} reviewRequest={reviewRequest} userName={firstName(session.user)}
           sidebar={<HistorySidebar {...historyProps} onNew={() => setNewChatKey(k => k + 1)} />} />
       </div>
       {showHistory && <HistoryDrawer onClose={() => setShowHistory(false)} {...historyProps} />}
       {page !== "tutor" && (
         <ErrorBoundary key={page} onReset={back}>
           {page === "pricing" && <PricingPage account={account} onBack={back} />}
-          {page === "progress" && <ProgressPage onBack={back} />}
+          {page === "progress" && <ProgressPage onBack={back} onReview={objective => { setReviewRequest({ objective, key: Date.now() }); back(); }} />}
           {page === "account" && <AccountPage account={account} email={session.user.email} onBack={back} onPricing={() => setPage("pricing")} refresh={refresh} />}
           {page === "org" && <OrgPage orgs={account?.org_admin_of ?? []} onBack={back} />}
           {page === "admin" && <AdminPage onBack={back} />}

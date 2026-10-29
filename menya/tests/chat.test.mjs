@@ -91,3 +91,16 @@ test("the browser tab shows the first question, shortened; nothing before a conv
   const long = tabTitle([{ role: "user", content: "A ball is thrown straight up at 20 m/s. Taking g = 10 m/s², how high does it go before falling?" }]);
   assert.ok(long.length <= 61 && long.endsWith("…") && !long.includes("  "), long);
 });
+
+test("with the tutoring engine: 'I'm stuck' menu, 'Check yourself' after solving, no hints on an independent check", () => {
+  const ids = (a) => a.map(x => x.id);
+  const base = { hasConversation: true, loading: false, hintsUsed: 0, assistantReplies: 1, lastType: "question" };
+  const open = availableActions({ ...base, problem: { solved: false }, engine: { objective: { id: "ee.ohms_law" }, item: null } });
+  assert.deepEqual(ids(open), ["hint", "stuck", "simpler", "example", "practice"]);
+  assert.deepEqual(open.find(a => a.id === "stuck").menu, ["start", "step", "mistake", "concept"]);
+  const solved = availableActions({ ...base, problem: { solved: true }, engine: { objective: { id: "ee.ohms_law" } } });
+  assert.equal(solved[0].id, "verify");
+  assert.equal(solved[0].primary, true);
+  const independent = availableActions({ ...base, problem: { solved: false }, engine: { objective: { id: "ee.ohms_law" }, item: { kind: "verify" } } });
+  assert.deepEqual(ids(independent), ["stuck", "practice"]);
+});

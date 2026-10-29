@@ -516,3 +516,23 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .mn-feedback .rate-good:hover { color: var(--green, #1a7f4b); }
 .mn-feedback .rate-bad:hover { color: var(--red, #b42318); }
 .mn-feedback-thanks { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; color: var(--muted); font-size: 12.5px; }
+
+/* Tutoring engine: Learn / Explain, stuck menu, scratchpad, checked feedback */
+.mn-mode { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; margin-left: 6px; }
+.mn-mode button { border: 0; background: none; color: var(--muted); font-size: 12.5px; padding: 4px 11px; border-radius: 999px; cursor: pointer; }
+.mn-mode button[aria-checked="true"] { background: var(--brand-tile); color: #fff; }
+.mn-action-menu { position: relative; display: inline-flex; }
+.mn-menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 20; display: flex; flex-direction: column; min-width: 240px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); padding: 4px; }
+.mn-menu button { text-align: left; background: none; border: 0; color: var(--text); padding: 9px 12px; border-radius: 8px; font-size: 13.5px; cursor: pointer; }
+.mn-menu button:hover { background: var(--surface-2, rgba(127,127,127,.1)); }
+.mn-scratch { pointer-events: auto; max-width: 780px; margin: 0 auto 8px; border: 1px dashed var(--border-strong, var(--border)); border-radius: 14px; padding: 8px; background: var(--surface); }
+.mn-scratch textarea { width: 100%; border: 0; background: none; color: var(--text); font-family: var(--font-mono, ui-monospace, monospace); font-size: 13.5px; resize: vertical; outline: none; }
+.mn-scratch-row { display: flex; justify-content: flex-end; }
+.mn-item-label { display: inline-flex; align-items: center; gap: 5px; margin: 0 0 6px 8px; font-size: 12px; font-weight: 600; color: var(--accent); }
+.mn-verified { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 12.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.mn-verified.ok { color: #1a7f4b; background: rgba(26,127,75,.1); }
+.mn-verified.no { color: #b54708; background: rgba(181,71,8,.1); }
+.mn-mastery-line { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.mn-reviews { width: 100%; max-width: 720px; margin: 14px auto 0; text-align: center; }
+@media (max-width: 720px) { .mn-mode button { padding: 4px 8px; } .mn-menu { min-width: 200px; } }

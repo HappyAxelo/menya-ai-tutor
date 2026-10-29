@@ -10,18 +10,26 @@ export const ACTION_LABELS = {
   check: "Check my answer",
   practice: "Asked for a similar practice question",
   summary: "Asked for a summary",
+  verify: "Asked for a problem to solve alone",
+  review: "Started a review",
+  stuck: "Said I'm stuck",
 };
 
 // Which follow-up actions make sense under the latest reply.
 // problem: { solved, practice, attempts } from the server (or null in developer mode).
-export function availableActions({ hasConversation, loading, hintsUsed, problem, assistantReplies, lastType }) {
+// engine: { objective, item } from the server's tutoring engine (null in developer mode).
+export function availableActions({ hasConversation, loading, hintsUsed, problem, assistantReplies, lastType, engine = null }) {
   if (!hasConversation || loading || lastType === "error" || lastType === "limit") return [];
   const solved = Boolean(problem?.solved);
+  const independent = engine?.item?.kind === "verify" || engine?.item?.kind === "review";
   const actions = [];
-  if (!solved && hintsUsed < 3) actions.push({ id: "hint", label: "Give me a hint", detail: `${3 - hintsUsed} left`, left: 3 - hintsUsed });
-  if (!solved) actions.push({ id: "simpler", label: "Explain more simply" });
-  if (!solved) actions.push({ id: "example", label: "Show a worked example" });
-  actions.push({ id: "practice", label: solved ? "Try a similar question" : "Give me a similar question", primary: solved });
+  // An independent check is answered without help: no hints or examples on it.
+  if (!solved && !independent && hintsUsed < 3) actions.push({ id: "hint", label: "Give me a hint", detail: `${3 - hintsUsed} left`, left: 3 - hintsUsed });
+  if (!solved && engine) actions.push({ id: "stuck", label: "I'm stuck", menu: ["start", "step", "mistake", "concept"] });
+  if (!solved && !independent) actions.push({ id: "simpler", label: "Explain more simply" });
+  if (!solved && !independent) actions.push({ id: "example", label: "Show a worked example" });
+  if (solved && engine?.objective) actions.push({ id: "verify", label: "Check yourself", primary: true });
+  actions.push({ id: "practice", label: solved ? "Try a similar question" : "Give me a similar question", primary: solved && !engine?.objective });
   if (assistantReplies >= 2) actions.push({ id: "summary", label: "Summarise what I learned" });
   return actions;
 }

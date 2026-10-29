@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, lazy, Suspense } from "react";
 import {
-  ArrowUp, Meh, ThumbsDown, ThumbsUp, BookOpen, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
+  ArrowUp, Meh, ThumbsDown, ThumbsUp, BookOpen, CircleHelp, NotebookPen, RefreshCw, Target, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
   HelpCircle, Lightbulb, Moon, RotateCcw, Sparkles, SquarePen, Sun, TriangleAlert, WifiOff,
   Settings as SettingsIcon, Crown,
 } from "lucide-react";
@@ -197,6 +197,7 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
           <Icon size={13} strokeWidth={2.4} aria-hidden="true" />
           {label}
         </div>
+        {msg.engine?.item && <div className="mn-item-label"><Target size={13} aria-hidden="true" />{t(`engine.item.${msg.engine.item.kind}`)}</div>}
         <div className="mn-content" dir="auto">
           {plain ? <p>{shown}</p> : <Suspense fallback={<p style={{ whiteSpace: "pre-wrap" }}>{shown}</p>}><Markdown>{shown}</Markdown></Suspense>}
         </div>
@@ -207,6 +208,16 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
             )}
             {msg.progressSummary && (
               <div className="mn-callout ok"><Flag size={16} aria-hidden="true" /><div><b>{t("callout.keyIdea")}</b>{msg.progressSummary}</div></div>
+            )}
+            {msg.engine?.verified === "correct" && <div className="mn-verified ok"><Check size={14} aria-hidden="true" />{t("engine.correct")}</div>}
+            {msg.engine?.verified === "incorrect" && <div className="mn-verified no">{t("engine.incorrect")}</div>}
+            {msg.engine?.mastery && msg.engine.objective && (
+              <div className="mn-mastery-line">
+                <b>{t(`obj.${msg.engine.objective.id}`, null) === `obj.${msg.engine.objective.id}` ? msg.engine.objective.title : t(`obj.${msg.engine.objective.id}`)}</b>
+                {" · "}{t(`engine.status.${msg.engine.mastery.status}`)}
+                {" · "}{t("engine.independent", { n: msg.engine.mastery.independent })}
+                {msg.engine.mastery.nextReview && <>{" · "}{t("engine.nextReview", { date: new Date(msg.engine.mastery.nextReview).toLocaleDateString() })}</>}
+              </div>
             )}
             {msg.type === "limit" && (
               <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={onPlans}>{msg.upgradeTo ? t("msg.comparePlans") : t("msg.viewPlan")}</button>
@@ -233,10 +244,24 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
 
 function ActionBar({ actions, onAction }) {
   const { t } = useT();
+  const [menu, setMenu] = useState(null);
   if (!actions.length) return null;
   return (
     <div className="mn-action-bar" role="group" aria-label={t("msg.nextSteps")}>
-      {actions.map(a => (
+      {actions.map(a => a.menu ? (
+        <span key={a.id} className="mn-action-menu">
+          <button className="mn-action" aria-expanded={menu === a.id} onClick={() => setMenu(menu === a.id ? null : a.id)}>
+            <CircleHelp size={14} aria-hidden="true" />{t(`next.${a.id}`)}
+          </button>
+          {menu === a.id && (
+            <span className="mn-menu" role="menu">
+              {a.menu.map(reason => (
+                <button key={reason} role="menuitem" onClick={() => { setMenu(null); onAction(a.id, reason); }}>{t(`stuck.${reason}`)}</button>
+              ))}
+            </span>
+          )}
+        </span>
+      ) : (
         <button key={a.id} className={`mn-action${a.primary ? " primary" : ""}`} onClick={() => onAction(a.id)}>
           {a.id === "hint" && <Lightbulb size={14} aria-hidden="true" />}
           {t(a.id === "practice" && a.primary ? "next.practiceSolved" : `next.${a.id}`)}
@@ -249,15 +274,26 @@ function ActionBar({ actions, onAction }) {
 
 // The new-conversation screen: greeting for the time of day, the input in the
 // middle, then shortcuts and examples underneath (the way Claude welcomes you).
-function Welcome({ client, userName, composer, onExample, onIntent, introOpen, onDismissIntro }) {
+function Welcome({ client, userName, composer, onExample, onIntent, introOpen, onDismissIntro, onReview }) {
   const { t, lang } = useT();
   const hour = useHour();
   const [subject, setSubject] = useState(null);
+  const [due, setDue] = useState([]);
+  useEffect(() => { client?.dueReviews?.().then(setDue).catch(() => {}); }, [client]);
   return (
     <section className="mn-welcome">
       <h1 className="mn-greeting"><BrandMark size={40} /><span>{greeting(lang, hour, userName)}</span></h1>
       <p className="mn-hero-sub">{t("welcome.sub")}</p>
       {composer}
+
+      {due.length > 0 && (
+        <div className="mn-reviews">
+          <div className="mn-section-label">{t("review.title")}</div>
+          <div className="mn-subject-row">
+            {due.map(d => <button key={d.objective_id} className="mn-subject" onClick={() => onReview(d.objective_id)}><RefreshCw size={13} aria-hidden="true" /> {t(`obj.${d.objective_id}`)}</button>)}
+          </div>
+        </div>
+      )}
 
       <div className="mn-intents">
         {INTENTS.map(({ id, icon: Icon }) => (
@@ -310,7 +346,7 @@ function Welcome({ client, userName, composer, onExample, onIntent, introOpen, o
 // newChatKey: changing it starts a new conversation (the sidebar's "New conversation").
 // userName: first name for the greeting (from the Google profile), if known.
 export default function AITutor({ client = null, headerExtras = null, onUsage = null, account = null, onNavigate = null, resume = null,
-                                  sidebar = null, onSessionChange = null, newChatKey = 0, userName = null }) {
+                                  sidebar = null, onSessionChange = null, newChatKey = 0, userName = null, reviewRequest = null }) {
   const [apiKey, setApiKey] = useState(null);
   const [messages, setMessages] = useState([]);
   const [apiMessages, setApiMessages] = useState([]); // developer mode only: what the model sees
@@ -319,6 +355,10 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const [loadingKind, setLoadingKind] = useState("message");
   const [hintsUsed, setHintsUsed] = useState(0);
   const [problem, setProblem] = useState(null); // { solved, practice, attempts } from the server
+  const [engine, setEngine] = useState(null);   // { mode, state, objective, item, mastery } from the tutoring engine
+  const [mode, setMode] = useState("learn");     // learn: guided step by step; explain: direct explanation
+  const [scratchOpen, setScratchOpen] = useState(false);
+  const [scratch, setScratch] = useState("");
   const [lastLanguage, setLastLanguage] = useState(null);
   const [waitSeconds, setWaitSeconds] = useState(null);
   const [animateIndex, setAnimateIndex] = useState(-1);
@@ -361,6 +401,8 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     setMessages(resume.messages); setApiMessages([]); setAnimateIndex(-1);
     setHintsUsed(resume.session.hints_used ?? 0);
     setProblem({ solved: resume.session.solved, practice: resume.session.practice, attempts: resume.session.attempts });
+    setMode(resume.session.mode ?? "learn");
+    setEngine(resume.session.objective ? { objective: { id: resume.session.objective } } : null);
     setLastLanguage(resume.session.language ?? null);
     setInput("");
     onSessionChange?.(resume.session.id);
@@ -373,13 +415,13 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const openPlans = useCallback(() => { setShowSettings(false); onNavigate ? onNavigate("pricing") : setShowPlans(true); }, [onNavigate]);
 
   // One path for every learner action: a typed message, an answer to check, or a button.
-  const runAction = useCallback(async (action, text = "", { retry = false } = {}) => {
+  const runAction = useCallback(async (action, text = "", { retry = false, stuck = null, objective = null } = {}) => {
     if (loading || !online) return;
     if ((action === "message" || action === "check") && !text.trim()) return;
     loadMarkdown();
     setLoading(true); setLoadingKind(action);
     const userMsg = action === "message" ? { role: "user", content: text }
-      : { role: "user", control: action, content: action === "check" ? text : ACTION_LABELS[action] };
+      : { role: "user", control: action, content: action === "check" ? text : action === "stuck" ? t(`stuck.${stuck}`) : ACTION_LABELS[action] };
     setMessages(prev => {
       const base = retry && prev.at(-1)?.type === "error" ? prev.slice(0, -1) : prev;
       return retry ? base : [...base, userMsg];
@@ -388,16 +430,17 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     const prefs = { learnerLevel: settings.level, style: settings.style };
     const lang = language !== "auto" ? language : lastLanguage;
     try {
-      let parsed, advanced = false;
+      let parsed, advanced = false, engineView = null;
       if (client) {
-        const r = await client.act(action, { text, language, ...prefs });
+        const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined });
         if (!r.ok) {
           const message = errorText(t, r.error, r.message, { seconds: r.retryAfter ?? 30 });
           throw Object.assign(new Error(message), { limit: r.isLimit ? r : null, retryable: r.retryable });
         }
-        parsed = r.reply; advanced = r.advanced;
+        parsed = r.reply; advanced = r.advanced; engineView = r.engine;
         setHintsUsed(r.hintsUsed ?? 0);
         setProblem(r.problem);
+        setEngine(r.engine);
         onUsage?.(r.quota);
         onSessionChange?.(client.currentSession());
       } else {
@@ -416,27 +459,34 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         content: parsed.message, type: action === "hint" ? "hint" : parsed.type, hintLevel: parsed.hintLevel,
         conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected,
         progressSummary: parsed.progressSummary, solved: parsed.solved === true, advanced, messageId: parsed.messageId ?? null,
+        engine: client ? engineView : null,
       });
     } catch (err) {
       if (err.limit) pushAssistant({ content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo });
       else pushAssistant({ content: err.message || t("err.generic"), type: "error",
-                           retry: client ? (err.retryable ? { action, text } : null) : { action, text } });
+                           retry: client ? (err.retryable ? { action, text, stuck, objective } : null) : { action, text } });
     }
     setLoading(false);
     if (action === "message" || action === "check") inputRef.current?.focus();
-  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, onUsage, onSessionChange, pushAssistant, t]);
+  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, mode, onUsage, onSessionChange, pushAssistant, t]);
 
-  const retry = useCallback(({ action, text }) => runAction(action, text, { retry: true }), [runAction]);
+  const retry = useCallback(({ action, text, stuck, objective }) => runAction(action, text, { retry: true, stuck, objective }), [runAction]);
 
   const newProblem = () => {
     client?.newProblem();
-    setMessages([]); setApiMessages([]); setHintsUsed(0); setProblem(null); setLastLanguage(null);
+    setMessages([]); setApiMessages([]); setHintsUsed(0); setProblem(null); setEngine(null); setLastLanguage(null);
     setInput(""); setAnimateIndex(-1);
     onSessionChange?.(null);
     inputRef.current?.focus();
   };
 
   useEffect(() => { if (newChatKey) newProblem(); }, [newChatKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Review now" from the progress page: a fresh conversation on that objective.
+  useEffect(() => {
+    if (!reviewRequest) return;
+    newProblem();
+    runAction("review", "", { objective: reviewRequest.objective });
+  }, [reviewRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetKey = () => {
     if (confirm("Clear your API key and this conversation?")) { setApiKey(null); newProblem(); }
@@ -467,12 +517,29 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
   const last = messages.at(-1);
   const actions = availableActions({
     hasConversation: messages.length > 0, loading, hintsUsed, problem, assistantReplies,
-    lastType: last?.role === "assistant" ? last.type : "error",
+    lastType: last?.role === "assistant" ? last.type : "error", engine,
   });
   const canCheck = !empty && input.trim().length > 0 && !loading && online && !problem?.solved;
 
   // One composer: in the middle of the welcome screen, at the bottom once a conversation starts.
+  const modeSwitch = client && (
+    <div className="mn-mode" role="radiogroup" aria-label={t("mode.label")}>
+      {["learn", "explain"].map(m => (
+        <button key={m} type="button" role="radio" aria-checked={mode === m} title={t(`mode.${m}Help`)} onClick={() => setMode(m)}>{t(`mode.${m}`)}</button>
+      ))}
+    </div>
+  );
+  const scratchpad = scratchOpen && (
+    <div className="mn-scratch">
+      <textarea value={scratch} onChange={e => setScratch(e.target.value)} rows={4} dir="auto" placeholder={t("scratch.placeholder")} aria-label={t("scratch.open")} />
+      <div className="mn-scratch-row">
+        <button type="button" className="mn-btn" disabled={!scratch.trim()} onClick={() => { setInput(i => (i ? `${i}\n${scratch}` : scratch)); inputRef.current?.focus(); }}>{t("scratch.insert")}</button>
+      </div>
+    </div>
+  );
   const composer = (
+    <>
+    {scratchpad}
     <form className="mn-composer" onSubmit={e => { e.preventDefault(); runAction("message", input); }}>
       <textarea ref={inputRef} dir="auto" rows={empty ? 2 : 1} value={input} onChange={e => setInput(e.target.value)}
         onKeyDown={e => {
@@ -491,11 +558,18 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
           </button>
         )}
         {!empty && <span id="mn-check-help" className="mn-sr">{t("composer.checkHelp")}</span>}
+        {modeSwitch}
+        {client && (
+          <button type="button" className="mn-btn icon" aria-pressed={scratchOpen} onClick={() => setScratchOpen(o => !o)} title={t("scratch.open")} aria-label={t("scratch.open")}>
+            <NotebookPen size={15} />
+          </button>
+        )}
         <span className="spacer" />
         <span className="mn-kbd mn-hide-sm">{settings.enterToSend ? t("composer.kbdEnter") : t("composer.kbdCtrl")}</span>
         <button type="submit" className="mn-send" disabled={loading || !input.trim() || !online} aria-label={t("composer.send")}><ArrowUp size={18} strokeWidth={2.5} /></button>
       </div>
     </form>
+    </>
   );
   const offlineNote = !online && <div className="mn-offline" role="status"><WifiOff size={15} aria-hidden="true" />{t("offline")}</div>;
 
@@ -535,6 +609,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
           <div className="mn-thread-inner">
             {empty && (
               <Welcome client={client} userName={userName} onExample={q => runAction("message", q)} onIntent={useIntent}
+                onReview={objective => runAction("review", "", { objective })}
                 introOpen={introOpen} onDismissIntro={dismissIntro}
                 composer={<div className="mn-welcome-composer">{offlineNote}{composer}</div>} />
             )}
@@ -547,7 +622,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
                     onFeedback={client?.feedback} />)}
             </div>
 
-            <ActionBar actions={actions} onAction={id => runAction(id)} />
+            <ActionBar actions={actions} onAction={(id, reason) => runAction(id, "", { stuck: reason })} />
 
             {loading && (
               <div className="mn-thinking" role="status">

@@ -62,7 +62,7 @@ export async function getAccount() {
   return data;
 }
 
-const SESSION_COLUMNS = "id, title, language, turn_count, hints_used, attempts, practice, solved, examples_used, problems_solved, updated_at";
+const SESSION_COLUMNS = "id, title, language, turn_count, hints_used, attempts, practice, solved, examples_used, problems_solved, updated_at, mode, objective";
 
 export async function listSessions(limit = 30) {
   const { data, error } = await supabase.from("tutoring_sessions")
@@ -113,11 +113,19 @@ export function backendTutorClient() {
     }
     sessionId = r.data.sessionId;
     return { ok: true, reply: r.data.reply, quota: r.data.quota, advanced: r.data.advancedReasoning,
-             hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null };
+             hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null, engine: r.data.engine ?? null };
   };
   return {
-    // action: message | hint | simpler | example | check | practice | summary
-    act: (action, { text, language, learnerLevel, style }) => call({ action, message: text, language, learnerLevel, style }),
+    // action: message | hint | simpler | example | check | practice | summary | verify | review | stuck
+    // mode: learn | explain; stuck: start | step | mistake | concept; objective: for review
+    act: (action, { text, language, learnerLevel, style, mode, stuck, objective }) =>
+      call({ action, message: text, language, learnerLevel, style, mode, stuck, objective }),
+    // Objectives due for spaced review (readable by the learner; no answers in them).
+    dueReviews: async () => {
+      const { data } = await supabase.from("learner_objectives").select("objective_id, next_review_at, status")
+        .lte("next_review_at", new Date().toISOString()).order("next_review_at").limit(3);
+      return data ?? [];
+    },
     newProblem: () => { sessionId = null; },
     resume: (id) => { sessionId = id; },
     currentSession: () => sessionId,
@@ -138,3 +146,12 @@ export const store = {
   set(k, v) { try { sessionStorage.setItem(k, v); } catch { /* ignore */ } },
   del(k) { try { sessionStorage.removeItem(k); } catch { /* ignore */ } },
 };
+
+// The learner's profile per learning objective (mastery estimate, evidence, next review).
+export async function listObjectives() {
+  const { data, error } = await supabase.from("learner_objectives")
+    .select("objective_id, alpha, beta, independent_correct, guided_correct, incorrect, delayed_correct, next_review_at, status, misconceptions")
+    .order("updated_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data;
+}
