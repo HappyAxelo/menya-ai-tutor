@@ -327,7 +327,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     : { control: input.action };
 
   // Persist conversation (never the private fields)
-  await repo.appendMessages(session.id, userId, [
+  const [, replyId] = await repo.appendMessages(session.id, userId, [
     { role: "user", content: userContent, meta: userMeta },
     { role: "assistant", content: reply.message, meta: {
       type: reply.type, hintLevel: reply.hintLevel, concepts: reply.conceptsDetected,
@@ -365,7 +365,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   return {
     status: 200,
     body: {
-      reply: { ...publicReply(reply), solved: verifiedSolve, progressSummary: progressSummaryOk(reply, verifiedSolve) ? reply.progressSummary : null },
+      reply: { ...publicReply(reply), messageId: replyId ?? null, solved: verifiedSolve, progressSummary: progressSummaryOk(reply, verifiedSolve) ? reply.progressSummary : null },
       sessionId: session.id,
       hintsUsed,
       problem: { solved: !newProblem && (session.solved || verifiedSolve), practice, attempts: attemptsNow },

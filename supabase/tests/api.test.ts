@@ -95,6 +95,60 @@ describe("admin endpoints", () => {
   });
 });
 
+describe("feedback and analytics", () => {
+  // A conversation with one tutor reply, written the way the tutor pipeline writes it.
+  async function conversation(u: { id: string }) {
+    const session = await ctx.repo.createSession(u.id, null, "Ohm's law", "English");
+    const [, replyId] = await ctx.repo.appendMessages(session.id, u.id, [
+      { role: "user", content: "What current flows with 9 V across 3 Ω?", meta: {} },
+      { role: "assistant", content: "Which law links voltage, current and resistance?", meta: { type: "question" } },
+    ]);
+    return replyId;
+  }
+
+  test("a learner rates their own reply; a new click replaces the rating", async () => {
+    const learner = await user();
+    const replyId = await conversation(learner);
+    assert.equal((await call("POST", "/feedback", { token: learner.token, body: { messageId: replyId, rating: "fair" } })).status, 200);
+    assert.equal((await call("POST", "/feedback", { token: learner.token, body: { messageId: replyId, rating: "good" } })).status, 200);
+    const rows = (await db.query<any>("select * from public.tutor_feedback where user_id = $1", [learner.id])).rows;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].rating, "good");
+    assert.equal(rows[0].plan_id, "free");
+    assert.match(rows[0].question_excerpt, /9 V/);
+    assert.match(rows[0].reply_excerpt, /Which law/);
+  });
+
+  test("feedback is refused for someone else's reply, unknown ratings and anonymous callers", async () => {
+    const owner = await user(), other = await user();
+    const replyId = await conversation(owner);
+    assert.equal((await call("POST", "/feedback", { token: other.token, body: { messageId: replyId, rating: "bad" } })).status, 400);
+    assert.equal((await call("POST", "/feedback", { token: owner.token, body: { messageId: replyId, rating: "excellent" } })).status, 400);
+    assert.equal((await call("POST", "/feedback", { body: { messageId: replyId, rating: "good" } })).status, 401);
+    assert.equal((await db.query("select 1 from public.tutor_feedback where message_id = $1", [replyId])).rows.length, 0);
+  });
+
+  test("only administrators see the overview and download the Excel workbook", async () => {
+    const learner = await user();
+    await call("POST", "/feedback", { token: learner.token, body: { messageId: await conversation(learner), rating: "bad" } });
+    for (const p of ["/admin/overview", "/admin/analytics.xlsx"]) assert.equal((await call("GET", p, { token: learner.token })).status, 403, p);
+
+    const admin = await user();
+    await db.query("update public.profiles set platform_role = 'admin' where id = $1", [admin.id]);
+    const overview = await (await call("GET", "/admin/overview", { token: admin.token })).json();
+    assert.deepEqual(overview.by_plan.map((p: any) => p.plan_id), ["free", "pro", "professional"]);
+    assert.ok(overview.by_plan[0].users >= 2 && overview.feedback.bad >= 1);
+
+    const res = await call("GET", "/admin/analytics.xlsx", { token: admin.token });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type")!, /spreadsheetml/);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    assert.equal(String.fromCharCode(bytes[0], bytes[1]), "PK", "a zip (xlsx) file");
+    const text = new TextDecoder().decode(bytes);
+    for (const s of ["Summary", "Users", "Feedback", learner.email, "Bad"]) assert.ok(text.includes(s), s);
+  });
+});
+
 describe("billing webhooks", () => {
   const event = (userId: string, id = `evt_${randomUUID()}`) => JSON.stringify({ id, type: "subscription.created", occurred_at: new Date().toISOString(),
     subscription: { provider_subscription_id: `sub_${userId}`, user_id: userId, plan_id: "pro", status: "active", current_period_end: iso(30) } });

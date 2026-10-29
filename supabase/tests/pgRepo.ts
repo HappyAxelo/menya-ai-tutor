@@ -31,10 +31,13 @@ export function pgRepo(db: PGlite): Repo {
       return rows.reverse();
     },
     async appendMessages(sessionId, userId, messages) {
+      const ids: number[] = [];
       for (const m of messages) {
-        await db.query("insert into public.tutoring_messages (session_id, user_id, role, content, meta) values ($1, $2, $3, $4, $5)",
+        const r = await db.query<{ id: number }>("insert into public.tutoring_messages (session_id, user_id, role, content, meta) values ($1, $2, $3, $4, $5) returning id",
           [sessionId, userId, m.role, m.content, JSON.stringify(m.meta)]);
+        ids.push(Number(r.rows[0].id));
       }
+      return ids;
     },
     async getSessionAnswer(sessionId) {
       return (await one("select final_answer from public.tutoring_session_answers where session_id = $1", [sessionId]))?.final_answer ?? null;

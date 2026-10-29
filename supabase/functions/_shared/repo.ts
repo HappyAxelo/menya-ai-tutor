@@ -78,7 +78,8 @@ export interface Repo {
   getSession(userId: string, sessionId: string): Promise<Session | null>;
   createSession(userId: string, orgId: string | null, title: string, language: string | null): Promise<Session>;
   loadMessages(sessionId: string, limit: number): Promise<StoredMessage[]>;
-  appendMessages(sessionId: string, userId: string, messages: StoredMessage[]): Promise<void>;
+  // Returns the new messages' ids, in order.
+  appendMessages(sessionId: string, userId: string, messages: StoredMessage[]): Promise<number[]>;
   getSessionAnswer(sessionId: string): Promise<string | null>;
   setSessionAnswer(sessionId: string, answer: string): Promise<void>;
   updateSession(sessionId: string, patch: Partial<Pick<Session, "turn_count" | "hints_used" | "last_difficulty" | "language" | "title" | "attempts" | "practice" | "solved" | "examples_used" | "problems_solved">>): Promise<void>;
@@ -144,7 +145,9 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
       return rows.reverse();
     },
     async appendMessages(sessionId, userId, messages) {
-      check(await sb.from("tutoring_messages").insert(messages.map(m => ({ ...m, session_id: sessionId, user_id: userId }))), "append_messages");
+      const rows = check(await sb.from("tutoring_messages").insert(messages.map(m => ({ ...m, session_id: sessionId, user_id: userId })))
+        .select("id"), "append_messages") as { id: number }[];
+      return rows.map(r => Number(r.id));
     },
     async getSessionAnswer(sessionId) {
       const rows = check(await sb.from("tutoring_session_answers").select("final_answer").eq("session_id", sessionId), "get_session_answer");

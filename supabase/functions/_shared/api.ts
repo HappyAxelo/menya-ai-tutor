@@ -7,6 +7,7 @@ import { handleTutor } from "./tutorService.ts";
 import { WebhookSignatureError, type BillingProvider } from "./billing.ts";
 import type { ModelProvider } from "./providers.ts";
 import type { Repo } from "./repo.ts";
+import { buildXlsx, type Cell } from "./xlsx.ts";
 
 export interface Db {
   // Calls a SQL function; throws DbError on failure.
@@ -136,6 +137,17 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     const body = await readJson(req);
     const r = await handleTutor({ repo: ctx.repo, providers: ctx.providers, log: ctx.log }, user.id, body);
     return json(r.status, r.body);
+  }
+
+  // Bad / Fair / Good on a tutor reply. Only the learner's own replies can be rated.
+  if (path === "/feedback" && method === "POST") {
+    const b = await readJson(req);
+    if (!Number.isSafeInteger(b?.messageId) || !["bad", "fair", "good"].includes(b?.rating)) return json(400, { error: "invalid_feedback" });
+    try {
+      return json(200, await ctx.db.rpc("submit_feedback", { p_user: user.id, p_message: b.messageId, p_rating: b.rating }));
+    } catch (err) {
+      return dbErrorResponse(err) ?? json(400, { error: "invalid_feedback" });
+    }
   }
 
   if (path === "/billing/checkout" && method === "POST") {
@@ -270,6 +282,18 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
         const csv = [cols.join(","), ...rows.map(r => cols.map(c => r[c] ?? "").join(","))].join("\n");
         return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv", "Content-Disposition": `attachment; filename=menya-economics-${month.slice(0, 7)}.csv` } });
       }
+      case "GET /admin/overview":
+        return json(200, await ctx.db.rpc("admin_overview_json", { p_actor: user.id }));
+      case "GET /admin/analytics.xlsx": {
+        const [overview, users, feedback] = await Promise.all([
+          ctx.db.rpc<any>("admin_overview_json", { p_actor: user.id }),
+          ctx.db.rpc<any[]>("admin_users_export", { p_actor: user.id }),
+          ctx.db.rpc<any[]>("admin_feedback_export", { p_actor: user.id })]);
+        const file = buildXlsx(analyticsSheets(overview, users, feedback));
+        return new Response(file, { status: 200, headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename=menya-analytics-${new Date().toISOString().slice(0, 10)}.xlsx` } });
+      }
       case "POST /admin/grant":
         if (typeof b?.user !== "string" || !UUID_RE.test(b.user) || typeof b?.plan !== "string") return json(400, { error: "invalid_grant" });
         return json(200, { subscription_id: await ctx.db.rpc("admin_grant_subscription", {
@@ -291,4 +315,34 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
     const r = dbErrorResponse(err); if (r) return r; throw err;
   }
   return json(404, { error: "not_found" });
+}
+
+// The administrator's workbook: summary by plan, every learner, every rating.
+const RATING_LABEL: Record<string, string> = { bad: "Bad", fair: "Fair", good: "Good" };
+const when = (iso: string | null) => (iso ? iso.replace("T", " ").slice(0, 16) : "");
+
+export function analyticsSheets(overview: any, users: any[], feedback: any[]) {
+  const f = overview.feedback ?? {}, rated = (f.good ?? 0) + (f.fair ?? 0) + (f.bad ?? 0);
+  const pct = (n: number) => (rated ? Math.round((n / rated) * 1000) / 10 : 0);
+  const summary: Cell[][] = [
+    ["Plan", "Learners", "Through an institution", "Active (7 days)", "Active (30 days)", "New (30 days)"],
+    ...(overview.by_plan ?? []).map((p: any) => [p.plan_id, p.users, p.via_institution, p.active_7d, p.active_30d, p.new_30d]),
+    ["All plans", overview.users_total, null, null, null, null],
+    [],
+    ["Last 30 days", "Value"],
+    ["Conversations", overview.sessions_30d], ["Tutor replies", overview.requests_30d],
+    ["Verified solves", overview.verified_solves_30d], ["Solved with no hints or examples", overview.independent_solves_30d],
+    [],
+    ["Feedback (all time)", "Count", "Share %"],
+    ["Good", f.good ?? 0, pct(f.good ?? 0)], ["Fair", f.fair ?? 0, pct(f.fair ?? 0)], ["Bad", f.bad ?? 0, pct(f.bad ?? 0)],
+  ];
+  return [
+    { name: "Summary", rows: summary, widths: [34, 12, 22, 16, 16, 14] },
+    { name: "Users", widths: [32, 14, 14, 10, 18, 18, 14, 14, 16, 16], rows: [
+      ["Email", "Plan", "Plan source", "Role", "Joined", "Last active", "Replies (30 days)", "Conversations", "Verified solves", "Feedback given"],
+      ...users.map(u => [u.email, u.plan, u.plan_source, u.role, when(u.joined), when(u.last_active), u.requests_30d, u.conversations, u.verified_solves, u.feedback_given])] },
+    { name: "Feedback", widths: [18, 30, 12, 8, 14, 14, 60, 80], rows: [
+      ["When (UTC)", "Learner", "Plan", "Rating", "Language", "Reply type", "Learner's message", "Tutor's reply"],
+      ...feedback.map(r => [when(r.created_at), r.email, r.plan, RATING_LABEL[r.rating] ?? r.rating, r.language, r.reply_type, r.question, r.reply])] },
+  ];
 }

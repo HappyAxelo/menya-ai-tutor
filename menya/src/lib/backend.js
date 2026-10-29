@@ -75,7 +75,7 @@ export async function listSessions(limit = 30) {
 export async function loadSession(id) {
   const [s, m] = await Promise.all([
     supabase.from("tutoring_sessions").select(SESSION_COLUMNS).eq("id", id).single(),
-    supabase.from("tutoring_messages").select("role, content, meta").eq("session_id", id).order("id", { ascending: true }).limit(400),
+    supabase.from("tutoring_messages").select("id, role, content, meta").eq("session_id", id).order("id", { ascending: true }).limit(400),
   ]);
   if (s.error) throw new Error(s.error.message);
   if (m.error) throw new Error(m.error.message);
@@ -121,6 +121,8 @@ export function backendTutorClient() {
     newProblem: () => { sessionId = null; },
     resume: (id) => { sessionId = id; },
     currentSession: () => sessionId,
+    // Bad / Fair / Good on one tutor reply (by its saved id).
+    feedback: async (messageId, rating) => (await api("/feedback", { method: "POST", body: { messageId, rating } })).ok,
   };
 }
 

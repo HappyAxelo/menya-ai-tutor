@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, lazy, Suspense } from "react";
 import {
-  ArrowUp, BookOpen, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
+  ArrowUp, Meh, ThumbsDown, ThumbsUp, BookOpen, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
   HelpCircle, Lightbulb, Moon, RotateCcw, Sparkles, SquarePen, Sun, TriangleAlert, WifiOff,
   Settings as SettingsIcon, Crown,
 } from "lucide-react";
@@ -153,7 +153,28 @@ function UserMessage({ msg }) {
   );
 }
 
-function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisabled }) {
+// "Was this helpful?" Bad / Fair / Good under a saved tutor reply.
+const RATINGS = [{ id: "bad", icon: ThumbsDown }, { id: "fair", icon: Meh }, { id: "good", icon: ThumbsUp }];
+function Feedback({ onRate }) {
+  const { t } = useT();
+  const [rated, setRated] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const rate = async (id) => {
+    setRated(id); setFailed(false);
+    if (!(await onRate(id))) { setRated(null); setFailed(true); }
+  };
+  if (rated) return <span className="mn-feedback-thanks" role="status"><Check size={14} aria-hidden="true" />{t("feedback.thanks")}</span>;
+  return (
+    <div className="mn-feedback" role="group" aria-label={t("feedback.ask")}>
+      <span>{failed ? t("feedback.failed") : t("feedback.ask")}</span>
+      {RATINGS.map(({ id, icon: Icon }) => (
+        <button key={id} className={`mn-btn rate-${id}`} onClick={() => rate(id)}><Icon size={14} aria-hidden="true" />{t(`feedback.${id}`)}</button>
+      ))}
+    </div>
+  );
+}
+
+function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisabled, onFeedback }) {
   const { t } = useT();
   const shown = useReveal(msg.content, animate);
   const done = shown === msg.content;
@@ -200,6 +221,7 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
             {!plain && (
               <div className="mn-msg-actions">
                 <button className="mn-btn" onClick={copy} aria-label={t("msg.copyAria")}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? t("msg.copied") : t("msg.copy")}</button>
+                {onFeedback && msg.messageId && <Feedback onRate={rating => onFeedback(msg.messageId, rating)} />}
               </div>
             )}
           </>
@@ -393,7 +415,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
       pushAssistant({
         content: parsed.message, type: action === "hint" ? "hint" : parsed.type, hintLevel: parsed.hintLevel,
         conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected,
-        progressSummary: parsed.progressSummary, solved: parsed.solved === true, advanced,
+        progressSummary: parsed.progressSummary, solved: parsed.solved === true, advanced, messageId: parsed.messageId ?? null,
       });
     } catch (err) {
       if (err.limit) pushAssistant({ content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo });
@@ -521,7 +543,8 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
               {messages.map((msg, i) => msg.role === "user"
                 ? <UserMessage key={i} msg={msg} />
                 : <AssistantMessage key={i} msg={msg} animate={settings.animate && i === animateIndex} showTags={settings.showTags}
-                    onRetry={retry} onPlans={openPlans} retryDisabled={loading || !online} />)}
+                    onRetry={retry} onPlans={openPlans} retryDisabled={loading || !online}
+                    onFeedback={client?.feedback} />)}
             </div>
 
             <ActionBar actions={actions} onAction={id => runAction(id)} />

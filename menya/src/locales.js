@@ -44,6 +44,8 @@ const en = {
   "callout.misconception": "Watch out for this", "callout.keyIdea": "Key idea",
   "msg.comparePlans": "Compare plans", "msg.viewPlan": "View your plan", "msg.tryAgain": "Try again",
   "msg.copy": "Copy", "msg.copied": "Copied", "msg.copyAria": "Copy reply", "msg.topics": "Topics",
+  "feedback.ask": "Was this helpful?", "feedback.bad": "Bad", "feedback.fair": "Fair", "feedback.good": "Good",
+  "feedback.thanks": "Thanks for the feedback", "feedback.failed": "Couldn't save that. Try again:",
   "msg.advanced": "Advanced reasoning used", "msg.nextSteps": "Next steps",
 
   "next.hint": "Give me a hint", "next.hintsLeft": "{n} left", "next.simpler": "Explain more simply",
@@ -251,6 +253,8 @@ const rw = {
   "callout.misconception": "Witondere ibi", "callout.keyIdea": "Igitekerezo nyamukuru",
   "msg.comparePlans": "Gereranya ifatabuguzi", "msg.viewPlan": "Reba ifatabuguzi ryawe", "msg.tryAgain": "Ongera ugerageze",
   "msg.copy": "Koporora", "msg.copied": "Byakoporowe", "msg.copyAria": "Koporora igisubizo", "msg.topics": "Ingingo",
+  "feedback.ask": "Iki gisubizo cyagufashije?", "feedback.bad": "Kibi", "feedback.fair": "Biringaniye", "feedback.good": "Byiza",
+  "feedback.thanks": "Urakoze ku gitekerezo cyawe", "feedback.failed": "Ntibyabitswe. Ongera ugerageze:",
   "msg.advanced": "Hakoreshejwe ubushishozi bwisumbuye", "msg.nextSteps": "Intambwe zikurikira",
 
   "next.hint": "Mpa inama", "next.hintsLeft": "hasigaye {n}", "next.simpler": "Sobanura mu buryo bworoshye",
@@ -458,6 +462,8 @@ const fr = {
   "callout.misconception": "Attention à ceci", "callout.keyIdea": "Idée clé",
   "msg.comparePlans": "Comparer les forfaits", "msg.viewPlan": "Voir votre forfait", "msg.tryAgain": "Réessayer",
   "msg.copy": "Copier", "msg.copied": "Copié", "msg.copyAria": "Copier la réponse", "msg.topics": "Notions",
+  "feedback.ask": "Cette réponse vous a-t-elle aidé ?", "feedback.bad": "Mauvaise", "feedback.fair": "Correcte", "feedback.good": "Bonne",
+  "feedback.thanks": "Merci pour votre avis", "feedback.failed": "Avis non enregistré. Réessayez :",
   "msg.advanced": "Raisonnement avancé utilisé", "msg.nextSteps": "Étapes suivantes",
 
   "next.hint": "Donne-moi un indice", "next.hintsLeft": "{n} restant(s)", "next.simpler": "Explique plus simplement",
@@ -665,6 +671,8 @@ const sw = {
   "callout.misconception": "Kuwa makini na hili", "callout.keyIdea": "Wazo kuu",
   "msg.comparePlans": "Linganisha mipango", "msg.viewPlan": "Tazama mpango wako", "msg.tryAgain": "Jaribu tena",
   "msg.copy": "Nakili", "msg.copied": "Imenakiliwa", "msg.copyAria": "Nakili jibu", "msg.topics": "Mada",
+  "feedback.ask": "Je, jibu hili limekusaidia?", "feedback.bad": "Mbaya", "feedback.fair": "Wastani", "feedback.good": "Nzuri",
+  "feedback.thanks": "Asante kwa maoni yako", "feedback.failed": "Imeshindwa kuhifadhi. Jaribu tena:",
   "msg.advanced": "Fikra za kina zimetumika", "msg.nextSteps": "Hatua zinazofuata",
 
   "next.hint": "Nipe kidokezo", "next.hintsLeft": "vimebaki {n}", "next.simpler": "Eleza kwa urahisi zaidi",

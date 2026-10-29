@@ -10,15 +10,16 @@ export default function AdminPage({ onBack }) {
   const [alerts, setAlerts] = useState(null);
   const [health, setHealth] = useState(null);
   const [config, setConfig] = useState(null);
+  const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState(null);
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState(null);
 
   const load = useCallback(async () => {
     const m = `${month}-01`;
-    const [e, a, h, c] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config")]);
+    const [e, a, h, c, o] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config"), api("/admin/overview")]);
     if (e.status === 403) { setMsg({ kind: "error", text: "Administrator access required." }); return; }
-    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data);
+    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data); setOverview(o.ok ? o.data : null);
   }, [month]);
   useEffect(() => { load(); }, [load]);
 
@@ -58,6 +59,27 @@ export default function AdminPage({ onBack }) {
         <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
         <Button variant="ghost" onClick={() => downloadWithAuth(`/admin/export?month=${month}-01`, `menya-economics-${month}.csv`).catch(e => setMsg({ kind: "error", text: e.message }))}>Export CSV</Button>
       </div>
+
+      <Card title="Learners and feedback">
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginBottom: "12px" }}>
+          <Button onClick={() => downloadWithAuth("/admin/analytics.xlsx", `menya-analytics-${new Date().toISOString().slice(0, 10)}.xlsx`).catch(e => setMsg({ kind: "error", text: e.message }))}>Download Excel (learners + feedback)</Button>
+          <span style={{ fontSize: "12px", color: C.faint }}>Sheets: Summary by plan, every learner with plan and activity, every Bad / Fair / Good rating with the question and reply.</span>
+        </div>
+        {!overview ? <Loading /> : (
+          <>
+            <Table rows={[...overview.by_plan, { plan_id: "All plans", users: overview.users_total }]} columns={[
+              { key: "plan_id", label: "Plan", render: p => <b>{p.plan_id}</b> }, { key: "users", label: "Learners", align: "right" },
+              { key: "via_institution", label: "Via institution", align: "right" }, { key: "active_7d", label: "Active 7 d", align: "right" },
+              { key: "active_30d", label: "Active 30 d", align: "right" }, { key: "new_30d", label: "New 30 d", align: "right" },
+            ]} />
+            <div style={{ fontSize: "13px", color: C.muted, lineHeight: 1.9, fontFamily: mono, marginTop: "12px" }}>
+              Last 30 days: {overview.sessions_30d} conversations · {overview.requests_30d} tutor replies · {overview.verified_solves_30d} verified solves ({overview.independent_solves_30d} with no hints or examples)<br />
+              {(() => { const f = overview.feedback, n = f.good + f.fair + f.bad, pct = x => n ? Math.round((x / n) * 100) : 0;
+                return `Feedback: ${n} ratings · Good ${f.good} (${pct(f.good)}%) · Fair ${f.fair} (${pct(f.fair)}%) · Bad ${f.bad} (${pct(f.bad)}%)`; })()}
+            </div>
+          </>
+        )}
+      </Card>
 
       {alerts && (
         <Card title="Alerts">

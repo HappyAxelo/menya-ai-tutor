@@ -36,7 +36,7 @@ export function historyToMessages(rows) {
       return { role: "user", control, content: control === "check" ? String(r.meta.text ?? "") : ACTION_LABELS[control] ?? "Action" };
     }
     return {
-      role: "assistant", content: r.content, type: r.meta?.type ?? "question", hintLevel: r.meta?.hintLevel ?? null,
+      role: "assistant", messageId: r.id ?? null, content: r.content, type: r.meta?.type ?? "question", hintLevel: r.meta?.hintLevel ?? null,
       conceptsDetected: Array.isArray(r.meta?.concepts) ? r.meta.concepts : [],
       misconceptionDetected: r.meta?.misconception ?? null, progressSummary: r.meta?.summary ?? null,
       solved: r.meta?.solved === true,
