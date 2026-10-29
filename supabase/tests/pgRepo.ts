@@ -1,7 +1,7 @@
 // Repo implementation over PGlite: same SQL functions as production, so
 // service tests exercise the real quota/entitlement logic.
 import type { PGlite } from "@electric-sql/pglite";
-import type { Repo } from "../functions/_shared/repo.ts";
+import { toRecord, type Repo } from "../functions/_shared/repo.ts";
 import { rpc } from "./db.ts";
 
 export function pgRepo(db: PGlite): Repo {
@@ -51,6 +51,41 @@ export function pgRepo(db: PGlite): Repo {
       if (!keys.length) return;
       await db.query(`update public.tutoring_sessions set ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now() where id = $1`,
         [sessionId, ...keys.map(k => (patch as any)[k])]);
+    },
+    async getSessionItem(sessionId) {
+      const r = await one("select kind, item from public.session_items where session_id = $1", [sessionId]);
+      return r ? { kind: r.kind, item: r.item } : null;
+    },
+    async setSessionItem(sessionId, userId, entry) {
+      if (!entry) { await db.query("delete from public.session_items where session_id = $1", [sessionId]); return; }
+      await db.query(`insert into public.session_items (session_id, user_id, kind, item) values ($1, $2, $3, $4)
+        on conflict (session_id) do update set kind = excluded.kind, item = excluded.item, created_at = now()`, [sessionId, userId, entry.kind, JSON.stringify(entry.item)]);
+    },
+    async markServed(userId, templateId, seed, kind) {
+      const r = await db.query("insert into public.served_items (user_id, template_id, seed, kind) values ($1, $2, $3, $4) on conflict do nothing returning seed",
+        [userId, templateId, seed, kind]);
+      return r.rows.length === 1;
+    },
+    async getObjectiveRecord(userId, objectiveId) {
+      const r = await one("select * from public.learner_objectives where user_id = $1 and objective_id = $2", [userId, objectiveId]);
+      return r ? toRecord(r) : null;
+    },
+    async saveObjectiveRecord(userId, r) {
+      const cols = ["objective_id", "alpha", "beta", "independent_correct", "guided_correct", "incorrect", "delayed_correct",
+        "last_success_at", "last_seen_at", "next_review_at", "review_streak", "misconceptions", "status"] as const;
+      await db.query(`insert into public.learner_objectives (user_id, ${cols.join(", ")}) values ($1, ${cols.map((_, i) => `$${i + 2}`).join(", ")})
+        on conflict (user_id, objective_id) do update set ${cols.slice(1).map(c => `${c} = excluded.${c}`).join(", ")}, updated_at = now()`,
+        [userId, ...cols.map(c => (c === "misconceptions" ? JSON.stringify(r[c]) : r[c]))]);
+    },
+    async recordAttempt(a) {
+      await db.query(`insert into public.assessment_attempts (user_id, session_id, objective_id, template_id, seed, kind, verdict, misconception, hints_used, unexplained)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [a.user_id, a.session_id, a.objective_id, a.template_id, a.seed, a.kind, a.verdict, a.misconception, a.hints_used, a.unexplained]);
+    },
+    async dueReviews(userId, now, limit) {
+      const rows = (await db.query<any>("select objective_id from public.learner_objectives where user_id = $1 and next_review_at <= $2 order by next_review_at limit $3",
+        [userId, now.toISOString(), limit])).rows;
+      return rows.map(r => r.objective_id);
     },
     async recordLearningEvent(e) {
       await db.query(`insert into public.learning_events (user_id, session_id, kind, concepts, hints_used, examples_used, attempts)

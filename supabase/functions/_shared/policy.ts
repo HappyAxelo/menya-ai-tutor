@@ -4,6 +4,9 @@
 // and by the web app's developer mode (menya/src/tutor.js).
 // ============================================================
 
+import { ASSESSMENT_SCHEMA, HINT_LADDER, parseAssessment, type Assessment, type TurnPlan } from "./engine/state.ts";
+import { OBJECTIVE_IDS, objective as objectiveInfo, type Item } from "./engine/bank.ts";
+
 export type TutorReplyType = "question" | "affirmation" | "hint" | "redirect" | "summary" | "explanation" | "worked_solution";
 export type Difficulty = "basic" | "standard" | "complex";
 
@@ -21,6 +24,9 @@ export interface TutorReply {
   // Private: produced by the model, used by the server, never sent to the browser.
   finalAnswer?: string | null;
   difficulty?: Difficulty;
+  // Private: the model's structured view of the student's latest message, validated
+  // by the engine against what the server can check itself.
+  assessment?: Assessment | null;
 }
 
 export interface PolicyOptions {
@@ -64,6 +70,7 @@ LANGUAGE
 - Keep notation, symbols, units and code universal (V = IR, f'(x), 12 V, O(log n)).
 - Formatting: the message is rendered as Markdown. Write maths in plain Unicode: x², x³, 2x·sin x, √2, π, θ, ∫, Σ, Δ, ≤, ≥, ≠, →, and fractions as a/b, e.g. "I = V/R = 12 V / 4 Ω". Never use backslashes or LaTeX commands (\\frac, \\cdot, \\( \\)): they get corrupted. Use **bold** sparingly for the key idea, short numbered lists (1. 2. 3.) only for steps, and inline code or code blocks for code. No headings, no emoji.
 - Messages in [square brackets] come from the app, in English. Never switch language because of them.
+- A [TUTOR ENGINE] message decides your teaching move for this reply (state, hint level, what the server verified). Follow it exactly; where it allows a full explanation, that overrides the general rules below. Never mention the engine, states or levels to the student.
 - "language" = full English name of the reply language ("French", "Swahili"), never a code like "fr".
 - Use the correct standard term for every quantity in that language, and never blur distinct concepts (e.g. acceleration is not speed).
 
@@ -131,10 +138,11 @@ DEPTH
 const PRIVATE_FIELDS = `
 PRIVATE FIELDS (never shown to the student)
 - finalAnswer (REQUIRED on every reply while a problem is being worked on, including hints, redirects and confirmations): the verified final answer to the current problem in its shortest form, e.g. "3 A", "2x·sin(x) + x²·cos(x)", "11". Use an empty string "" only for concept questions or small talk with no single answer.
-- difficulty: "basic" (one-step, recall), "standard" (a few steps), or "complex" (multi-step reasoning, proofs, advanced topics).`;
+- difficulty: "basic" (one-step, recall), "standard" (a few steps), or "complex" (multi-step reasoning, proofs, advanced topics).
+- assessment: your evaluation of the student's LATEST message. verdict: correct | partly | incorrect | not_an_attempt (a question, greeting or request). reasoning: valid | flawed | unclear | none. misconception: the specific wrong idea, only if the evidence supports it, else null; if several explanations are possible, set null and ask a diagnostic question. confidence: 0-1 in your diagnosis. prerequisiteGap: missing prior knowledge, or null. objective: the learning objective the problem practises, from the list, or "other".`;
 
 const OUTPUT = `
-OUTPUT: one JSON object matching the schema. type: question | affirmation | hint | redirect | summary | explanation | worked_solution. conceptsDetected: short concept names in the student's language. hintLevel: 1–3 for hints, else null. solved: see HOW TO GUIDE.`;
+OUTPUT: one JSON object matching the schema. type: question | affirmation | hint | redirect | summary | explanation | worked_solution. conceptsDetected: short concept names in the student's language. hintLevel: the help level you used (0-5) for hints, examples and explanations, else null. solved: see HOW TO GUIDE.`;
 
 export function buildSystemPrompt(opts: PolicyOptions = {}): string {
   // Parts shared by every student come first, per-student settings last: providers cache a
@@ -173,6 +181,7 @@ export function buildResponseSchema(privateFields = false) {
   if (privateFields) {
     properties.finalAnswer = { type: "string" }; // required, "" when there is no single answer
     properties.difficulty = { type: "string", enum: ["basic", "standard", "complex"] };
+    properties.assessment = ASSESSMENT_SCHEMA(OBJECTIVE_IDS);
   }
   return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };
 }
@@ -184,14 +193,69 @@ export function hintRequest(level: number, language?: string | null): string {
   return `[HINT REQUEST — Level ${level} of 3] The student pressed the hint button. Give a Level ${level} hint for the current step, following the hint-level rules exactly and building on earlier hints. Do not reveal the final answer. Reply in ${lang}.`;
 }
 
+// What the engine decided for this turn, for the model to carry out.
+export interface EngineFacts {
+  mode: "learn" | "explain";
+  modeChanged: boolean;
+  verified: "correct" | "incorrect" | "unreadable" | "unknown";
+  verificationNote: string | null;     // e.g. "the answer equals V×R, the 'multiplied' misconception"
+  misconception: string | null;
+  objectiveTitle: string | null;
+  unexplained: boolean;
+}
+
+const STATE_MOVES: Record<string, string> = {
+  DIAGNOSE: "Find out what the student already knows and what the problem needs: ask ONE question about the knowns, the unknown, or which idea applies.",
+  GUIDE: "Ask ONE focused question about the next reasoning step of THIS problem (name the step; don't say \"what do you think?\").",
+  HINT: "Give a hint at exactly the level below, aimed at the student's current step or misconception, then hand the next step back.",
+  EXPLAIN: "Teach directly: explain the idea or prerequisite the student is missing, clearly and briefly, with a small example.",
+  MODEL: "Work a SIMILAR problem with different numbers (whose result differs from theirs) step by step, then ask them to apply it to their own problem.",
+  PRACTISE: "Confirm what was right, then offer a related practice problem.",
+  VERIFY: "Confirm the result and the key idea in one sentence, then tell the student the next step is an unseen problem to solve alone (a \"Check yourself\" problem).",
+  REVIEW: "This is a review of an earlier topic.",
+  MASTERED: "Confirm the result. Tell the student they have now solved this kind of problem independently, including after a break; suggest the next topic.",
+};
+
+export function engineNote(plan: TurnPlan, f: EngineFacts): string {
+  const lines = [`[TUTOR ENGINE] Teaching move: ${plan.state}. ${STATE_MOVES[plan.state] ?? ""}`];
+  if (plan.hintLevel != null && (plan.state === "HINT" || plan.state === "GUIDE" || plan.state === "EXPLAIN" || plan.state === "MODEL")) {
+    lines.push(`Help level ${plan.hintLevel} of 5: ${HINT_LADDER[plan.hintLevel]}`);
+  }
+  if (f.verified === "correct") lines.push(`Verified by the server: the student's answer is CORRECT.${f.verificationNote ? ` (${f.verificationNote})` : ""}`);
+  if (f.verified === "incorrect") lines.push(`Verified by the server: the student's answer is NOT correct.${f.verificationNote ? ` (${f.verificationNote})` : ""} Do not say or imply it is right.`);
+  if (f.verified === "unreadable") lines.push("The server could not read a final answer in the student's message: ask them to state their result clearly.");
+  if (f.unexplained) lines.push("The answer is right but came with no reasoning: before praising it, ask the student to explain how they got it (it may be a guess).");
+  if (f.misconception) lines.push(`Misconception to address (with evidence): ${f.misconception}. Address it without shaming; if they repeat it, explain it a different way.`);
+  if (f.objectiveTitle) lines.push(`Learning objective: ${f.objectiveTitle}.`);
+  if (f.modeChanged) lines.push(f.mode === "explain"
+    ? "The student just switched to Explain mode: start by saying in a few words that you'll explain directly now."
+    : "The student just switched back to Learn mode: say in a few words that you'll guide them step by step again.");
+  if (plan.revealAllowed) lines.push(f.mode === "explain"
+    ? "Explain mode: a complete explanation or worked solution is allowed (type \"worked_solution\" or \"explanation\"). End by offering a similar problem to try alone."
+    : "A full explanation is allowed now (the student made genuine attempts). End by offering a similar problem to try alone.");
+  else lines.push("Do not reveal the final answer.");
+  return lines.join("\n");
+}
+
+// Present a bank problem: the question text is fixed; the model only translates and frames it.
+export function presentRequest(item: Item, kind: "practice" | "verify" | "review", language?: string | null): string {
+  const lang = language && language !== "auto" ? language : "the student's language (the language of their last message)";
+  const label = { practice: "Practice problem", verify: "Check yourself (no hints this time)", review: "Review" }[kind];
+  const title = objectiveInfo(item.objective)?.title ?? item.objective;
+  return `[PRESENT PROBLEM] Present this ${label.toLowerCase()} on "${title}" to the student (type "question"). Start with the label "${label}". Then give the problem EXACTLY as written below, translated into ${lang} if needed; keep every number, unit, symbol and line of code unchanged. Add one short sentence asking them to solve it and show their working. No hints, no method, no answer. finalAnswer: "${item.answer}".
+
+${item.question}`;
+}
+
 export function problemNote({ hintsUsed, attempts, practice }: { hintsUsed: number; attempts: number; practice?: boolean }): string {
   return `[APP NOTE] On the current ${practice ? "practice question" : "problem"}: hints used ${hintsUsed} of 3; student attempts so far ${attempts}.`;
 }
 
 // Learner actions besides typing a message. Each becomes an app message
 // (English, in brackets) that the model answers in the learner's language.
-export type TutorAction = "message" | "hint" | "simpler" | "example" | "check" | "practice" | "summary";
-export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "example", "check", "practice", "summary"];
+export type TutorAction = "message" | "hint" | "simpler" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck";
+export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "example", "check", "practice", "summary", "verify", "review", "stuck"];
+export const STUCK_REASONS = ["start", "step", "mistake", "concept"] as const;
 
 export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, language?: string | null, studentText?: string): string {
   const lang = language && language !== "auto" ? language : "the student's language (the language of their last message)";
@@ -204,6 +268,16 @@ export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, 
       return `[CHECK MY ANSWER] The student asks you to check this answer to the current problem: «${studentText}». Compare it with your verified solution. Say clearly whether it is correct, partly correct or not yet right, and why. If it is not right, point to the first mistake without giving the correct value. Set solved only if it is fully correct. Reply in ${lang}.`;
     case "practice":
       return `[PRACTICE QUESTION] Give the student ONE new practice question on the same idea at a similar level, with different numbers or a different context (type "question"). State only the question, briefly, with no hints and no answer. From now on the current problem is this practice question: finalAnswer must be ITS verified answer. Reply in ${lang}.`;
+    case "verify":
+    case "review":
+      return `[INDEPENDENT CHECK] Give the student ONE new problem on the same idea that they have not seen, to solve on their own (type "question"). State only the problem: no hints, no method, no answer. From now on the current problem is this one: finalAnswer must be ITS verified answer. Reply in ${lang}.`;
+    case "stuck": {
+      const why: Record<string, string> = {
+        start: "they don't know where to start", step: "they are stuck on a particular step",
+        mistake: "they think they made a mistake but can't find it", concept: "they don't understand the idea or formula involved",
+      };
+      return `[STUCK] The student says ${why[studentText ?? ""] ?? "they are stuck"}. Respond to exactly that. Reply in ${lang}.`;
+    }
     case "summary":
       return `[SUMMARY] Summarise what the student has worked through in this conversation (type "summary"): the key ideas, the method, and any mistakes they corrected, in 3 to 5 short bullet points. Use only what actually happened in the conversation. If the problem is not solved yet, do not reveal its final answer; say what is left to do instead. Reply in ${lang}.`;
   }
@@ -241,11 +315,12 @@ export function parseTutorJson(raw: string): TutorReply | null {
       type: REPLY_TYPES.has(p.type) ? p.type : "question",
       conceptsDetected: Array.isArray(p.conceptsDetected) ? p.conceptsDetected.filter((c: unknown) => typeof c === "string").slice(0, 8) : [],
       misconceptionDetected: typeof p.misconceptionDetected === "string" ? p.misconceptionDetected : null,
-      hintLevel: Number.isInteger(p.hintLevel) && p.hintLevel >= 1 && p.hintLevel <= 3 ? p.hintLevel : null,
+      hintLevel: Number.isInteger(p.hintLevel) && p.hintLevel >= 0 && p.hintLevel <= 5 ? p.hintLevel : null,
       progressSummary: typeof p.progressSummary === "string" ? p.progressSummary : null,
       solved: p.solved === true,
       finalAnswer: typeof p.finalAnswer === "string" && p.finalAnswer.trim() ? p.finalAnswer.trim() : null,
       difficulty: ["basic", "standard", "complex"].includes(p.difficulty) ? p.difficulty : undefined,
+      assessment: parseAssessment(p.assessment, OBJECTIVE_IDS),
     };
   } catch {
     return null;
@@ -254,7 +329,7 @@ export function parseTutorJson(raw: string): TutorReply | null {
 
 // What the browser receives: never the private fields.
 export function publicReply(r: TutorReply) {
-  const { finalAnswer: _f, difficulty: _d, ...rest } = r;
+  const { finalAnswer: _f, difficulty: _d, assessment: _a, ...rest } = r;
   return rest;
 }
 

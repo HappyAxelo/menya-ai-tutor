@@ -5,6 +5,8 @@
 // ============================================================
 import type { ModelConfig } from "./providers.ts";
 import type { Difficulty } from "./policy.ts";
+import type { Item } from "./engine/bank.ts";
+import type { ObjectiveRecord } from "./engine/mastery.ts";
 
 export interface Entitlement {
   plan_id: string;
@@ -48,6 +50,16 @@ export interface Session {
   solved: boolean;
   examples_used: number;
   problems_solved: number;
+  mode?: "learn" | "explain";
+  engine_state?: string | null;
+  hint_level?: number | null;
+  objective?: string | null;
+}
+
+export type ItemKind = "practice" | "verify" | "review";
+export interface AssessmentAttempt {
+  user_id: string; session_id: string | null; objective_id: string; template_id: string | null; seed: number | null;
+  kind: "guided" | ItemKind; verdict: "correct" | "incorrect"; misconception: string | null; hints_used: number; unexplained: boolean;
 }
 
 export interface LearningEvent {
@@ -82,7 +94,15 @@ export interface Repo {
   appendMessages(sessionId: string, userId: string, messages: StoredMessage[]): Promise<number[]>;
   getSessionAnswer(sessionId: string): Promise<string | null>;
   setSessionAnswer(sessionId: string, answer: string): Promise<void>;
-  updateSession(sessionId: string, patch: Partial<Pick<Session, "turn_count" | "hints_used" | "last_difficulty" | "language" | "title" | "attempts" | "practice" | "solved" | "examples_used" | "problems_solved">>): Promise<void>;
+  updateSession(sessionId: string, patch: Partial<Pick<Session, "turn_count" | "hints_used" | "last_difficulty" | "language" | "title" | "attempts" | "practice" | "solved" | "examples_used" | "problems_solved" | "mode" | "engine_state" | "hint_level" | "objective">>): Promise<void>;
+  // Tutoring engine: the private bank item being answered, served problems, the learner's profile.
+  getSessionItem(sessionId: string): Promise<{ kind: ItemKind; item: Item } | null>;
+  setSessionItem(sessionId: string, userId: string, entry: { kind: ItemKind; item: Item } | null): Promise<void>;
+  markServed(userId: string, templateId: string, seed: number, kind: ItemKind): Promise<boolean>;   // false = seen before
+  getObjectiveRecord(userId: string, objectiveId: string): Promise<ObjectiveRecord | null>;
+  saveObjectiveRecord(userId: string, record: ObjectiveRecord): Promise<void>;
+  recordAttempt(attempt: AssessmentAttempt): Promise<void>;
+  dueReviews(userId: string, now: Date, limit: number): Promise<string[]>;
   recordLearningEvent(event: LearningEvent): Promise<void>;
   processPaymentEvent(provider: string, event: unknown, raw: unknown): Promise<string>;
   audit(entry: { actor_id: string | null; action: string; target_type?: string; target_id?: string; org_id?: string | null; details?: Record<string, unknown> }): Promise<void>;
@@ -160,6 +180,35 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
     async updateSession(sessionId, patch) {
       check(await sb.from("tutoring_sessions").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", sessionId), "update_session");
     },
+    async getSessionItem(sessionId) {
+      const rows = check(await sb.from("session_items").select("kind, item").eq("session_id", sessionId), "get_session_item") as any[];
+      return rows[0] ? { kind: rows[0].kind, item: rows[0].item } : null;
+    },
+    async setSessionItem(sessionId, userId, entry) {
+      if (!entry) { check(await sb.from("session_items").delete().eq("session_id", sessionId), "clear_session_item"); return; }
+      check(await sb.from("session_items").upsert({ session_id: sessionId, user_id: userId, kind: entry.kind, item: entry.item, created_at: new Date().toISOString() }), "set_session_item");
+    },
+    async markServed(userId, templateId, seed, kind) {
+      const { error } = await sb.from("served_items").insert({ user_id: userId, template_id: templateId, seed, kind });
+      if (error && error.code === "23505") return false;
+      if (error) throw new Error(`mark_served: ${error.message}`);
+      return true;
+    },
+    async getObjectiveRecord(userId, objectiveId) {
+      const rows = check(await sb.from("learner_objectives").select("*").eq("user_id", userId).eq("objective_id", objectiveId), "get_objective") as any[];
+      return rows[0] ? toRecord(rows[0]) : null;
+    },
+    async saveObjectiveRecord(userId, r) {
+      check(await sb.from("learner_objectives").upsert({ ...r, user_id: userId, updated_at: new Date().toISOString() }), "save_objective");
+    },
+    async recordAttempt(a) {
+      check(await sb.from("assessment_attempts").insert(a), "record_attempt");
+    },
+    async dueReviews(userId, now, limit) {
+      const rows = check(await sb.from("learner_objectives").select("objective_id").eq("user_id", userId)
+        .lte("next_review_at", now.toISOString()).order("next_review_at").limit(limit), "due_reviews") as any[];
+      return rows.map(r => r.objective_id);
+    },
     async recordLearningEvent(event) {
       check(await sb.from("learning_events").insert(event), "record_learning_event");
     },
@@ -169,5 +218,15 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
     async audit(entry) {
       check(await sb.from("audit_logs").insert({ details: {}, ...entry }), "audit");
     },
+  };
+}
+
+// numeric columns come back as strings from PostgREST
+export function toRecord(row: any): ObjectiveRecord {
+  return {
+    objective_id: row.objective_id, alpha: Number(row.alpha), beta: Number(row.beta),
+    independent_correct: row.independent_correct, guided_correct: row.guided_correct, incorrect: row.incorrect,
+    delayed_correct: row.delayed_correct, last_success_at: row.last_success_at, last_seen_at: row.last_seen_at,
+    next_review_at: row.next_review_at, review_streak: row.review_streak, misconceptions: row.misconceptions ?? {}, status: row.status,
   };
 }

@@ -7,7 +7,7 @@
 // ============================================================
 import {
   actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, hintRequest, languageNote, problemNote, parseTutorJson, publicReply,
-  REWRITE_REQUEST, recheckRequest, unbalancedRequest, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
+  REWRITE_REQUEST, recheckRequest, unbalancedRequest, engineNote, presentRequest, STUCK_REASONS, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
 import { matchesAnswer, revealsAnswer, statesAnswer } from "./answerGuard.ts";
@@ -15,6 +15,9 @@ import { checkEquation } from "./chemistry.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
+import { asksForAnswer, decideTurn, isUnexplained, reconcile, type CheckedVerdict, type EngineAction, type Mode, type StuckReason } from "./engine/state.ts";
+import { generateItem, markItem, misconceptionText, objective as objectiveInfo, OBJECTIVE_IDS, type Item } from "./engine/bank.ts";
+import { emptyRecord, estimate, evidenceKind, update as updateMastery } from "./engine/mastery.ts";
 
 export interface TutorInput {
   requestId: string;          // client-generated UUID; makes retries idempotent
@@ -24,6 +27,9 @@ export interface TutorInput {
   language?: string;
   learnerLevel?: LearnerLevel;
   style?: ReplyStyle;
+  mode?: Mode;                // learn (default) or explain; omitted = keep the conversation's mode
+  stuck?: StuckReason;        // why the learner is stuck (action "stuck")
+  objective?: string;         // the objective to review (action "review"); default: the most overdue
 }
 
 export interface TutorDeps {
@@ -79,7 +85,10 @@ export function validateInput(raw: unknown, maxChars: number): TutorInput | stri
   if (b.sessionId != null && (typeof b.sessionId !== "string" || !UUID_RE.test(b.sessionId))) return "invalid_session_id";
   const action = (b.action ?? "message") as TutorAction;
   if (!TUTOR_ACTIONS.includes(action)) return "invalid_action";
-  if (action !== "message" && !b.sessionId) return action === "hint" ? "hint_needs_session" : "action_needs_session";
+  if (action !== "message" && action !== "review" && !b.sessionId) return action === "hint" ? "hint_needs_session" : "action_needs_session";
+  if (action === "stuck" && !STUCK_REASONS.includes(b.stuck as StuckReason)) return "invalid_stuck_reason";
+  if (b.mode != null && b.mode !== "learn" && b.mode !== "explain") return "invalid_mode";
+  if (b.objective != null && !OBJECTIVE_IDS.includes(b.objective as string)) return "invalid_objective";
   if (action === "message" || action === "check") {
     if (typeof b.message !== "string" || !b.message.trim()) return "empty_message";
     if (b.message.length > maxChars) return "message_too_long";
@@ -93,8 +102,23 @@ export function validateInput(raw: unknown, maxChars: number): TutorInput | stri
     language: (b.language as string) ?? "auto",
     learnerLevel: (b.learnerLevel as LearnerLevel) ?? undefined,
     style: (b.style as ReplyStyle) ?? undefined,
+    mode: (b.mode as Mode) ?? undefined,
+    stuck: (b.stuck as StuckReason) ?? undefined,
+    objective: (b.objective as string) ?? undefined,
   };
 }
+
+// Sent when the server verified the answer is wrong but the reply called it right.
+const wrongAnswerRequest = (note: string | null) =>
+  `[SECOND LOOK] The server checked the student's answer and it is NOT correct${note ? ` (${note})` : ""}. Your last reply treated it as right. Reply again: say plainly it isn't right yet and point to the step to re-check, without giving the answer (type "redirect", solved false). Don't mention re-checking. Same language, same JSON format.`;
+// Sent instead, if the model still calls a verified-wrong answer right.
+const NOT_YET_FALLBACK: Record<string, string> = {
+  English: "Not quite yet. Go back over your last step carefully: which quantity or rule did you use there, and does it fit this problem?",
+  French: "Pas encore tout à fait. Reprends ta dernière étape : quelle grandeur ou quelle règle as-tu utilisée, et convient-elle à ce problème ?",
+  Spanish: "Todavía no. Revisa tu último paso: ¿qué magnitud o regla usaste y encaja con este problema?",
+  Swahili: "Bado si sahihi. Pitia tena hatua yako ya mwisho: ulitumia kipimo au kanuni gani, na je, inafaa tatizo hili?",
+};
+const PRESENT_LABEL = { practice: "Practice problem", verify: "Check yourself (no hints this time)", review: "Review" } as const;
 
 function quotaError(reason: string, plan: string, retryAfter?: number): ServiceResponse {
   const messages: Record<string, string> = {
@@ -137,7 +161,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     session = await repo.getSession(userId, input.sessionId);
     if (!session) return { status: 404, body: { error: "session_not_found" } };
   } else {
-    session = await repo.createSession(userId, ent.org_id, (input.message ?? "").slice(0, 80), followStudent ? detected : input.language!);
+    const title = input.action === "review" ? `Review: ${objectiveInfo(input.objective ?? "")?.title ?? "earlier topics"}` : (input.message ?? "").slice(0, 80);
+    session = await repo.createSession(userId, ent.org_id, title.slice(0, 80), followStudent ? detected : input.language!);
   }
   if (session.turn_count >= ent.max_session_turns) {
     return { status: 409, body: { error: "session_limit", message: "This session is at its length limit. Start a new problem to continue.",
@@ -148,9 +173,6 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   }
 
   const lang = followStudent ? (detected ?? session.language) : input.language;
-  const userContent = input.action === "message" ? input.message!
-    : input.action === "hint" ? hintRequest(session.hints_used + 1, lang)
-    : actionRequest(input.action, lang, input.message);
   const history = await repo.loadMessages(session.id, ent.context_turns * 2);
   const rememberedAnswer = input.sessionId ? await repo.getSessionAnswer(session.id) : null;
   // The student's own words (a checked answer is stored under meta.text).
@@ -160,8 +182,70 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const isAttempt = input.action === "check" || (input.action === "message" && Boolean(input.sessionId));
   if (input.action === "message" || input.action === "check") studentTexts.push(input.message!);
   const studentEquation = isAttempt ? checkEquation(input.message ?? "") : null;
-  const newProblem = input.action === "practice";
+  const newProblem = input.action === "practice" || input.action === "verify" || input.action === "review";
   const attemptsNow = newProblem ? 0 : session.attempts + (isAttempt ? 1 : 0);
+
+  // ---------------- Tutoring engine: decide this turn's teaching move ----------------
+  const prevMeta = ([...history].reverse().find(m => m.role === "assistant")?.meta ?? {}) as Record<string, any>;
+  const mode: Mode = input.mode ?? session.mode ?? "learn";
+  const modeChanged = Boolean(input.sessionId && input.mode && input.mode !== (session.mode ?? "learn"));
+  const sessionItem = input.sessionId ? await repo.getSessionItem(session.id) : null;
+  let objectiveId: string | null = sessionItem?.item.objective ?? session.objective ?? null;
+  if (input.action === "review") objectiveId = input.objective ?? (await repo.dueReviews(userId, new Date(now()), 1))[0] ?? objectiveId;
+
+  // What the server can verify itself: a bank item (deterministic marking), an
+  // unbalanced equation, or the remembered verified answer.
+  const marking = isAttempt && sessionItem ? markItem(sessionItem.item, input.message!) : null;
+  let checked: CheckedVerdict = "unknown", verificationNote: string | null = null, serverMisconception: string | null = null;
+  if (marking) {
+    checked = marking.verdict;
+    serverMisconception = misconceptionText(sessionItem!.item, marking.misconception);
+    verificationNote = serverMisconception ? `the result is what you get if one ${serverMisconception}` : null;
+  } else if (isAttempt && studentEquation && !studentEquation.balanced) {
+    checked = "incorrect"; verificationNote = "the chemical equation is not balanced";
+  } else if (isAttempt && rememberedAnswer && statesAnswer(input.message!, rememberedAnswer)) {
+    checked = "correct";
+  }
+  const unexplained = checked === "correct" && isUnexplained(input.message ?? "");
+  const prevMis = typeof prevMeta.misconception === "string" ? prevMeta.misconception : null;
+  const repeats = serverMisconception && prevMis === serverMisconception ? Number(prevMeta.misconceptionCount ?? 1) : 0;
+
+  // Mastery evidence comes only from what the server verified, never from the model's opinion.
+  const evidenceObjective = objectiveId && (checked === "correct" || checked === "incorrect") ? objectiveId : null;
+  const prevRecord = evidenceObjective ? (await repo.getObjectiveRecord(userId, evidenceObjective)) ?? emptyRecord(evidenceObjective) : null;
+  const newRecord = prevRecord ? updateMastery(prevRecord, {
+    kind: evidenceKind(sessionItem?.kind ?? null), verdict: checked as "correct" | "incorrect", hintsUsed: session.hints_used,
+    unexplained, misconception: marking?.misconception ?? null, at: now() }) : null;
+
+  const plan = decideTurn({
+    mode, action: input.action as EngineAction, stuck: input.stuck ?? null, newProblem: !input.sessionId,
+    attempts: attemptsNow, hintsUsed: session.hints_used, verdict: checked, misconception: serverMisconception,
+    previous: { state: prevMeta.state ?? null, hintLevel: Number.isInteger(prevMeta.engineHint) ? prevMeta.engineHint : null,
+                misconception: prevMis, sameMisconceptionCount: repeats },
+    askedForAnswer: input.action === "message" && asksForAnswer(input.message ?? ""), unexplained,
+    itemKind: sessionItem?.kind ?? null,
+    masteredNow: Boolean(newRecord && newRecord.status === "mastered" && prevRecord!.status !== "mastered"),
+    objectiveKnown: Boolean(objectiveId && generateItem(objectiveId, 1)),
+  });
+
+  // Serve an unseen bank problem (practice, independent check, or review).
+  let presented: { kind: "practice" | "verify" | "review"; item: Item } | null = null;
+  if (plan.presentItem && objectiveId) {
+    for (let k = 0; k < 8 && !presented; k++) {
+      const item = generateItem(objectiveId, Math.floor(Math.random() * 2 ** 31));
+      if (item && await repo.markServed(userId, item.templateId, item.seed, plan.presentItem)) presented = { kind: plan.presentItem, item };
+    }
+    if (presented) await repo.setSessionItem(session.id, userId, presented);
+  }
+
+  const userContent = presented ? presentRequest(presented.item, presented.kind, lang)
+    : input.action === "message" ? input.message!
+    : input.action === "hint" ? hintRequest(session.hints_used + 1, lang)
+    : actionRequest(input.action as Exclude<TutorAction, "message" | "hint">, lang, input.action === "stuck" ? input.stuck : input.message);
+  const engineMessage = presented ? null : engineNote(plan, {
+    mode, modeChanged, verified: checked, verificationNote, unexplained,
+    misconception: serverMisconception, objectiveTitle: objectiveId ? objectiveInfo(objectiveId)?.title ?? null : null,
+  });
 
   // Route
   const configs = await repo.getModelConfigs();
@@ -193,6 +277,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     ...history.map(m => ({ role: m.role, content: m.content })),
     ...(!newProblem && (session.hints_used > 0 || attemptsNow > 0)
       ? [{ role: "user" as const, content: problemNote({ hintsUsed: session.hints_used, attempts: attemptsNow, practice: session.practice }) }] : []),
+    ...(engineMessage ? [{ role: "user" as const, content: engineMessage }] : []),
     ...(followStudent ? (detected ? [{ role: "user" as const, content: languageNote(detected) }] : [])
       : (input.action === "message" || input.action === "check" ? [{ role: "user" as const, content: chosenLanguageNote(input.language!, detected) }] : [])),
     { role: "user", content: userContent },
@@ -224,8 +309,10 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         served = { candidate, reply, inputTokens, outputTokens, latencyMs, cost, rewrite: false, cachedTokens };
 
         // Answer-leak guard (earned worked solutions are exempt)
-        const earnedSolution = reply.type === "worked_solution" && ent.worked_solutions && !newProblem &&
-          (session.hints_used >= 3 || attemptsNow >= 2 || session.solved);
+        if (presented) reply.finalAnswer = presented.item.answer;
+        else if (sessionItem) reply.finalAnswer = sessionItem.item.answer;
+        const earnedSolution = (plan.revealAllowed && ent.worked_solutions) ||
+          (reply.type === "worked_solution" && ent.worked_solutions && !newProblem && (session.hints_used >= 3 || attemptsNow >= 2 || session.solved));
         // Confirming a student's own correct attempt may restate it in another form
         // (x(2 sin x + x cos x) as 2x·sin x + x²·cos x); a solve still needs matchesAnswer below.
         const confirmsAttempt = isAttempt && !newProblem && reply.solved && reply.type === "affirmation";
@@ -253,14 +340,15 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         // - the student's final result is the verified answer but the reply called it wrong
         //   (models tend to reject a valid method that differs from theirs);
         // - the student's chemical equation is unbalanced but the reply called it right.
-        const unbalanced = studentEquation && !studentEquation.balanced && (reply.solved || reply.type === "affirmation");
-        const rejectedRight = reply.type === "redirect" && !reply.solved && statesAnswer(input.message ?? "", reply.finalAnswer);
-        if (!served.rewrite && isAttempt && !newProblem && (unbalanced || rejectedRight)) {
+        const verifiedWrong = checked === "incorrect" && (reply.solved || reply.type === "affirmation");
+        const unbalanced = verifiedWrong && Boolean(studentEquation && !studentEquation.balanced);
+        const rejectedRight = reply.type === "redirect" && !reply.solved && (checked === "correct" || statesAnswer(input.message ?? "", reply.finalAnswer));
+        if (!served.rewrite && isAttempt && !newProblem && (verifiedWrong || rejectedRight)) {
           let second: TutorReply | null = null;
           if (remaining() >= MIN_CALL_MS) try {
             const res3 = await provider.chat(withinBudget(candidate.config), { system, schema, messages: [
               ...messages, { role: "assistant", content: JSON.stringify(publicReply(reply)) },
-              { role: "user", content: unbalanced ? unbalancedRequest(studentEquation!) : recheckRequest(reply.finalAnswer!) },
+              { role: "user", content: unbalanced ? unbalancedRequest(studentEquation!) : verifiedWrong ? wrongAnswerRequest(verificationNote) : recheckRequest(reply.finalAnswer!) },
             ] });
             second = parseTutorJson(res3.text);
             inputTokens += res3.inputTokens ?? 0; outputTokens += res3.outputTokens ?? 0; latencyMs += res3.latencyMs;
@@ -268,16 +356,17 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             const c3 = estimateCostUsd(candidate.config, res3);
             cost = cost != null && c3 != null ? cost + c3 : cost;
           } catch { /* handled below */ }
-          log({ event: "answer_recheck", reason: unbalanced ? "unbalanced_equation" : "rejected_right", changed: second?.type !== reply.type });
+          log({ event: "answer_recheck", reason: unbalanced ? "unbalanced_equation" : verifiedWrong ? "verified_wrong" : "rejected_right", changed: second?.type !== reply.type });
           const usable = second && !revealsAnswer(second.message, reply.finalAnswer, studentTexts) &&
-            !(unbalanced && (second.solved || second.type === "affirmation"));
+            !(verifiedWrong && (second.solved || second.type === "affirmation"));
           if (usable) {
             served = { candidate, reply: { ...second!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty },
                        inputTokens, outputTokens, latencyMs, cost, rewrite: false, cachedTokens };
-          } else if (unbalanced) {
-            // Never confirm an unbalanced equation, even if the model insists.
+          } else if (verifiedWrong) {
+            // Never confirm a verified-wrong answer (or an unbalanced equation), even if the model insists.
+            const fallback = unbalanced ? UNBALANCED_FALLBACK : NOT_YET_FALLBACK;
             served = { candidate, reply: { ...reply, type: "redirect", solved: false, progressSummary: null,
-                         message: UNBALANCED_FALLBACK[reply.language] ?? UNBALANCED_FALLBACK.English },
+                         message: fallback[reply.language] ?? fallback.English },
                        inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
           }
         }
@@ -315,23 +404,41 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
 
   const { candidate, reply } = served;
   if (reservedPremium && !candidate.premium) await repo.downgradeReservation(userId, input.requestId);
+  // A presented bank problem must reach the student unchanged: if the model altered a number, show the original.
+  if (presented) {
+    const numbers = presented.item.question.match(/\d+(?:\.\d+)?/g) ?? [];
+    if (!numbers.every(n => reply.message.includes(n))) {
+      reply.message = `**${PRESENT_LABEL[presented.kind]}**\n\n${presented.item.question}\n\nSolve it and show your working.`;
+    }
+    reply.type = "question"; reply.solved = false; reply.progressSummary = null;
+  }
+  const rec = reconcile(checked, serverMisconception, reply.assessment ?? null, reply.type);
 
   // A solve counts only if the model says so AND the student's own text contains the verified answer.
-  const verifiedSolve = !newProblem && !session.solved && reply.solved && isAnswerAction(input.action) &&
-    matchesAnswer(input.message ?? "", reply.finalAnswer) &&
-    !(studentEquation && !studentEquation.balanced);
+  const itemSolved = Boolean(marking && marking.verdict === "correct" && !unexplained);
+  const verifiedSolve = !newProblem && !session.solved && isAnswerAction(input.action) && !(studentEquation && !studentEquation.balanced) &&
+    (itemSolved || (reply.solved && matchesAnswer(input.message ?? "", reply.finalAnswer)));
   const userMeta: Record<string, unknown> =
     input.action === "message" ? {}
     : input.action === "hint" ? { control: "hint", level: session.hints_used + 1 }
     : input.action === "check" ? { control: "check", text: input.message }
+    : input.action === "stuck" ? { control: "stuck", reason: input.stuck }
     : { control: input.action };
+  // The engine's view of this turn, kept with the reply so the next turn can adapt
+  // (a repeated misconception, the last help level). Never includes answers.
+  const storedMisconception = rec.misconception;
+  const misconceptionCount = storedMisconception ? (storedMisconception === prevMis ? Number(prevMeta.misconceptionCount ?? 1) + 1 : 1) : 0;
+  const assessedObjective = reply.assessment && reply.assessment.objective !== "other" && reply.assessment.confidence >= 0.6 ? reply.assessment.objective : null;
+  const sessionObjective = presented?.item.objective ?? objectiveId ?? assessedObjective;
 
   // Persist conversation (never the private fields)
   const [, replyId] = await repo.appendMessages(session.id, userId, [
     { role: "user", content: userContent, meta: userMeta },
     { role: "assistant", content: reply.message, meta: {
       type: reply.type, hintLevel: reply.hintLevel, concepts: reply.conceptsDetected,
-      ...(reply.misconceptionDetected ? { misconception: reply.misconceptionDetected } : {}),
+      state: plan.state, engineHint: plan.hintLevel, verdict: checked,
+      ...(storedMisconception ? { misconception: storedMisconception, misconceptionCount } : {}),
+      ...(sessionObjective ? { objective: sessionObjective } : {}),
       ...(verifiedSolve ? { solved: true } : {}),
       ...(progressSummaryOk(reply, verifiedSolve) ? { summary: reply.progressSummary } : {}),
     } },
@@ -346,7 +453,18 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     solved: newProblem ? false : session.solved || verifiedSolve,
     problems_solved: session.problems_solved + (verifiedSolve ? 1 : 0),
     last_difficulty: reply.difficulty ?? difficulty, language: reply.language || session.language,
+    mode, engine_state: plan.state, hint_level: plan.hintLevel, objective: sessionObjective,
   });
+  // Evidence for the learning profile (verified attempts only).
+  if (newRecord && evidenceObjective) {
+    await repo.saveObjectiveRecord(userId, newRecord);
+    await repo.recordAttempt({
+      user_id: userId, session_id: session.id, objective_id: evidenceObjective, template_id: sessionItem?.item.templateId ?? null,
+      seed: sessionItem?.item.seed ?? null, kind: evidenceKind(sessionItem?.kind ?? null), verdict: checked as "correct" | "incorrect",
+      misconception: marking?.misconception ?? null, hints_used: session.hints_used, unexplained,
+    });
+  }
+  if (itemSolved) await repo.setSessionItem(session.id, userId, null);
   if (verifiedSolve) {
     await repo.recordLearningEvent({
       user_id: userId, session_id: session.id, kind: session.practice ? "practice_solved" : "problem_solved",
@@ -370,6 +488,14 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       hintsUsed,
       problem: { solved: !newProblem && (session.solved || verifiedSolve), practice, attempts: attemptsNow },
       advancedReasoning: candidate.premium,  // plain-language flag; no model names
+      engine: {
+        mode, state: plan.state, hintLevel: plan.hintLevel,
+        verified: checked === "unknown" ? null : checked,
+        objective: sessionObjective ? { id: sessionObjective, title: objectiveInfo(sessionObjective)?.title ?? sessionObjective } : null,
+        item: presented ? { kind: presented.kind } : sessionItem && !itemSolved ? { kind: sessionItem.kind } : null,
+        mastery: newRecord ? { status: newRecord.status, estimate: Math.round(estimate(newRecord).mean * 100) / 100,
+                               independent: newRecord.independent_correct, nextReview: newRecord.next_review_at } : null,
+      },
       quota: {
         plan: ent.plan_id,
         daily_remaining: quota.daily_remaining,

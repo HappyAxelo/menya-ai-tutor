@@ -24,7 +24,7 @@ drop function if exists
   public.is_platform_admin(uuid), public.handle_new_user() cascade;
 
 drop table if exists
-  public.tutor_feedback, public.learning_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
+  public.learner_objectives, public.assessment_attempts, public.served_items, public.session_items, public.tutor_feedback, public.learning_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
   public.usage_records, public.request_reservations, public.rate_buckets, public.usage_counters,
   public.payment_events, public.subscriptions, public.org_invitations, public.org_members,
   public.organizations, public.profiles, public.model_configs, public.plans, public.app_settings cascade;
