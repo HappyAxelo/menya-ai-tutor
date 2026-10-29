@@ -40,6 +40,10 @@ const ctx: ApiContext = {
   billing: buildBillingProvider({
     BILLING_PROVIDER: env("BILLING_PROVIDER"),
     BILLING_TEST_WEBHOOK_SECRET: env("BILLING_TEST_WEBHOOK_SECRET"),
+    IREMBOPAY_SECRET_KEY: env("IREMBOPAY_SECRET_KEY"),
+    IREMBOPAY_PAYMENT_ACCOUNT: env("IREMBOPAY_PAYMENT_ACCOUNT"),
+    IREMBOPAY_PLANS: env("IREMBOPAY_PLANS"),
+    IREMBOPAY_ENV: env("IREMBOPAY_ENV"),
   }),
   async getUser(jwt) {
     const { data, error } = await sb.auth.getUser(jwt);
