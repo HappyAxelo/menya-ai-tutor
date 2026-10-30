@@ -1,5 +1,14 @@
 # Change log
 
+## Own domain: menyaneza.com (30 October 2026, branch `custom-domain`)
+
+The site is served at **https://menyaneza.com** ("menya neza" = "know well"). DNS points to
+GitHub Pages (4 A + 4 AAAA records, `www` CNAME); HTTPS certificate issued by GitHub;
+`www.menyaneza.com` and the old `happyaxelo.github.io/menya-ai-tutor/` link redirect to it.
+The site is built at the domain root (`public/CNAME`); the API (version 10) allows the new
+origins and keeps github.io during the move. Sign-in needs the new URLs in Supabase Auth
+(Site URL and Redirect URLs).
+
 ## Voice input and file attachments (29 October 2026, branch `voice-and-files`)
 
 **Voice.** A microphone button records the question (noise suppression, echo cancellation,

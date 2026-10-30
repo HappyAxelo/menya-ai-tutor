@@ -7,7 +7,7 @@ Steps marked **(owner)** need your own accounts or credentials; nobody else can 
 
 | Piece | Where it runs | Cost |
 |---|---|---|
-| Website | GitHub Pages: https://happyaxelo.github.io/menya-ai-tutor/ | free |
+| Website | https://menyaneza.com (GitHub Pages; the old github.io link redirects) | domain renewal yearly |
 | API + database + sign-in | Supabase project `tgrihnmngbamxxjnedlc` | free tier |
 | AI model | Groq (free tier) — and your HPC cluster once set up | free |
 | Payments | IremboPay (you need a merchant account) | per-transaction fee |
