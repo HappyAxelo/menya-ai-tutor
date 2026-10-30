@@ -1,5 +1,22 @@
 # Change log
 
+## Ready for IremboPay (30 October 2026, branch `claude/changes`)
+
+- A mistake in the payment secrets can no longer stop the server: a malformed `IREMBOPAY_PLANS`
+  entry is left out, a missing secret key turns online payment off, and every problem is logged
+  (`billing_config`) and shown to administrators. The tutor keeps working either way.
+- The pricing page shows a pay button only for the plan periods that have an IremboPay product;
+  checkout refuses the others (`interval_not_offered`).
+- New admin card **Payments (IremboPay setup check)** (`GET /admin/billing`): provider,
+  sandbox or production, configuration warnings, and for each plan period the Menya price, the
+  IremboPay product code, the amount charged and whether it can be paid. The secret key is never
+  returned.
+- `docs/IREMBOPAY_GO_LIVE.md`: documents and questions for the IremboPay meeting, then step by step
+  from sandbox to production. `docs/irembopay-plan-helper.html`: an offline page that writes the
+  `IREMBOPAY_PLANS` value from the product codes (with USD→RWF conversion).
+- Tests: 123 backend (3 new), 22 frontend, all passing. Not yet tested against the real IremboPay
+  sandbox (needs the merchant account).
+
 ## Prices (30 October 2026, branch `pricing`)
 
 Owner's prices, in US dollars: **Free** $0; **Pro** $10 / month, $35 / semester (4 months,

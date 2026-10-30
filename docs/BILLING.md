@@ -2,6 +2,9 @@
 
 ## IremboPay (Rwanda: mobile money and cards) — implemented, needs sandbox confirmation
 
+**Going live step by step (meeting checklist, secrets, sandbox test, production): see
+[IREMBOPAY_GO_LIVE.md](IREMBOPAY_GO_LIVE.md).**
+
 `iremboPayProvider` in `supabase/functions/_shared/billing.ts`, following the public API docs
 ([create invoice](https://irembopay.gitbook.io/irembopay-api-docs/apis/invoice/openapi),
 [payment notifications](https://irembopay.gitbook.io/irembopay-api-docs/apis/payment/payment-notifications)).
