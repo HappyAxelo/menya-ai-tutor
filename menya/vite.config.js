@@ -1,15 +1,13 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// ⚠️  IMPORTANT: Set this to your GitHub repo name.
-// Example: if your repo URL is github.com/happyaxelo.github.io/menya-ai-tutor/
-// then set base: '/menya-tutor/'
-// If you're deploying to a custom domain or user/org page (yourname.github.io),
-// set base: '/'
+// The site is served from its own domain (https://menyaneza.com, see public/CNAME),
+// so it lives at the root. VITE_BASE overrides it, e.g. '/menya-ai-tutor/' to serve
+// from a project path on github.io again.
 
 export default defineConfig({
   plugins: [react()],
   // The tutoring policy lives in ../supabase/functions/_shared and is shared with the backend.
   server: { fs: { allow: ['..'] } },
-  base: '/menya-ai-tutor/',   // <-- change this to your repo name
+  base: process.env.VITE_BASE ?? '/',
 })

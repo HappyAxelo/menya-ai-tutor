@@ -47,7 +47,7 @@ const ctx: ApiContext = {
   billing: null,
   async getUser(jwt) { return tokens.get(jwt) ?? null; },
   async deleteUser(id) { await db.query("delete from auth.users where id = $1", [id]); },
-  appUrl: "http://localhost:5173/menya-ai-tutor",
+  appUrl: "http://localhost:5173",
   allowedOrigins: ["http://localhost:5173"],
   log: (e) => { if (e.level !== "info") console.log(JSON.stringify(e)); },
 };

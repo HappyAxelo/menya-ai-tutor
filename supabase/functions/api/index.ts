@@ -67,12 +67,12 @@ const ctx: ApiContext = {
     const { error } = await sb.auth.admin.deleteUser(userId);
     if (error) throw new Error(`delete user: ${error.message}`);
   },
-  // Defaults match the public GitHub Pages site, so the only secret the owner
+  // Defaults match the public site (menyaneza.com; github.io still allowed), so the only secret the owner
   // must set is the AI provider key. Override with APP_URL / ALLOWED_ORIGINS.
-  appUrl: (env("APP_URL") ?? "https://happyaxelo.github.io/menya-ai-tutor").replace(/\/$/, ""),
+  appUrl: (env("APP_URL") ?? "https://menyaneza.com").replace(/\/$/, ""),
   media: env("GROQ_API_KEY") ? { apiKey: env("GROQ_API_KEY")! } : undefined,
   hpcSecret: env("HPC_REGISTER_SECRET"),
-  allowedOrigins: (env("ALLOWED_ORIGINS") ?? "https://happyaxelo.github.io,http://localhost:5173")
+  allowedOrigins: (env("ALLOWED_ORIGINS") ?? "https://menyaneza.com,https://www.menyaneza.com,https://happyaxelo.github.io,http://localhost:5173")
     .split(",").map(s => s.trim()).filter(Boolean),
   // Structured logs (visible in the Supabase dashboard). Never log message content or keys.
   log: (event) => console.log(JSON.stringify({ ts: new Date().toISOString(), ...event })),

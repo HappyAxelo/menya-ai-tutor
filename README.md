@@ -40,7 +40,7 @@ The app lives in [`menya/`](menya/) (React + Vite) and the backend in
 | **Developer** | Trying the tutor | No backend config; paste your own Groq key (held in memory only) |
 
 ```bash
-cd menya && npm install && npm run dev      # developer mode on http://localhost:5173/menya-ai-tutor/
+cd menya && npm install && npm run dev      # developer mode on http://localhost:5173/
 ```
 
 Full stack locally without a Supabase account, and production deployment: see
