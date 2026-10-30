@@ -9,6 +9,22 @@
 // cards; one payment buys one month or one year). See docs/BILLING.md.
 // ============================================================
 
+// Billing periods: a month, a semester (4 months), a year, or two weeks (the Exam Pass).
+export type BillingInterval = "month" | "semester" | "year" | "two_weeks";
+export const BILLING_INTERVALS: BillingInterval[] = ["month", "semester", "year", "two_weeks"];
+// The plans-table column holding each period's price.
+export const PRICE_COLUMN: Record<BillingInterval, string> = {
+  month: "price_monthly_cents", semester: "price_semester_cents", year: "price_yearly_cents", two_weeks: "price_two_weeks_cents",
+};
+export function periodEnd(start: Date, interval: BillingInterval): Date {
+  const end = new Date(start);
+  if (interval === "year") end.setUTCFullYear(end.getUTCFullYear() + 1);
+  else if (interval === "semester") end.setUTCMonth(end.getUTCMonth() + 4);
+  else if (interval === "two_weeks") end.setUTCDate(end.getUTCDate() + 14);
+  else end.setUTCMonth(end.getUTCMonth() + 1);
+  return end;
+}
+
 export interface NormalizedEvent {
   id: string;
   type: string;
@@ -19,7 +35,7 @@ export interface NormalizedEvent {
     user_id?: string;
     org_id?: string;
     plan_id: string;
-    interval?: "month" | "year";
+    interval?: BillingInterval;
     status: "incomplete" | "trialing" | "active" | "past_due" | "canceled" | "expired" | "refunded";
     current_period_start?: string;
     current_period_end?: string;
@@ -33,7 +49,7 @@ export interface CheckoutRequest {
   userId: string;
   email: string | null;
   planId: string;
-  interval: "month" | "year";
+  interval: BillingInterval;
   successUrl: string;
   cancelUrl: string;
 }
@@ -114,11 +130,11 @@ export interface IremboPayConfig {
   toleranceSeconds?: number;
 }
 
-const PLAN_CODES: Record<string, string> = { pro: "PRO", professional: "PRF" };
-const INTERVAL_CODES: Record<string, string> = { month: "M", year: "Y" };
-const TXN_RE = /^MNY-(PRO|PRF)(M|Y)-([0-9a-f]{32})-[0-9a-z]+$/;
+const PLAN_CODES: Record<string, string> = { pro: "PRO", professional: "PRF", exam: "EXM" };
+const INTERVAL_CODES: Record<BillingInterval, string> = { month: "M", year: "Y", semester: "S", two_weeks: "W" };
+const TXN_RE = /^MNY-(PRO|PRF|EXM)(M|Y|S|W)-([0-9a-f]{32})-[0-9a-z]+$/;
 
-export function iremboPayTransactionId(userId: string, planId: string, interval: "month" | "year", now = Date.now()): string {
+export function iremboPayTransactionId(userId: string, planId: string, interval: BillingInterval, now = Date.now()): string {
   const plan = PLAN_CODES[planId], int = INTERVAL_CODES[interval];
   if (!plan || !int) throw new Error(`plan ${planId}/${interval} cannot be sold through IremboPay`);
   return `MNY-${plan}${int}-${userId.replace(/-/g, "").toLowerCase()}-${now.toString(36)}`;
@@ -130,7 +146,7 @@ function parseTransactionId(id: string) {
   const hex = m[3];
   return {
     planId: Object.keys(PLAN_CODES).find(k => PLAN_CODES[k] === m[1])!,
-    interval: (m[2] === "Y" ? "year" : "month") as "month" | "year",
+    interval: (Object.keys(INTERVAL_CODES) as BillingInterval[]).find(k => INTERVAL_CODES[k] === m[2])!,
     userId: `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`,
   };
 }
@@ -166,8 +182,7 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
         Number(d.amount) >= planCfg.amount;
       if (!genuine) return { id, type: `invoice.${String(d.paymentStatus ?? "unknown").toLowerCase()}`, subscription: null };
       const start = new Date(d.paidAt ? Date.parse(d.paidAt) : now());
-      const end = new Date(start);
-      if (txn!.interval === "year") end.setUTCFullYear(end.getUTCFullYear() + 1); else end.setUTCMonth(end.getUTCMonth() + 1);
+      const end = periodEnd(start, txn!.interval);
       return {
         id, type: "invoice.paid", occurred_at: start.toISOString(),
         subscription: {
@@ -188,7 +203,7 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
           transactionId: iremboPayTransactionId(req.userId, req.planId, req.interval, now()),
           paymentAccountIdentifier: cfg.paymentAccount,
           paymentItems: [{ code: plan.code, quantity: 1, unitAmount: plan.amount }],
-          description: `Menya AI ${req.planId} (${req.interval === "year" ? "1 year" : "1 month"})`,
+          description: `Menya AI ${req.planId} (${{ month: "1 month", semester: "1 semester (4 months)", year: "1 year", two_weeks: "2 weeks" }[req.interval]})`,
           expiryAt: expires,
           language: "EN",
           ...(req.email ? { customer: { email: req.email } } : {}),

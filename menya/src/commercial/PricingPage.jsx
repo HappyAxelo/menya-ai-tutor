@@ -6,11 +6,18 @@ import { Page, Card, Button, Field, inputStyle, Notice, Loading } from "./ui.jsx
 
 const CONTACT = "muyombanohappy@gmail.com";
 
+// Each plan is sold for one or more periods; the order here is the order shown.
+const PERIODS = [
+  { id: "month", column: "price_monthly_cents", months: 1 },
+  { id: "semester", column: "price_semester_cents", months: 4 },
+  { id: "year", column: "price_yearly_cents", months: 12 },
+  { id: "two_weeks", column: "price_two_weeks_cents", months: null },
+];
+
 export default function PricingPage({ account, onBack }) {
   const { t } = useT();
   const [plans, setPlans] = useState(null);
   const [checkoutAvailable, setCheckoutAvailable] = useState(false);
-  const [interval, setBillingInterval] = useState("month");
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(null);
 
@@ -22,14 +29,13 @@ export default function PricingPage({ account, onBack }) {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const yearlyOffered = checkoutAvailable && plans?.some(p => p.id !== "free" && p.price_yearly_cents != null);
   // Plan names, taglines and features come from the server in English; show the
   // translation when there is one.
   const tr = (key, english) => { const s = t(key); return s === key ? english : s; };
   const [before, after] = t("pricing.noPayment").split("{email}");
 
-  const upgrade = async (plan) => {
-    setBusy(plan.id); setNotice(null);
+  const upgrade = async (plan, interval) => {
+    setBusy(`${plan.id}:${interval}`); setNotice(null);
     const r = await api("/billing/checkout", { method: "POST", body: { plan: plan.id, interval } });
     setBusy(null);
     if (r.ok && r.data.url) { window.location.href = r.data.url; return; }
@@ -44,41 +50,52 @@ export default function PricingPage({ account, onBack }) {
           {before}<a href={`mailto:${CONTACT}?subject=Menya%20plan%20upgrade`}>{CONTACT}</a>{after}
         </Notice>
       )}
-      {yearlyOffered && (
-        <div className="mn-seg" role="radiogroup" aria-label={t("pricing.title")} style={{ maxWidth: 260, marginBottom: 16 }}>
-          {["month", "year"].map(i => (
-            <button key={i} type="button" role="radio" aria-checked={interval === i} onClick={() => setBillingInterval(i)}>{i === "month" ? t("pricing.monthly") : t("pricing.yearly")}</button>
-          ))}
-        </div>
-      )}
       {!plans ? <Loading /> : (
         <div className="mn-plan-grid" style={{ marginBottom: 24 }}>
           {plans.map(p => {
             const current = account?.plan === p.id;
-            const cents = interval === "year" ? p.price_yearly_cents : p.price_monthly_cents;
-            const unavailable = p.id !== "free" && cents == null;
             const name = tr(`plan.${p.id}`, p.name);
+            const offers = p.id === "free" ? PERIODS.slice(0, 1) : PERIODS.filter(o => p[o.column] != null && p[o.column] > 0);
+            const [main, ...more] = offers;
+            const monthly = p.price_monthly_cents;
+            // "Save 25%" against paying monthly for the same time.
+            const saving = (o) => (monthly && o.months > 1 ? Math.round(100 * (1 - p[o.column] / (monthly * o.months))) : 0);
+            const price = (o) => (p[o.column] === 0 ? t("plan.free") : formatPrice(p[o.column], p.currency));
             return (
-              <div key={p.id} className={`mn-plan${current ? " highlight" : ""}`}>
+              <div key={p.id} className={`mn-plan${current ? " highlight" : ""}${p.id === "exam" ? " exam" : ""}`}>
                 {current && <span className="ribbon">{t("pricing.yourPlan")}</span>}
                 <div className="pname">{name}</div>
                 <div className="ptag">{tr(`plan.tagline.${p.id}`, p.tagline)}</div>
                 <div className="price">
-                  {unavailable ? "—" : formatPrice(cents, p.currency)}
-                  {!unavailable && cents > 0 && <small> {t(`pricing.per.${interval}`)}</small>}
+                  {main ? price(main) : "—"}
+                  {main && p[main.column] > 0 && <small> {t(`pricing.per.${main.id}`)}</small>}
                 </div>
+                {more.length > 0 && (
+                  <div className="price-more">
+                    {more.map(o => (
+                      <span key={o.id}>{price(o)} {t(`pricing.per.${o.id}`)}{saving(o) > 0 && <b> · {t("pricing.save", { pct: saving(o) })}</b>}</span>
+                    ))}
+                  </div>
+                )}
                 <ul>
                   {p.features.map(f => <li key={f}><Check size={15} aria-hidden="true" />{tr(`feature.${f}`, f)}</li>)}
                 </ul>
                 <div className="limits">
-                  {t("pricing.limits", { day: p.daily_request_limit, month: p.monthly_request_limit })}<br />
+                  {p.id === "exam" ? t("pricing.fairUse")
+                    : <>{t("pricing.limits", { day: p.daily_request_limit, month: p.monthly_request_limit })}</>}<br />
                   {t("pricing.turns", { n: p.max_session_turns })}
                   {p.monthly_premium_limit > 0 && <><br />{t("pricing.premium", { n: p.monthly_premium_limit })}</>}
                 </div>
                 {current ? <Button variant="ghost" disabled>{t("pricing.current")}</Button>
                   : p.id === "free" ? null
                   : checkoutAvailable
-                    ? <Button onClick={() => upgrade(p)} disabled={busy === p.id || unavailable}>{busy === p.id ? t("pricing.opening") : unavailable ? t("pricing.notYearly") : t("pricing.choose", { plan: name })}</Button>
+                    ? <div className="pay-options">
+                        {offers.map((o, i) => (
+                          <Button key={o.id} variant={i === 0 ? undefined : "ghost"} onClick={() => upgrade(p, o.id)} disabled={busy !== null}>
+                            {busy === `${p.id}:${o.id}` ? t("pricing.opening") : t("pricing.pay", { price: price(o), period: t(`pricing.per.${o.id}`) })}
+                          </Button>
+                        ))}
+                      </div>
                     : <a className="mn-btn outline" href={`mailto:${CONTACT}?subject=${encodeURIComponent(`Menya ${p.name} plan`)}`}>{t("pricing.emailUs", { plan: name })}</a>}
               </div>
             );

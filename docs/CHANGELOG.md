@@ -1,5 +1,19 @@
 # Change log
 
+## Prices (30 October 2026, branch `pricing`)
+
+Owner's prices, in US dollars: **Free** $0; **Pro** $10 / month, $35 / semester (4 months,
+save 13%), $90 / year (save 25%); **Exam Pass** $8 for 2 weeks, practically unlimited
+(1,000 replies a day, fair use) and ranked above Pro while it lasts; **Professional** $25 / month.
+New billing periods `semester` and `two_weeks`; checkout refuses periods a plan isn't sold for;
+IremboPay invoices and notifications handle them (4 months, 14 days); the admin revenue estimate
+counts them; the admin plan editor can change them. The pricing page lists every period with its
+own pay button and the saving against monthly. Wording made honest: "practically unlimited
+(fair use)", and the page no longer says "nothing is unlimited".
+
+IremboPay charges in the payment account's currency: with an RWF account, set the RWF amounts in
+`IREMBOPAY_PLANS` (or open a USD account, which IremboPay supports) so they match these prices.
+
 ## Own domain: menyaneza.com (30 October 2026, branch `custom-domain`)
 
 The site is served at **https://menyaneza.com** ("menya neza" = "know well"). DNS points to

@@ -65,7 +65,7 @@ const MIN_CALL_MS = 5_000; // don't start a call with less time than this
 export interface ServiceResponse { status: number; body: Record<string, unknown> }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const NEXT_PLAN: Record<string, string | null> = { free: "pro", pro: "professional", professional: null };
+const NEXT_PLAN: Record<string, string | null> = { free: "pro", pro: "professional", exam: "professional", professional: null };
 
 // Shown only if a reply still revealed the answer after one rewrite.
 // Before the student has tried anything, a "you're close" message makes no sense.

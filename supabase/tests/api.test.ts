@@ -64,8 +64,13 @@ describe("authentication", () => {
   test("public routes work without a token", async () => {
     assert.equal((await call("GET", "/health")).status, 200);
     const plans = await (await call("GET", "/plans")).json();
-    assert.deepEqual(plans.plans.map((p: any) => p.id), ["free", "pro", "professional"]);
-    assert.equal(plans.plans[2].monthly_premium_limit, 190, "allowance shown after safety margin");
+    assert.deepEqual(plans.plans.map((p: any) => p.id), ["free", "pro", "exam", "professional"]);
+    assert.equal(plans.plans[3].monthly_premium_limit, 190, "allowance shown after safety margin");
+    const price = (id: string) => plans.plans.find((p: any) => p.id === id);
+    assert.deepEqual([price("pro").price_monthly_cents, price("pro").price_semester_cents, price("pro").price_yearly_cents], [1000, 3500, 9000]);
+    assert.equal(price("exam").price_two_weeks_cents, 800);
+    assert.equal(price("professional").price_monthly_cents, 2500);
+    assert.ok(plans.plans.every((p: any) => p.currency === "USD"));
   });
 });
 
@@ -138,7 +143,7 @@ describe("feedback and analytics", () => {
     const admin = await user();
     await db.query("update public.profiles set platform_role = 'admin' where id = $1", [admin.id]);
     const overview = await (await call("GET", "/admin/overview", { token: admin.token })).json();
-    assert.deepEqual(overview.by_plan.map((p: any) => p.plan_id), ["free", "pro", "professional"]);
+    assert.deepEqual(overview.by_plan.map((p: any) => p.plan_id), ["free", "pro", "exam", "professional"]);
     assert.ok(overview.by_plan[0].users >= 2 && overview.feedback.bad >= 1);
 
     const res = await call("GET", "/admin/analytics.xlsx", { token: admin.token });
@@ -273,6 +278,24 @@ describe("billing webhooks", () => {
     ctx.billing = saved;
     assert.equal(r.status, 501);
     assert.equal((await r.json()).error, "billing_not_configured");
+  });
+
+  test("checkout offers each plan only in the periods it is sold for", async () => {
+    const u = await user();
+    const saved = ctx.billing;
+    const asked: string[] = [];
+    ctx.billing = { ...saved!, createCheckout: async (req) => { asked.push(`${req.planId}:${req.interval}`); return { url: "https://pay.example/inv" }; } };
+    const checkout = (plan: string, interval: string) => call("POST", "/billing/checkout", { token: u.token, body: { plan, interval } });
+    for (const [plan, interval] of [["pro", "month"], ["pro", "semester"], ["pro", "year"], ["exam", "two_weeks"], ["professional", "month"]]) {
+      assert.equal((await checkout(plan, interval)).status, 200, `${plan}:${interval}`);
+    }
+    for (const [plan, interval] of [["exam", "month"], ["professional", "year"], ["pro", "two_weeks"]]) {
+      const r = await checkout(plan, interval);
+      assert.equal(r.status, 400, `${plan}:${interval}`);
+      assert.equal((await r.json()).error, "interval_not_offered");
+    }
+    ctx.billing = saved;
+    assert.deepEqual(asked, ["pro:month", "pro:semester", "pro:year", "exam:two_weeks", "professional:month"]);
   });
 });
 

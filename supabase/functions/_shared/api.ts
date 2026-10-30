@@ -4,7 +4,7 @@
 // roles in the database. Responses never include secrets or stack traces.
 // ============================================================
 import { handleTutor } from "./tutorService.ts";
-import { WebhookSignatureError, type BillingProvider } from "./billing.ts";
+import { BILLING_INTERVALS, PRICE_COLUMN, WebhookSignatureError, type BillingInterval, type BillingProvider } from "./billing.ts";
 import type { ModelProvider } from "./providers.ts";
 import type { Repo } from "./repo.ts";
 import { buildXlsx, type Cell } from "./xlsx.ts";
@@ -159,9 +159,9 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     const b = await readJson(req);
     const plans = await ctx.db.rpc<any[]>("public_plans", {});
     const plan = plans.find(p => p.id === b?.plan);
-    const interval = b?.interval === "year" ? "year" : "month";
+    const interval: BillingInterval = BILLING_INTERVALS.includes(b?.interval) ? b.interval : "month";
     if (!plan || plan.id === "free") return json(400, { error: "invalid_plan" });
-    if ((interval === "year" ? plan.price_yearly_cents : plan.price_monthly_cents) == null) return json(400, { error: "interval_not_offered" });
+    if (plan[PRICE_COLUMN[interval]] == null) return json(400, { error: "interval_not_offered" });
     try {
       const { url: checkoutUrl } = await ctx.billing.createCheckout({ userId: user.id, email: user.email, planId: plan.id, interval,
         successUrl: `${ctx.appUrl}/?checkout=done`, cancelUrl: `${ctx.appUrl}/?checkout=cancelled` });

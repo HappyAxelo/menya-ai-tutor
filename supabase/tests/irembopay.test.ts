@@ -8,7 +8,8 @@ import { iremboPayProvider, iremboPayTransactionId, signIremboPayWebhook, Webhoo
 
 const KEY = "sk_test_irembo_merchant_secret";
 const ACCOUNT = "TST-RWF";
-const PLANS = { "pro:month": { code: "PI-PRO-M", amount: 5000 }, "pro:year": { code: "PI-PRO-Y", amount: 50000 } };
+const PLANS = { "pro:month": { code: "PI-PRO-M", amount: 5000 }, "pro:year": { code: "PI-PRO-Y", amount: 50000 },
+  "pro:semester": { code: "PI-PRO-S", amount: 17500 }, "exam:two_weeks": { code: "PI-EXM-W", amount: 4000 } };
 const NOW = Date.parse("2026-10-29T08:00:00Z");
 
 function notification(userId: string, over: Record<string, unknown> = {}) {
@@ -71,6 +72,29 @@ describe("IremboPay", () => {
     assert.equal(ev.subscription!.plan_id, "pro");
     assert.equal(ev.subscription!.current_period_start, "2026-10-29T08:00:00.000Z");
     assert.equal(ev.subscription!.current_period_end, "2026-11-29T08:00:00.000Z");
+  });
+
+  test("a semester lasts 4 months and an Exam Pass 14 days; the pass outranks Pro while it lasts", async () => {
+    const learner = await createUser(db);
+    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => Date.now() });
+    const paidAt = new Date();
+    const semester = notification(learner, { amount: 17500, invoiceNumber: "880000000001", paidAt: paidAt.toISOString(),
+      transactionId: iremboPayTransactionId(learner, "pro", "semester") });
+    const s = await pay.verifyWebhook(await headers(semester, Date.now()), semester);
+    assert.equal(s.subscription!.interval, "semester");
+    const months = (Date.parse(s.subscription!.current_period_end!) - paidAt.getTime()) / 864e5;
+    assert.ok(months >= 119 && months <= 124, `semester lasted ${months} days`);
+    await rpc(db, "process_payment_event", { p_provider: "irembopay", p_event: s, p_raw: JSON.parse(semester) });
+
+    const exam = notification(learner, { amount: 4000, invoiceNumber: "880000000002", paidAt: paidAt.toISOString(),
+      transactionId: iremboPayTransactionId(learner, "exam", "two_weeks") });
+    const e = await pay.verifyWebhook(await headers(exam, Date.now()), exam);
+    assert.equal(e.subscription!.plan_id, "exam");
+    assert.equal(Date.parse(e.subscription!.current_period_end!) - paidAt.getTime(), 14 * 864e5);
+    await rpc(db, "process_payment_event", { p_provider: "irembopay", p_event: e, p_raw: JSON.parse(exam) });
+    const ent = (await db.query<any>("select * from public.resolve_entitlement($1)", [learner])).rows[0];
+    assert.equal(ent.plan_id, "exam");
+    assert.ok(ent.daily_request_limit >= 1000, "practically unlimited before exams");
   });
 
   test("a paid notification upgrades the learner to Pro for one month; a repeat does nothing", async () => {

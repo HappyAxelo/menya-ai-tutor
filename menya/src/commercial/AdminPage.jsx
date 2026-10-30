@@ -128,7 +128,7 @@ export default function AdminPage({ onBack }) {
 
       {config && (
         <Card title="Plan limits (edit and press Enter)">
-          <Table rows={config.plans} columns={["daily_request_limit", "monthly_request_limit", "monthly_premium_limit", "premium_safety_margin", "requests_per_minute", "max_session_turns", "context_turns", "price_monthly_cents", "price_yearly_cents"]
+          <Table rows={config.plans} columns={["daily_request_limit", "monthly_request_limit", "monthly_premium_limit", "premium_safety_margin", "requests_per_minute", "max_session_turns", "context_turns", "price_monthly_cents", "price_semester_cents", "price_yearly_cents", "price_two_weeks_cents"]
             .reduce((cols, f) => [...cols, { key: f, label: f.replace(/_/g, " ").toUpperCase(), render: p => (
               <input defaultValue={p[f] ?? ""} aria-label={`${p.id} ${f}`} onKeyDown={e => e.key === "Enter" && savePlan(p.id, f, e.target.value)}
                 style={{ ...inputStyle, width: "90px", padding: "4px 6px", fontSize: "12px", fontFamily: mono }} />) }], [{ key: "id", label: "Plan" }])} />
