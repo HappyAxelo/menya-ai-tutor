@@ -11,15 +11,16 @@ export default function AdminPage({ onBack }) {
   const [health, setHealth] = useState(null);
   const [config, setConfig] = useState(null);
   const [overview, setOverview] = useState(null);
+  const [billing, setBilling] = useState(null);
   const [users, setUsers] = useState(null);
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState(null);
 
   const load = useCallback(async () => {
     const m = `${month}-01`;
-    const [e, a, h, c, o] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config"), api("/admin/overview")]);
+    const [e, a, h, c, o, b] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config"), api("/admin/overview"), api("/admin/billing")]);
     if (e.status === 403) { setMsg({ kind: "error", text: "Administrator access required." }); return; }
-    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data); setOverview(o.ok ? o.data : null);
+    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data); setOverview(o.ok ? o.data : null); setBilling(b.ok ? b.data : null);
   }, [month]);
   useEffect(() => { load(); }, [load]);
 
@@ -107,6 +108,28 @@ export default function AdminPage({ onBack }) {
         <div style={{ fontSize: "12px", color: C.faint, marginTop: "10px", lineHeight: 1.6 }}>
           Gross margin = (revenue − AI cost − allocated infrastructure − payment fees) ÷ revenue. Set infrastructure cost and payment fee % in app_settings from real invoices.
         </div>
+      </Card>
+
+      <Card title="Payments (IremboPay setup check)">
+        {!billing ? <Loading /> : (
+          <>
+            <div style={{ fontFamily: mono, fontSize: "13px", lineHeight: 1.9 }}>
+              <span style={{ color: billing.provider ? C.green : C.muted }}>●</span>{" "}
+              {billing.provider ? `${billing.provider} — ${billing.mode === "production" ? "PRODUCTION (real money)" : "sandbox (test payments only)"}` : "Online payment is off (BILLING_PROVIDER not set). Learners see “email us”."}
+            </div>
+            {billing.problems.map(p => <Notice key={p} kind="warn">{p}</Notice>)}
+            <Table rows={billing.rows} columns={[
+              { key: "plan", label: "Plan" }, { key: "interval", label: "Period" },
+              { key: "price", label: "Menya price", align: "right", render: r => `${(r.price_cents / 100).toFixed(2)} ${r.currency}` },
+              { key: "product_code", label: "IremboPay product" },
+              { key: "amount", label: "Charged", align: "right" },
+              { key: "payable", label: "", render: r => <span style={{ color: r.payable ? C.green : C.red }}>{r.payable ? "can be paid" : "not set up"}</span> },
+            ]} />
+            <div style={{ fontSize: "12px", color: C.muted, marginTop: "8px" }}>
+              “Charged” is in the currency of your IremboPay payment account (RWF for a RWF account). Webhook URL to give IremboPay: <code>https://tgrihnmngbamxxjnedlc.supabase.co/functions/v1/api/billing/webhook</code>
+            </div>
+          </>
+        )}
       </Card>
 
       <Card title="Model providers">

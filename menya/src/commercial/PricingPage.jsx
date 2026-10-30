@@ -18,6 +18,7 @@ export default function PricingPage({ account, onBack }) {
   const { t } = useT();
   const [plans, setPlans] = useState(null);
   const [checkoutAvailable, setCheckoutAvailable] = useState(false);
+  const [checkoutOptions, setCheckoutOptions] = useState(null); // "plan:period" the payment provider sells; null = all
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(null);
 
@@ -25,6 +26,7 @@ export default function PricingPage({ account, onBack }) {
     api("/plans").then(r => {
       setPlans(r.ok ? r.data.plans : []);
       setCheckoutAvailable(Boolean(r.ok && r.data.checkoutAvailable));
+      setCheckoutOptions(r.ok && Array.isArray(r.data.checkoutOptions) ? r.data.checkoutOptions : null);
       if (!r.ok) setNotice({ kind: "error", text: t("pricing.loadError") });
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -57,6 +59,7 @@ export default function PricingPage({ account, onBack }) {
             const name = tr(`plan.${p.id}`, p.name);
             const offers = p.id === "free" ? PERIODS.slice(0, 1) : PERIODS.filter(o => p[o.column] != null && p[o.column] > 0);
             const [main, ...more] = offers;
+            const payable = offers.filter(o => !checkoutOptions || checkoutOptions.includes(`${p.id}:${o.id}`));
             const monthly = p.price_monthly_cents;
             // "Save 25%" against paying monthly for the same time.
             const saving = (o) => (monthly && o.months > 1 ? Math.round(100 * (1 - p[o.column] / (monthly * o.months))) : 0);
@@ -88,9 +91,9 @@ export default function PricingPage({ account, onBack }) {
                 </div>
                 {current ? <Button variant="ghost" disabled>{t("pricing.current")}</Button>
                   : p.id === "free" ? null
-                  : checkoutAvailable
+                  : checkoutAvailable && payable.length > 0
                     ? <div className="pay-options">
-                        {offers.map((o, i) => (
+                        {payable.map((o, i) => (
                           <Button key={o.id} variant={i === 0 ? undefined : "ghost"} onClick={() => upgrade(p, o.id)} disabled={busy !== null}>
                             {busy === `${p.id}:${o.id}` ? t("pricing.opening") : t("pricing.pay", { price: price(o), period: t(`pricing.per.${o.id}`) })}
                           </Button>

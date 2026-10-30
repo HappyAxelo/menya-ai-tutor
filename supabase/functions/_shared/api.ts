@@ -26,6 +26,7 @@ export interface ApiContext {
   db: Db;
   providers: Record<string, ModelProvider>;
   billing: BillingProvider | null;
+  billingProblems?: string[];     // payment configuration mistakes, shown to administrators
   getUser(jwt: string): Promise<AuthUser | null>;
   deleteUser(userId: string): Promise<void>;
   sendInvite?(email: string, link: string, orgName: string): Promise<void>; // optional: email not configured -> links are returned
@@ -111,8 +112,11 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
   // tutorReady says whether the owner has configured an AI provider key; never which key.
   if (path === "/health" && method === "GET") return json(200, { ok: true, tutorReady: Object.keys(ctx.providers).length > 0 });
   if (path === "/plans" && method === "GET") {
-    // checkoutAvailable lets the pricing page say up front whether online payment exists.
-    return json(200, { plans: await ctx.db.rpc("public_plans", {}), checkoutAvailable: Boolean(ctx.billing) });
+    // checkoutAvailable lets the pricing page say up front whether online payment exists;
+    // checkoutOptions ("plan:period") which pay buttons to show (null = every priced period).
+    const options = ctx.billing?.products ? Object.keys(ctx.billing.products) : null;
+    return json(200, { plans: await ctx.db.rpc("public_plans", {}),
+      checkoutAvailable: Boolean(ctx.billing) && (!options || options.length > 0), checkoutOptions: options });
   }
   if (path === "/quote" && method === "POST") {
     const b = await readJson(req);
@@ -162,6 +166,7 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     const interval: BillingInterval = BILLING_INTERVALS.includes(b?.interval) ? b.interval : "month";
     if (!plan || plan.id === "free") return json(400, { error: "invalid_plan" });
     if (plan[PRICE_COLUMN[interval]] == null) return json(400, { error: "interval_not_offered" });
+    if (ctx.billing.products && !ctx.billing.products[`${plan.id}:${interval}`]) return json(400, { error: "interval_not_offered" });
     try {
       const { url: checkoutUrl } = await ctx.billing.createCheckout({ userId: user.id, email: user.email, planId: plan.id, interval,
         successUrl: `${ctx.appUrl}/?checkout=done`, cancelUrl: `${ctx.appUrl}/?checkout=cancelled` });
@@ -286,6 +291,21 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
           "ai_cost_usd", "allocated_infra_usd", "payment_fees_usd", "est_revenue_usd", "gross_margin_pct"];
         const csv = [cols.join(","), ...rows.map(r => cols.map(c => r[c] ?? "").join(","))].join("\n");
         return new Response(csv, { status: 200, headers: { "Content-Type": "text/csv", "Content-Disposition": `attachment; filename=menya-economics-${month.slice(0, 7)}.csv` } });
+      }
+      // Payment setup check: which plan periods can be paid online, and any configuration mistakes.
+      // Product codes and amounts are not secret; the secret key is never returned.
+      case "GET /admin/billing": {
+        const plans = await ctx.db.rpc<any[]>("public_plans", {});
+        const rows = plans.filter(p => p.id !== "free").flatMap(p => BILLING_INTERVALS
+          .filter(i => (p[PRICE_COLUMN[i]] ?? 0) > 0)
+          .map(i => {
+            const product = ctx.billing?.products ? ctx.billing.products[`${p.id}:${i}`] ?? null : undefined;
+            return { key: `${p.id}:${i}`, plan: p.name, interval: i, price_cents: p[PRICE_COLUMN[i]], currency: p.currency,
+              product_code: product?.code ?? null, amount: product?.amount ?? null,
+              payable: Boolean(ctx.billing) && product !== null };
+          }));
+        return json(200, { provider: ctx.billing?.name ?? null, mode: ctx.billing?.mode ?? null,
+          problems: ctx.billingProblems ?? [], rows });
       }
       case "GET /admin/overview":
         return json(200, await ctx.db.rpc("admin_overview_json", { p_actor: user.id }));

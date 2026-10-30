@@ -4,7 +4,7 @@ import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
 import type { PGlite } from "@electric-sql/pglite";
 import { freshDb, createUser, rpc } from "./db.ts";
-import { iremboPayProvider, iremboPayTransactionId, signIremboPayWebhook, WebhookSignatureError } from "../functions/_shared/billing.ts";
+import { iremboPayProvider, iremboPayTransactionId, signIremboPayWebhook, WebhookSignatureError, billingSetup, parseIremboPayPlans } from "../functions/_shared/billing.ts";
 
 const KEY = "sk_test_irembo_merchant_secret";
 const ACCOUNT = "TST-RWF";
@@ -106,5 +106,33 @@ describe("IremboPay", () => {
     assert.equal(await rpc(db, "process_payment_event", { p_provider: "irembopay", p_event: ev, p_raw: JSON.parse(body) }), "duplicate");
     const ent = (await db.query<any>("select * from public.resolve_entitlement($1)", [learner])).rows[0];
     assert.equal(ent.plan_id, "pro");
+  });
+
+  test("a payment setting mistake turns payment off instead of stopping the server", () => {
+    const base = { BILLING_PROVIDER: "irembopay", IREMBOPAY_SECRET_KEY: KEY, IREMBOPAY_PAYMENT_ACCOUNT: ACCOUNT };
+    const badJson = billingSetup({ ...base, IREMBOPAY_PLANS: "{pro:month: 5000}" });
+    assert.ok(badJson.billing, "still verifies notifications for sales already made");
+    assert.deepEqual(Object.keys(badJson.billing!.products!), []);
+    assert.ok(badJson.problems.includes("IREMBOPAY_PLANS is not valid JSON"));
+
+    const noKey = billingSetup({ BILLING_PROVIDER: "irembopay", IREMBOPAY_PLANS: JSON.stringify(PLANS) });
+    assert.equal(noKey.billing, null);
+    assert.ok(noKey.problems.some(p => /IREMBOPAY_SECRET_KEY is required/.test(p)));
+
+    const ok = billingSetup({ ...base, IREMBOPAY_PLANS: JSON.stringify(PLANS), IREMBOPAY_ENV: "production" });
+    assert.deepEqual(ok.problems, []);
+    assert.equal(ok.billing!.mode, "production");
+    assert.equal(billingSetup({ ...base, IREMBOPAY_PLANS: JSON.stringify(PLANS) }).billing!.mode, "sandbox", "sandbox unless told otherwise");
+    assert.deepEqual(billingSetup({}).billing, null);
+  });
+
+  test("each IREMBOPAY_PLANS entry is checked on its own", () => {
+    const { plans, problems } = parseIremboPayPlans(JSON.stringify({
+      "pro:month": { code: " PI-1 ", amount: 14500 }, "pro:year": { code: "PI-2", amount: "130000" },
+      "exam:two_weeks": { amount: 11600 }, "gold:month": { code: "PI-3", amount: 1 } }));
+    assert.deepEqual(plans, { "pro:month": { code: "PI-1", amount: 14500 } });
+    assert.deepEqual(problems, ['IREMBOPAY_PLANS: "pro:year" needs a positive number as amount',
+      'IREMBOPAY_PLANS: "exam:two_weeks" has no product code', 'IREMBOPAY_PLANS: unknown key "gold:month"']);
+    assert.deepEqual(parseIremboPayPlans("[]").problems, ["IREMBOPAY_PLANS must be a JSON object"]);
   });
 });

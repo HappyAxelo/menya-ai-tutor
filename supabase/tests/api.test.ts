@@ -6,7 +6,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { freshDb, createUser, rpc } from "./db.ts";
 import { pgRepo } from "./pgRepo.ts";
 import { handleApi, DbError, parseRosterCsv, type ApiContext } from "../functions/_shared/api.ts";
-import { testBillingProvider, signTestWebhook } from "../functions/_shared/billing.ts";
+import { testBillingProvider, signTestWebhook, billingSetup } from "../functions/_shared/billing.ts";
 
 const SECRET = "test-secret-test-secret-test-secret-123";
 const HPC_SECRET = "hpc-register-secret-0123456789abcdef";
@@ -153,6 +153,38 @@ describe("feedback and analytics", () => {
     assert.equal(String.fromCharCode(bytes[0], bytes[1]), "PK", "a zip (xlsx) file");
     const text = new TextDecoder().decode(bytes);
     for (const s of ["Summary", "Users", "Feedback", learner.email, "Bad"]) assert.ok(text.includes(s), s);
+  });
+
+  test("only the plan periods set up in IremboPay get pay buttons, and the admin sees what is missing", async () => {
+    const saved = ctx.billing;
+    const { billing, problems } = billingSetup({ BILLING_PROVIDER: "irembopay", IREMBOPAY_SECRET_KEY: "sk_test", IREMBOPAY_PAYMENT_ACCOUNT: "TST-RWF",
+      IREMBOPAY_PLANS: JSON.stringify({ "pro:month": { code: "PI-PRO-M", amount: 14500 }, "pro:decade": { code: "X", amount: 1 } }) });
+    ctx.billing = billing; ctx.billingProblems = problems;
+    try {
+      const plans = await (await call("GET", "/plans")).json();
+      assert.equal(plans.checkoutAvailable, true);
+      assert.deepEqual(plans.checkoutOptions, ["pro:month"]);
+      const learner = await user();
+      const refused = await call("POST", "/billing/checkout", { token: learner.token, body: { plan: "pro", interval: "year" } });
+      assert.equal(refused.status, 400);
+      assert.equal((await refused.json()).error, "interval_not_offered");
+
+      assert.equal((await call("GET", "/admin/billing", { token: learner.token })).status, 403);
+      const admin = await user();
+      await db.query("update public.profiles set platform_role = 'admin' where id = $1", [admin.id]);
+      const status = await (await call("GET", "/admin/billing", { token: admin.token })).json();
+      assert.equal(status.provider, "irembopay");
+      assert.equal(status.mode, "sandbox");
+      assert.deepEqual(status.problems, ['IREMBOPAY_PLANS: unknown key "pro:decade"']);
+      const byKey = Object.fromEntries(status.rows.map((r: any) => [r.key, r]));
+      assert.deepEqual(Object.keys(byKey).sort(), ["exam:two_weeks", "pro:month", "pro:semester", "pro:year", "professional:month"]);
+      assert.equal(byKey["pro:month"].payable, true);
+      assert.equal(byKey["pro:month"].amount, 14500);
+      assert.equal(byKey["pro:year"].payable, false);
+      assert.ok(!JSON.stringify(status).includes("sk_test"), "the secret key is never returned");
+    } finally {
+      ctx.billing = saved; ctx.billingProblems = undefined;
+    }
   });
 });
 

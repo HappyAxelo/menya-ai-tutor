@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { handleApi, DbError, type ApiContext } from "../_shared/api.ts";
 import { supabaseRepo } from "../_shared/repo.ts";
 import { buildProviders } from "../_shared/providers.ts";
-import { buildBillingProvider } from "../_shared/billing.ts";
+import { billingSetup } from "../_shared/billing.ts";
 
 const env = (k: string) => Deno.env.get(k) ?? undefined;
 const required = (k: string) => {
@@ -40,6 +40,12 @@ const providers = buildProviders({
   LOCAL_LLM_JSON_MODE: env("LOCAL_LLM_JSON_MODE"),
 }, env("HPC_REGISTER_SECRET") ? hpcBaseUrl : undefined);
 
+// A payment setting mistake is logged and shown on the admin page; the tutor keeps working.
+function billingContext({ billing, problems }: ReturnType<typeof billingSetup>) {
+  for (const p of problems) console.log(JSON.stringify({ level: "warn", event: "billing_config", message: p }));
+  return { billing, billingProblems: problems };
+}
+
 const ctx: ApiContext = {
   repo: supabaseRepo(sb),
   db: {
@@ -50,14 +56,14 @@ const ctx: ApiContext = {
     },
   },
   providers,
-  billing: buildBillingProvider({
+  ...billingContext(billingSetup({
     BILLING_PROVIDER: env("BILLING_PROVIDER"),
     BILLING_TEST_WEBHOOK_SECRET: env("BILLING_TEST_WEBHOOK_SECRET"),
     IREMBOPAY_SECRET_KEY: env("IREMBOPAY_SECRET_KEY"),
     IREMBOPAY_PAYMENT_ACCOUNT: env("IREMBOPAY_PAYMENT_ACCOUNT"),
     IREMBOPAY_PLANS: env("IREMBOPAY_PLANS"),
     IREMBOPAY_ENV: env("IREMBOPAY_ENV"),
-  }),
+  })),
   async getUser(jwt) {
     const { data, error } = await sb.auth.getUser(jwt);
     if (error || !data?.user) return null;

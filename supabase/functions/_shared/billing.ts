@@ -60,6 +60,9 @@ export interface BillingProvider {
   verifyWebhook(headers: Headers, rawBody: string): Promise<NormalizedEvent>;
   createCheckout(req: CheckoutRequest): Promise<{ url: string }>;
   createPortal(customerId: string, returnUrl: string): Promise<{ url: string }>;
+  // What can be bought ("plan:period" -> product). Unset = everything priced in the plans table.
+  products?: Record<string, { code: string; amount: number }>;
+  mode?: "sandbox" | "production";
 }
 
 const enc = new TextEncoder();
@@ -162,6 +165,8 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
   const doFetch = cfg.fetchImpl ?? fetch, now = cfg.now ?? Date.now, tolerance = cfg.toleranceSeconds ?? 300;
   return {
     name: "irembopay",
+    products: cfg.plans,
+    mode: cfg.sandbox ? "sandbox" : "production",
     async verifyWebhook(headers, rawBody) {
       const parts = Object.fromEntries((headers.get("irembopay-signature") ?? "").split(",")
         .map(p => p.trim().split("=", 2) as [string, string]));
@@ -239,9 +244,48 @@ export function buildBillingProvider(env: BillingEnv): BillingProvider | null {
     case "irembopay":
       return iremboPayProvider({
         secretKey: env.IREMBOPAY_SECRET_KEY ?? "", paymentAccount: env.IREMBOPAY_PAYMENT_ACCOUNT ?? "",
-        plans: JSON.parse(env.IREMBOPAY_PLANS || "{}"), sandbox: env.IREMBOPAY_ENV !== "production",
+        plans: parseIremboPayPlans(env.IREMBOPAY_PLANS).plans, sandbox: env.IREMBOPAY_ENV !== "production",
       });
     default:
       throw new Error(`Billing provider "${env.BILLING_PROVIDER}" has no adapter yet. See docs/BILLING.md.`);
+  }
+}
+
+// IREMBOPAY_PLANS is typed by hand in the Supabase dashboard, so check every entry:
+// a bad entry is left out (and reported) instead of breaking checkout for every plan.
+const PLAN_KEY_RE = /^(pro|professional|exam):(month|semester|year|two_weeks)$/;
+
+export function parseIremboPayPlans(json: string | undefined): { plans: Record<string, IremboPayPlan>; problems: string[] } {
+  const plans: Record<string, IremboPayPlan> = {}, problems: string[] = [];
+  let raw: unknown;
+  try { raw = JSON.parse(json || "{}"); } catch { return { plans, problems: ["IREMBOPAY_PLANS is not valid JSON"] }; }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { plans, problems: ["IREMBOPAY_PLANS must be a JSON object"] };
+  for (const [key, v] of Object.entries(raw as Record<string, any>)) {
+    if (!PLAN_KEY_RE.test(key)) { problems.push(`IREMBOPAY_PLANS: unknown key "${key}"`); continue; }
+    if (typeof v?.code !== "string" || !v.code.trim()) { problems.push(`IREMBOPAY_PLANS: "${key}" has no product code`); continue; }
+    if (typeof v.amount !== "number" || !Number.isFinite(v.amount) || v.amount <= 0) {
+      problems.push(`IREMBOPAY_PLANS: "${key}" needs a positive number as amount`); continue;
+    }
+    plans[key] = { code: v.code.trim(), amount: v.amount };
+  }
+  return { plans, problems };
+}
+
+// What the server runs with: a configuration mistake turns online payment off (and is shown
+// to the administrator) instead of stopping the whole API from starting.
+export function billingSetup(env: BillingEnv): { billing: BillingProvider | null; problems: string[] } {
+  const problems: string[] = [];
+  if (env.BILLING_PROVIDER === "irembopay") {
+    const parsed = parseIremboPayPlans(env.IREMBOPAY_PLANS);
+    problems.push(...parsed.problems);
+    if (!Object.keys(parsed.plans).length) problems.push("IREMBOPAY_PLANS has no usable product, so nothing can be bought yet");
+    if (env.IREMBOPAY_ENV && !["sandbox", "production"].includes(env.IREMBOPAY_ENV)) {
+      problems.push(`IREMBOPAY_ENV is "${env.IREMBOPAY_ENV}"; use sandbox or production (running as sandbox)`);
+    }
+  }
+  try {
+    return { billing: buildBillingProvider(env), problems };
+  } catch (err) {
+    return { billing: null, problems: [...problems, err instanceof Error ? err.message : String(err)] };
   }
 }
