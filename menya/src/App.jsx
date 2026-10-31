@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, lazy, Suspense } from "react";
 import {
   ArrowUp, Meh, ThumbsDown, ThumbsUp, BookOpen, CircleHelp, NotebookPen, RefreshCw, Target, Mic, Square, Paperclip, X, FileText, Image as ImageIcon, LoaderCircle, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
-  HelpCircle, Lightbulb, Moon, RotateCcw, Sparkles, SquarePen, Sun, TriangleAlert, WifiOff,
+  CalendarCheck, HelpCircle, Lightbulb, Moon, RotateCcw, Sparkles, SquarePen, Sun, TriangleAlert, WifiOff,
   Settings as SettingsIcon, Crown,
 } from "lucide-react";
 import { useSettings, effectiveTheme } from "./settings.js";
@@ -281,7 +281,7 @@ function ActionBar({ actions, onAction }) {
 
 // The new-conversation screen: greeting for the time of day, the input in the
 // middle, then shortcuts and examples underneath (the way Claude welcomes you).
-function Welcome({ client, userName, composer, onExample, onIntent, introOpen, onDismissIntro, onReview }) {
+function Welcome({ client, userName, composer, onExample, onIntent, introOpen, onDismissIntro, onReview, onNavigate }) {
   const { t, lang } = useT();
   const hour = useHour();
   const [subject, setSubject] = useState(null);
@@ -292,6 +292,14 @@ function Welcome({ client, userName, composer, onExample, onIntent, introOpen, o
       <h1 className="mn-greeting"><BrandMark size={40} /><span>{greeting(lang, hour, userName)}</span></h1>
       <p className="mn-hero-sub">{t("welcome.sub")}</p>
       {composer}
+
+      {client && onNavigate && (
+        <div className="mn-companion" role="group" aria-label={t("companion.label")}>
+          <button className="mn-intent" onClick={() => onNavigate("study")}><CalendarCheck size={16} aria-hidden="true" />{t("companion.study")}</button>
+          <button className="mn-intent" onClick={() => onNavigate("exam")}><ClipboardCheck size={16} aria-hidden="true" />{t("companion.exam")}</button>
+          <button className="mn-intent" onClick={() => onNavigate("notes")}><BookOpen size={16} aria-hidden="true" />{t("companion.notes")}</button>
+        </div>
+      )}
 
       {due.length > 0 && (
         <div className="mn-reviews">
@@ -571,10 +579,13 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
 
   useEffect(() => { if (newChatKey) newProblem(); }, [newChatKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // "Review now" from the progress page: a fresh conversation on that objective.
+  // From "My study", exams or notes: a lesson ({ text }), a draft question ({ draft }) or an unseen problem ({ objective }).
   useEffect(() => {
     if (!reviewRequest) return;
     newProblem();
-    runAction("review", "", { objective: reviewRequest.objective });
+    if (reviewRequest.draft) useIntent(reviewRequest.draft);
+    else if (reviewRequest.text) runAction("message", reviewRequest.text);
+    else runAction("review", "", { objective: reviewRequest.objective });
   }, [reviewRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetKey = () => {
@@ -744,7 +755,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         <main className="mn-thread">
           <div className="mn-thread-inner">
             {empty && (
-              <Welcome client={client} userName={userName} onExample={q => runAction("message", q)} onIntent={useIntent}
+              <Welcome client={client} userName={userName} onNavigate={onNavigate} onExample={q => runAction("message", q)} onIntent={useIntent}
                 onReview={objective => runAction("review", "", { objective })}
                 introOpen={introOpen} onDismissIntro={dismissIntro}
                 composer={<div className="mn-welcome-composer">{offlineNote}{composer}</div>} />

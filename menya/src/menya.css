@@ -573,3 +573,41 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .mn-plan .price-more b { color: #1a7f4b; font-weight: 600; }
 .mn-plan .pay-options { display: flex; flex-direction: column; gap: 8px; }
 .mn-plan.exam { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+
+/* ---------- Learning companion: My study, practice exams, My notes ---------- */
+.mn-status.warn { color: var(--danger); }
+.mn-companion { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 4px 0 18px; }
+.mn-plan-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.mn-plan-list > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.mn-plan-list > li:last-child { border-bottom: 0; }
+.mn-plan-list > li.done { opacity: .65; }
+.mn-plan-list.compact > li { padding: 6px 0; font-size: 14px; }
+.mn-plan-list .acts, .mn-map .acts { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.mn-map-subject { margin-top: 14px; }
+.mn-map { list-style: none; margin: 6px 0 0; padding: 0; }
+.mn-map > li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 4px 12px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.mn-map > li > .mn-fine { grid-column: 1 / -1; }
+.mn-form { display: grid; gap: 10px; margin-top: 10px; }
+.mn-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.mn-row.wrap { flex-wrap: wrap; }
+.mn-checks { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 14px; font-size: 14px; }
+.mn-checks legend { font-size: 13px; font-weight: 600; margin-bottom: 6px; padding: 0; }
+.mn-checks label { display: flex; align-items: center; gap: 8px; }
+.mn-checks.days { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+.mn-checks.days label { flex-direction: column; align-items: flex-start; gap: 4px; }
+.mn-checks.days input { width: 70px; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.mn-exam-bar { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 6px; }
+.mn-exam-q { margin: 10px 0 14px; font-size: 16px; line-height: 1.6; }
+.mn-exam-answer { width: 100%; box-sizing: border-box; min-height: 90px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text); font: inherit; font-size: 16px; margin-top: 4px; }
+.mn-exam-dots { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
+.mn-exam-dots button { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; font-size: 13px; }
+.mn-exam-dots button.answered { background: var(--accent-soft); color: var(--text); }
+.mn-exam-dots button.current { border-color: var(--accent); border-width: 2px; }
+.mn-exam-review { padding-left: 20px; }
+.mn-exam-review > li { margin-bottom: 14px; }
+@media (max-width: 560px) {
+  .mn-plan-list > li { flex-direction: column; align-items: flex-start; }
+  .mn-map > li { grid-template-columns: 1fr auto; }
+  .mn-map > li > .acts { grid-column: 1 / -1; }
+}

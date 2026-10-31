@@ -6,7 +6,7 @@
 //   usage/cost record (+ learning event) → response
 // ============================================================
 import {
-  actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, hintRequest, languageNote, problemNote, parseTutorJson, publicReply,
+  actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, hintRequest, languageNote, learnerContextNote, materialsNote, problemNote, parseTutorJson, publicReply,
   REWRITE_REQUEST, recheckRequest, unbalancedRequest, engineNote, presentRequest, STUCK_REASONS, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
@@ -299,18 +299,28 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     return { status: 503, body: { error: "tutor_unavailable", message: "The tutor is temporarily unavailable. Please try again shortly." } };
   }
 
+  // The learner's profile and, for a typed question, matching passages from their own notes.
+  const [profile, passages] = await Promise.all([
+    repo.getLearnerProfile(userId).catch(() => null),
+    input.action === "message" && input.message ? repo.searchMaterials(userId, input.message, 4).catch(() => []) : Promise.resolve([]),
+  ]);
+  const profileLevel = profile?.education_level === "secondary" ? "secondary" : profile?.education_level === "university" ? "undergraduate" : undefined;
+  const profileNote = learnerContextNote(profile);
+  const notesNote = materialsNote(passages);   // placed next to the question, where the model attends most
   const system = buildSystemPrompt({
-    language: input.language, workedSolutions: ent.worked_solutions, privateFields: true, level: input.learnerLevel, style: input.style,
+    language: input.language, workedSolutions: ent.worked_solutions, privateFields: true, level: input.learnerLevel ?? profileLevel, style: input.style,
     depth: ent.analytics_level === "enhanced" ? "detailed" : "standard",
   });
   const schema = buildResponseSchema(true);
   const messages: ChatMessage[] = [
+    ...(profileNote ? [{ role: "user" as const, content: profileNote }] : []),
     ...history.map(m => ({ role: m.role, content: m.content })),
     ...(!newProblem && (session.hints_used > 0 || attemptsNow > 0)
       ? [{ role: "user" as const, content: problemNote({ hintsUsed: session.hints_used, attempts: attemptsNow, practice: session.practice }) }] : []),
     ...(engineMessage ? [{ role: "user" as const, content: engineMessage }] : []),
     ...(followStudent ? (detected ? [{ role: "user" as const, content: languageNote(detected) }] : [])
       : (input.action === "message" || input.action === "check" ? [{ role: "user" as const, content: chosenLanguageNote(input.language!, detected) }] : [])),
+    ...(notesNote ? [{ role: "user" as const, content: notesNote }] : []),
     { role: "user", content: userContent },
   ];
 

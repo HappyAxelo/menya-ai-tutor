@@ -10,6 +10,9 @@ import OrgPage from "./OrgPage.jsx";
 import AdminPage from "./AdminPage.jsx";
 import HistoryDrawer, { HistorySidebar } from "./HistoryDrawer.jsx";
 import ProgressPage from "./ProgressPage.jsx";
+import StudyPage from "./StudyPage.jsx";
+import ExamPage from "./ExamPage.jsx";
+import MaterialsPage from "./MaterialsPage.jsx";
 import { Notice, ErrorBoundary } from "./ui.jsx";
 import { useT } from "../i18n.js";
 
@@ -31,7 +34,8 @@ export default function CommercialApp() {
   const [opening, setOpening] = useState(null);
   const [currentId, setCurrentId] = useState(null);   // conversation on screen
   const [listKey, setListKey] = useState(0);          // bump to reload the conversation list
-  const [reviewRequest, setReviewRequest] = useState(null); // { objective, key } from the progress page
+  const [reviewRequest, setReviewRequest] = useState(null); // { objective } | { text } | { draft }, plus key: work started from another page
+  const [examFor, setExamFor] = useState(null);             // { id, count } when a practice exam is opened for an exam
   const [newChatKey, setNewChatKey] = useState(0);    // bump to start a new conversation
   // The open conversation is remembered for this tab, so a page refresh reopens it.
   const onSessionChange = useCallback((id) => {
@@ -136,6 +140,9 @@ export default function CommercialApp() {
     onDeleted: (id) => { if (id === currentId) setNewChatKey(k => k + 1); },
   };
   const links = [
+    [t("menu.study"), () => setPage("study")],
+    [t("menu.exam"), () => { setExamFor(null); setPage("exam"); }],
+    [t("menu.notes"), () => setPage("notes")],
     [t("menu.account"), () => setPage("account")],
     [t("menu.plans"), () => setPage("pricing")],
     ...(account?.org_admin_of?.length > 0 ? [[t("menu.institution"), () => setPage("org")]] : []),
@@ -194,6 +201,10 @@ export default function CommercialApp() {
         <ErrorBoundary key={page} onReset={back}>
           {page === "pricing" && <PricingPage account={account} onBack={back} />}
           {page === "progress" && <ProgressPage onBack={back} onReview={objective => { setReviewRequest({ objective, key: Date.now() }); back(); }} />}
+          {page === "study" && <StudyPage onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }}
+            onExam={(id, count) => { setExamFor({ id, count, key: Date.now() }); setPage("exam"); }} />}
+          {page === "exam" && <ExamPage key={examFor?.key ?? "new"} examId={examFor?.id ?? null} count={examFor?.count ?? 10} onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }} />}
+          {page === "notes" && <MaterialsPage onBack={back} onAsk={draft => { setReviewRequest({ draft, key: Date.now() }); back(); }} />}
           {page === "account" && <AccountPage account={account} email={session.user.email} onBack={back} onPricing={() => setPage("pricing")} refresh={refresh} />}
           {page === "org" && <OrgPage orgs={account?.org_admin_of ?? []} onBack={back} />}
           {page === "admin" && <AdminPage onBack={back} />}

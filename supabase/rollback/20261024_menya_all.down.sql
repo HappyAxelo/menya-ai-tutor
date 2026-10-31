@@ -7,6 +7,11 @@
 drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists
+  public.learning_state(uuid), public.save_learning_profile(uuid, jsonb), public.search_materials(uuid, text, integer),
+  public.served_keys(uuid), public.add_exam(uuid, text, date, jsonb), public.delete_exam(uuid, bigint),
+  public.reset_objective(uuid, text), public.create_mock_exam(uuid, text, jsonb, jsonb, integer), public.get_mock_exam(uuid, uuid),
+  public.submit_mock_exam(uuid, uuid, jsonb), public.list_mock_exams(uuid),
+  public.add_material(uuid, text, text, integer, integer, jsonb, integer), public.delete_material(uuid, uuid), public.list_materials(uuid),
   public.submit_feedback(uuid, bigint, text), public.admin_overview_json(uuid), public.admin_feedback_export(uuid),
   public.admin_users_export(uuid), public.media_allow(uuid, text, int), public.hpc_register(text, text, text), public.hpc_unregister(),
   public.org_roster_json(uuid, uuid), public.export_my_data(uuid), public.admin_config(uuid),
@@ -24,6 +29,7 @@ drop function if exists
   public.is_platform_admin(uuid), public.handle_new_user() cascade;
 
 drop table if exists
+  public.material_chunks, public.course_materials, public.mock_exams, public.learner_exams, public.learner_profiles,
   public.media_usage, public.learner_objectives, public.assessment_attempts, public.served_items, public.session_items, public.tutor_feedback, public.learning_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
   public.usage_records, public.request_reservations, public.rate_buckets, public.usage_counters,
   public.payment_events, public.subscriptions, public.org_invitations, public.org_members,

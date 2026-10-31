@@ -1,13 +1,19 @@
 # Limitations: what is not implemented or not verified
 
-Stated plainly so nobody overclaims. Updated 29 October 2026.
+Stated plainly so nobody overclaims. Updated 31 October 2026.
 
 ## Not implemented
 
-- **Course-material grounding (retrieval).** Menya does not yet use official lecture notes or
-  syllabi. It must not claim to have consulted course material, and it doesn't. Adding it needs
-  the materials (with permission) and a retrieval step; the engine's "objective" field is where
-  it would attach.
+- **Course materials: word search only.** Learners can add their own notes (*My notes*); the tutor
+  receives the passages that share words with the question (Postgres full-text search). Questions
+  phrased very differently from the notes may miss the right passage (no semantic search). Scanned
+  PDFs and images can't be stored as notes. Whether the live model always cites the page when it
+  uses a passage is not yet measured.
+- **Practice exams cover only the 12 bank objectives**, are marked right / wrong (no partial
+  credit, working is not graded), and Big-O / Boolean topics have few distinct questions.
+- **No parental consent or age-specific experience** yet; needed before marketing to schools
+  with learners under 18.
+- **No teacher or class roles** (institutions have seats and an aggregate dashboard only).
 - **Sandboxed code execution.** Programming checks are deterministic tracing and Big-O items;
   student code is **never executed**. Running student code needs an isolated sandbox service
   (not on the API server), which is not set up.

@@ -6,9 +6,12 @@
 import { handleTutor } from "./tutorService.ts";
 import { BILLING_INTERVALS, PRICE_COLUMN, WebhookSignatureError, type BillingInterval, type BillingProvider } from "./billing.ts";
 import type { ModelProvider } from "./providers.ts";
-import type { Repo } from "./repo.ts";
+import { toRecord, type Repo } from "./repo.ts";
 import { buildXlsx, type Cell } from "./xlsx.ts";
 import { MediaError, readImage, transcribe, type MediaOptions } from "./media.ts";
+import { buildMockExam, knowledgeMap, markMockExam, studyPlan, todaySummary, type ExamItem, type LearningState } from "./learning.ts";
+import { objective as objectiveInfo, questionKey } from "./engine/bank.ts";
+import { emptyRecord, update as updateMastery } from "./engine/mastery.ts";
 
 export interface Db {
   // Calls a SQL function; throws DbError on failure.
@@ -193,6 +196,7 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     catch (err) { return dbErrorResponse(err) ?? json(400, { error: "invalid_or_expired_invitation" }); }
   }
   if ((path === "/media/transcribe" || path === "/media/read-image") && method === "POST") return mediaRoute(path, req, ctx, user);
+  if (path.startsWith("/learn/") || path.startsWith("/exam/") || path === "/materials") return learningRoutes(path, req, ctx, user, url);
   if (path.startsWith("/org/")) return orgRoutes(path, req, ctx, user);
   if (path.startsWith("/admin/")) return adminRoutes(path, req, ctx, user, url);
 
@@ -427,4 +431,196 @@ async function mediaRoute(path: string, req: Request, ctx: ApiContext, user: Aut
     if (err instanceof MediaError) return json(err.status, { error: err.message });
     throw err;
   }
+}
+
+// ---------------- Learning companion ----------------
+// Profile, knowledge map, plan, exams, mock exams and course materials. No model calls:
+// everything here is computed from answers the server marked itself, so it costs nothing to run.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_MATERIAL_CHARS = 300_000;
+const CHUNK_CHARS = 1500;
+
+async function loadLearningState(ctx: ApiContext, userId: string): Promise<LearningState> {
+  const raw = await ctx.db.rpc<any>("learning_state", { p_user: userId });
+  return { profile: raw.profile, exams: raw.exams, objectives: (raw.objectives ?? []).map(toRecord), attempts: raw.attempts ?? [] };
+}
+
+const validObjectives = (xs: unknown): string[] | null =>
+  Array.isArray(xs) && xs.length <= 20 && xs.every(x => typeof x === "string" && objectiveInfo(x)) ? [...new Set(xs as string[])] : null;
+
+// Split each page into passages of at most CHUNK_CHARS (at a space where possible), keeping the page number.
+export function chunkPages(pages: { page: number; text: string }[]): { page: number; content: string }[] {
+  const out: { page: number; content: string }[] = [];
+  for (const p of pages) {
+    const text = p.text.replace(/\s+/g, " ").trim();
+    let i = 0;
+    while (i < text.length) {
+      let end = Math.min(text.length, i + CHUNK_CHARS);
+      if (end < text.length) {
+        const cut = text.lastIndexOf(" ", end);
+        if (cut > i + CHUNK_CHARS / 2) end = cut;
+      }
+      const content = text.slice(i, end).trim();
+      if (content) out.push({ page: p.page, content });
+      i = end;
+    }
+  }
+  return out;
+}
+
+async function learningRoutes(path: string, req: Request, ctx: ApiContext, user: AuthUser, url: URL): Promise<Response> {
+  const method = req.method;
+  const now = Date.now();
+  try {
+    switch (`${method} ${path}`) {
+      case "GET /learn/state": {
+        const state = await loadLearningState(ctx, user.id);
+        return json(200, { profile: state.profile, exams: state.exams, map: knowledgeMap(state.objectives, now),
+          today: todaySummary(state, now), plan: studyPlan(state, now, 7) });
+      }
+      case "POST /learn/profile": {
+        const b = await readJson(req);
+        const editable = ["education_level", "year_of_study", "institution", "programme", "curriculum", "subjects", "goals", "study_minutes"];
+        if (!b || Object.keys(b).some(k => !editable.includes(k))) return json(400, { error: "invalid_profile" });
+        const p: Record<string, unknown> = {};
+        const text = (k: string, max: number) => {
+          if (!(k in b)) return true;
+          if (b[k] !== null && (typeof b[k] !== "string" || (b[k] as string).length > max)) return false;
+          p[k] = b[k]; return true;
+        };
+        if ("education_level" in b) {
+          if (b.education_level !== null && !["secondary", "university", "professional", "other"].includes(b.education_level as string)) return json(400, { error: "invalid_profile" });
+          p.education_level = b.education_level;
+        }
+        if ("year_of_study" in b) {
+          const y = b.year_of_study;
+          if (y !== null && !(Number.isInteger(y) && (y as number) >= 1 && (y as number) <= 12)) return json(400, { error: "invalid_profile" });
+          p.year_of_study = y;
+        }
+        if (!text("institution", 120) || !text("programme", 120) || !text("curriculum", 120) || !text("goals", 500)) return json(400, { error: "invalid_profile" });
+        if ("subjects" in b) {
+          if (!Array.isArray(b.subjects) || b.subjects.length > 15 || !b.subjects.every(x => typeof x === "string" && x.length <= 60)) return json(400, { error: "invalid_profile" });
+          p.subjects = b.subjects;
+        }
+        if ("study_minutes" in b) {
+          const m = b.study_minutes;
+          if (!Array.isArray(m) || m.length !== 7 || !m.every(x => Number.isInteger(x) && x >= 0 && x <= 600)) return json(400, { error: "invalid_profile" });
+          p.study_minutes = m;
+        }
+        return json(200, { profile: await ctx.db.rpc("save_learning_profile", { p_user: user.id, p }) });
+      }
+      case "POST /learn/exams": {
+        const b = await readJson(req);
+        const objectives = validObjectives(b?.objectives ?? []);
+        if (typeof b?.title !== "string" || !b.title.trim() || b.title.length > 120 || typeof b.exam_date !== "string" ||
+            !DATE_RE.test(b.exam_date) || Number.isNaN(Date.parse(b.exam_date)) || !objectives) return json(400, { error: "invalid_exam" });
+        if (Date.parse(b.exam_date) < Date.parse(new Date(now).toISOString().slice(0, 10))) return json(400, { error: "exam_in_past" });
+        const id = await ctx.db.rpc("add_exam", { p_user: user.id, p_title: b.title, p_date: b.exam_date, p_objectives: objectives });
+        return json(200, { id });
+      }
+      case "DELETE /learn/exams": {
+        const id = Number(url.searchParams.get("id"));
+        if (!Number.isSafeInteger(id)) return json(400, { error: "invalid_exam" });
+        return (await ctx.db.rpc<boolean>("delete_exam", { p_user: user.id, p_id: id })) ? json(200, { ok: true }) : json(404, { error: "not_found" });
+      }
+      case "POST /learn/reset": {
+        const b = await readJson(req);
+        if (typeof b?.objective !== "string" || !objectiveInfo(b.objective)) return json(400, { error: "invalid_objective" });
+        await ctx.db.rpc("reset_objective", { p_user: user.id, p_objective: b.objective });
+        return json(200, { ok: true });
+      }
+
+      // Mock exams: questions from the verified bank only, marked on the server.
+      case "POST /exam/start": {
+        const b = await readJson(req);
+        let objectives = validObjectives(b?.objectives ?? []);
+        let title = typeof b?.title === "string" && b.title.trim() ? b.title.slice(0, 120) : "Practice exam";
+        if (b?.examId != null) {
+          const exam = (await loadLearningState(ctx, user.id)).exams.find(e => e.id === Number(b.examId));
+          if (!exam) return json(404, { error: "not_found" });
+          objectives = exam.objectives.filter(id => objectiveInfo(id));
+          title = exam.title;
+        }
+        if (!objectives?.length) return json(400, { error: "choose_topics" });
+        const count = Math.min(Math.max(Number.isInteger(b?.count) ? b!.count as number : 8, 3), 20);
+        const served = new Set(await ctx.db.rpc<number[]>("served_keys", { p_user: user.id }));
+        const items = buildMockExam(objectives, count, Math.random, item => !served.has(questionKey(item.question)));
+        if (!items.length) return json(400, { error: "choose_topics" });
+        for (const it of items) await ctx.repo.markServed(user.id, it.templateId, questionKey(it.question), "verify");
+        const timeLimit = items.length * 180;   // 3 minutes a question
+        const id = await ctx.db.rpc<string>("create_mock_exam", { p_user: user.id, p_title: title, p_objectives: objectives,
+          p_items: items, p_limit: timeLimit });
+        return json(200, { id, title, timeLimitSeconds: timeLimit, source: "generated_practice",
+          questions: items.map(it => ({ n: it.n, objective: it.objective, question: it.question })) });
+      }
+      case "POST /exam/submit": {
+        const b = await readJson(req);
+        if (typeof b?.id !== "string" || !UUID_RE.test(b.id) || (b.answers != null && typeof b.answers !== "object")) return json(400, { error: "invalid_submission" });
+        const exam = await ctx.db.rpc<any>("get_mock_exam", { p_user: user.id, p_id: b.id });
+        if (!exam) return json(404, { error: "not_found" });
+        if (exam.submitted_at) return json(409, { error: "already_submitted" });
+        const items = exam.items as ExamItem[];
+        const marked = markMockExam(items, (b.answers ?? {}) as Record<string, string>,
+          (b.seconds && typeof b.seconds === "object" ? b.seconds : {}) as Record<string, number>);
+        const elapsed = Math.round((now - Date.parse(exam.started_at)) / 1000);
+        const results = { ...marked, elapsedSeconds: elapsed, timeLimitSeconds: exam.time_limit_s,
+                          late: elapsed > exam.time_limit_s + 120, source: "generated_practice" };
+        // Only the first submission counts (checked in the database, so two tabs can't both count).
+        if (!(await ctx.db.rpc<boolean>("submit_mock_exam", { p_user: user.id, p_id: b.id, p_results: results }))) {
+          return json(409, { error: "already_submitted" });
+        }
+        // Answered questions are independent evidence (no hints in an exam); unanswered ones don't count either way.
+        for (const r of marked.results) {
+          if (r.verdict === "unanswered") continue;
+          const item = items.find(i => i.n === r.n)!;
+          const prev = (await ctx.repo.getObjectiveRecord(user.id, r.objective)) ?? emptyRecord(r.objective);
+          await ctx.repo.saveObjectiveRecord(user.id, updateMastery(prev, { kind: "verify", verdict: r.verdict, hintsUsed: 0,
+            unexplained: false, misconception: r.misconceptionId, at: now }));
+          await ctx.repo.recordAttempt({ user_id: user.id, session_id: null, objective_id: r.objective, template_id: item.templateId,
+            seed: item.seed, kind: "verify", verdict: r.verdict, misconception: r.misconceptionId, hints_used: 0, unexplained: false });
+        }
+        return json(200, results);
+      }
+      case "GET /exam/history":
+        return json(200, { exams: await ctx.db.rpc("list_mock_exams", { p_user: user.id }) });
+      case "GET /exam/result": {
+        const id = url.searchParams.get("id") ?? "";
+        if (!UUID_RE.test(id)) return json(400, { error: "invalid_exam" });
+        const exam = await ctx.db.rpc<any>("get_mock_exam", { p_user: user.id, p_id: id });
+        if (!exam?.submitted_at) return json(404, { error: "not_found" });
+        return json(200, { title: exam.title, submitted_at: exam.submitted_at, ...exam.results });
+      }
+
+      // Course materials: text by page, private to the learner.
+      case "GET /materials":
+        return json(200, { materials: await ctx.db.rpc("list_materials", { p_user: user.id }) });
+      case "POST /materials": {
+        const b = await readJson(req);
+        const pages = b?.pages;
+        if (typeof b?.title !== "string" || !b.title.trim() || b.title.length > 200 || typeof b.kind !== "string" || b.kind.length > 20 ||
+            !Array.isArray(pages) || pages.length < 1 || pages.length > 2000 ||
+            !pages.every((p: any) => Number.isInteger(p?.page) && p.page >= 1 && p.page <= 2000 && typeof p.text === "string")) {
+          return json(400, { error: "invalid_material" });
+        }
+        const chars = pages.reduce((n: number, p: any) => n + p.text.length, 0);
+        if (chars > MAX_MATERIAL_CHARS) return json(413, { error: "material_too_large", maxChars: MAX_MATERIAL_CHARS });
+        const chunks = chunkPages(pages as { page: number; text: string }[]);
+        if (!chunks.length) return json(400, { error: "material_empty" });
+        const ent = await ctx.repo.resolveEntitlement(user.id);
+        const id = await ctx.db.rpc("add_material", { p_user: user.id, p_title: b.title, p_kind: b.kind,
+          p_pages: Math.max(...pages.map((p: any) => p.page)), p_chars: chars, p_chunks: chunks, p_max: ent.plan_id === "free" ? 3 : 30 });
+        return json(200, { id, passages: chunks.length });
+      }
+      case "DELETE /materials": {
+        const id = url.searchParams.get("id") ?? "";
+        if (!UUID_RE.test(id)) return json(400, { error: "invalid_material" });
+        return (await ctx.db.rpc<boolean>("delete_material", { p_user: user.id, p_id: id })) ? json(200, { ok: true }) : json(404, { error: "not_found" });
+      }
+    }
+  } catch (err) {
+    const r = dbErrorResponse(err);
+    if (r) return r;
+    throw err;
+  }
+  return json(404, { error: "not_found" });
 }

@@ -205,3 +205,51 @@ export async function readAttachment(file, services) {
   if (!text) throw fail("empty");
   return { name: file.name || "file", kind: kind === "unknown" ? "text" : kind, text: text.slice(0, MAX_TEXT) };
 }
+
+// ---------------- course-material library ----------------
+// For "My notes": the text of a file split into numbered units the tutor can cite.
+// PDFs keep their real page numbers and slides their slide numbers; other files are
+// cut into numbered parts. Text only: scanned PDFs and images are refused here.
+const PART_CHARS = 3000;
+const MAX_LIBRARY_PAGES = 500;
+
+function toParts(text) {
+  const clean = text.replace(/\r/g, "").trim();
+  const parts = [];
+  for (let i = 0; i < clean.length;) {
+    let end = Math.min(clean.length, i + PART_CHARS);
+    if (end < clean.length) { const cut = clean.lastIndexOf("\n", end); if (cut > i + PART_CHARS / 2) end = cut; }
+    parts.push({ page: parts.length + 1, text: clean.slice(i, end).trim() });
+    i = end;
+  }
+  return parts.filter(p => p.text);
+}
+
+export async function readPages(file) {
+  const fail = (code) => Object.assign(new Error(code), { code });
+  if (file.size > MAX_FILE_BYTES) throw fail("too_large");
+  const kind = attachmentKind(file);
+  let pages;
+  if (kind === "pdf") {
+    const lib = await loadPdf();
+    const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    pages = [];
+    for (let i = 1; i <= Math.min(doc.numPages, MAX_LIBRARY_PAGES); i++) {
+      const content = await (await doc.getPage(i)).getTextContent();
+      pages.push({ page: i, text: content.items.map(it => it.str + (it.hasEOL ? "\n" : " ")).join("").replace(/[ \t]+/g, " ").trim() });
+    }
+    if (pages.reduce((n, p) => n + p.text.length, 0) < 40 * Math.min(doc.numPages, 3)) throw fail("scanned");
+    pages = pages.filter(p => p.text);
+  } else if (kind === "slides") {
+    const f = await unzip(await file.arrayBuffer(), n => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+    pages = Object.keys(f).sort(byNumber).map((n, i) => ({ page: i + 1, text: slideText(utf8(f[n])) })).filter(p => p.text.trim());
+  } else if (kind === "document" || kind === "spreadsheet") {
+    pages = toParts(await officeText(await file.arrayBuffer(), kind));
+  } else if (kind === "text" || kind === "code") {
+    pages = toParts(/\.ipynb$/i.test(file.name) ? notebookText(await file.text()) : await file.text());
+  } else {
+    throw fail(kind === "image" ? "scanned" : "unsupported");
+  }
+  if (!pages.length) throw fail("empty");
+  return { kind: kind === "code" ? "text" : kind, pages };
+}

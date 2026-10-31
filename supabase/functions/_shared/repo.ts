@@ -4,6 +4,7 @@
 // client) and PGlite (tests, same SQL functions).
 // ============================================================
 import type { ModelConfig } from "./providers.ts";
+import type { LearnerContext, MaterialPassage } from "./policy.ts";
 import type { Difficulty } from "./policy.ts";
 import type { Item } from "./engine/bank.ts";
 import type { ObjectiveRecord } from "./engine/mastery.ts";
@@ -103,6 +104,9 @@ export interface Repo {
   saveObjectiveRecord(userId: string, record: ObjectiveRecord): Promise<void>;
   recordAttempt(attempt: AssessmentAttempt): Promise<void>;
   dueReviews(userId: string, now: Date, limit: number): Promise<string[]>;
+  // Learning companion: the learner's profile and passages from their own materials.
+  getLearnerProfile(userId: string): Promise<LearnerContext | null>;
+  searchMaterials(userId: string, query: string, limit: number): Promise<MaterialPassage[]>;
   recordLearningEvent(event: LearningEvent): Promise<void>;
   processPaymentEvent(provider: string, event: unknown, raw: unknown): Promise<string>;
   audit(entry: { actor_id: string | null; action: string; target_type?: string; target_id?: string; org_id?: string | null; details?: Record<string, unknown> }): Promise<void>;
@@ -208,6 +212,14 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
       const rows = check(await sb.from("learner_objectives").select("objective_id").eq("user_id", userId)
         .lte("next_review_at", now.toISOString()).order("next_review_at").limit(limit), "due_reviews") as any[];
       return rows.map(r => r.objective_id);
+    },
+    async getLearnerProfile(userId) {
+      const rows = check(await sb.from("learner_profiles").select("education_level, year_of_study, institution, programme, curriculum, goals")
+        .eq("user_id", userId), "get_learner_profile") as any[];
+      return rows[0] ?? null;
+    },
+    async searchMaterials(userId, query, limit) {
+      return check(await sb.rpc("search_materials", { p_user: userId, p_query: query, p_limit: limit }), "search_materials") as MaterialPassage[];
     },
     async recordLearningEvent(event) {
       check(await sb.from("learning_events").insert(event), "record_learning_event");

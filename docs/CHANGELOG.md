@@ -1,5 +1,42 @@
 # Change log
 
+## Learning companion (31 October 2026, branch `claude/learning-companion`)
+
+Audit and plan: `docs/PRODUCT_AUDIT_2026-10-31.md`. Built from the audit's top six weaknesses;
+no model calls in any of it except the tutor's use of the profile and notes.
+
+- **Learning profile** (`learner_profiles`): level, year, programme, institution, curriculum,
+  subjects, goal, minutes per weekday. Edit or clear on *My study*; exported and deleted with the
+  account. The tutor gets it as quoted data and pitches explanations to the level (secondary →
+  everyday words; university → standard notation).
+- **Knowledge map** by subject with cautious levels (not assessed / started / needs work /
+  developing / strong); "strong" still needs the full mastery rule. **Test me** serves an unseen
+  verified problem; **Start again** resets a topic the learner thinks is wrong (audited).
+- **My study**: today's plan, this week's independent results vs last week (trend only with ≥3
+  independent answers each week), topics needing attention, next exam countdown.
+- **Study planner**: exams with dates and topics; a 7-day plan from due reviews, exam urgency and
+  weak topics, fitted to daily minutes, subjects interleaved, sessions build on each other
+  (learn → practise → check), mock exams on the last study day before an exam and two days before.
+  Rebuilt from the current state on every view (no streaks, nothing piles up).
+- **Practice exams** (`mock_exams`): verified-bank questions only, topics interleaved, unseen
+  questions preferred, 3 minutes a question, server marking, answer keys never sent before
+  submission, one submission only, results per question (correct / not right / no answer,
+  misconception, time) and per topic (what to revise). Answered questions count as independent
+  evidence for mastery. Labelled as generated practice, not past papers. 30 a day at most.
+- **My notes** (`course_materials`, `material_chunks`): PDF (text), PowerPoint, Word, Excel or text,
+  read in the browser and stored as text by page / slide / part; full-text search; the best
+  passages are given to the tutor next to the question, as reference text with page labels and a
+  rule to cite only those labels. Private, deletable, exported. 3 files on Free, 30 on paid plans,
+  300,000 characters each.
+- Welcome screen: *Today's plan*, *Practice exam*, *My notes*. All texts in four languages.
+- Tests: 139 backend (16 new: levels, planner, progress trend, exam builder, prompt notes,
+  chunking, every API route incl. ownership, limits, one-submission rule, export, tutor context),
+  22 frontend, all passing. Browser test on a local copy at phone width: profile save, exam add,
+  plan, a 5-question practice exam marked correctly, notes upload, and one real tutor reply that
+  used the uploaded notes. Not yet verified: that the live model reliably names the page when it
+  uses notes (instructed and tested in the prompt; one live run used the notes without citing,
+  after which the passages were moved next to the question).
+
 ## Ready for IremboPay (30 October 2026, branch `claude/changes`)
 
 - A mistake in the payment secrets can no longer stop the server: a malformed `IREMBOPAY_PLANS`

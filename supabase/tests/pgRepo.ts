@@ -7,6 +7,12 @@ import { rpc } from "./db.ts";
 export function pgRepo(db: PGlite): Repo {
   const one = async (sql: string, params: unknown[] = []) => (await db.query<any>(sql, params)).rows[0];
   return {
+    async getLearnerProfile(userId) {
+      return (await one("select education_level, year_of_study, institution, programme, curriculum, goals from public.learner_profiles where user_id = $1", [userId])) ?? null;
+    },
+    async searchMaterials(userId, query, limit) {
+      return (await db.query<any>("select title, kind, page, content from public.search_materials($1, $2, $3)", [userId, query, limit])).rows;
+    },
     async resolveEntitlement(userId) { return one("select * from public.resolve_entitlement($1)", [userId]); },
     async getModelConfigs() {
       const rows = (await db.query<any>("select * from public.model_configs")).rows;
