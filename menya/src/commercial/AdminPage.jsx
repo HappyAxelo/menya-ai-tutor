@@ -12,15 +12,16 @@ export default function AdminPage({ onBack }) {
   const [config, setConfig] = useState(null);
   const [overview, setOverview] = useState(null);
   const [billing, setBilling] = useState(null);
+  const [retention, setRetention] = useState(null);
   const [users, setUsers] = useState(null);
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState(null);
 
   const load = useCallback(async () => {
     const m = `${month}-01`;
-    const [e, a, h, c, o, b] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config"), api("/admin/overview"), api("/admin/billing")]);
+    const [e, a, h, c, o, b, rt] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config"), api("/admin/overview"), api("/admin/billing"), api("/admin/retention")]);
     if (e.status === 403) { setMsg({ kind: "error", text: "Administrator access required." }); return; }
-    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data); setOverview(o.ok ? o.data : null); setBilling(b.ok ? b.data : null);
+    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data); setOverview(o.ok ? o.data : null); setBilling(b.ok ? b.data : null); setRetention(rt.ok ? rt.data : null);
   }, [month]);
   useEffect(() => { load(); }, [load]);
 
@@ -110,6 +111,10 @@ export default function AdminPage({ onBack }) {
         </div>
       </Card>
 
+      <Card title="Retention and learning">
+        {!retention ? <Loading /> : <RetentionView r={retention} />}
+      </Card>
+
       <Card title="Payments (IremboPay setup check)">
         {!billing ? <Loading /> : (
           <>
@@ -188,5 +193,33 @@ export default function AdminPage({ onBack }) {
         </>
       )}
     </Page>
+  );
+}
+
+// Learning behaviour, not clicks: activity means a tutor reply or a server-marked answer.
+const pct = (a, b) => (b > 0 ? `${Math.round((100 * a) / b)}%` : "—");
+function RetentionView({ r }) {
+  const rows = [
+    ["Learners", r.users, `${r.signups_30d} new in 30 days`],
+    ["Activated", pct(r.activation.activated, r.activation.eligible), `${r.activation.activated} of ${r.activation.eligible}: active within 7 days of signing up`],
+    ["Day-1 retention", pct(r.d1.retained, r.d1.eligible), `${r.d1.retained} of ${r.d1.eligible}: active the day after signing up`],
+    ["Day-7 retention", pct(r.d7.retained, r.d7.eligible), `${r.d7.retained} of ${r.d7.eligible}: active during days 7–13`],
+    ["Day-30 retention", pct(r.d30.retained, r.d30.eligible), `${r.d30.retained} of ${r.d30.eligible}: active during days 30–59`],
+    ["Weekly / monthly active", `${r.wal} / ${r.mal}`, "learners active in the last 7 / 30 days"],
+    ["Independent success (30 days)", pct(r.independent_30d.correct, r.independent_30d.total), `${r.independent_30d.correct} of ${r.independent_30d.total} unseen questions solved without hints`],
+    ["Retained after a delay", pct(r.delayed_retention.topics_retained_after_delay, r.delayed_retention.topics_with_independent), "topics solved alone again 2+ days later"],
+    ["Topics mastered", r.topics_mastered, `${r.topics_mastered_30d} in the last 30 days`],
+    ["Reviews done / overdue", `${r.reviews_done_30d} / ${r.reviews_overdue}`, "reviews answered in 30 days / topics more than 3 days overdue now"],
+    ["Practice exams (30 days)", r.practice_exams_30d, "submitted"],
+    ["Paid learners / lapsed", `${r.paid_users} / ${r.lapsed_30d}`, "live paid plans / paid plans that ended in 30 days without renewal"],
+    ["AI cost (30 days)", `$${Number(r.ai_cost_30d_usd).toFixed(2)}`, r.ai_cost_per_active_learner_usd != null ? `$${Number(r.ai_cost_per_active_learner_usd).toFixed(4)} per monthly active learner` : ""],
+  ];
+  return (
+    <>
+      <Table rows={rows.map(([label, value, note]) => ({ label, value, note }))} columns={[
+        { key: "label", label: "Measure" }, { key: "value", label: "Value", align: "right" }, { key: "note", label: "Meaning", wrap: true },
+      ]} />
+      <div style={{ fontSize: "12px", color: C.muted, marginTop: "8px" }}>Small numbers swing a lot: read percentages together with the counts. Gross margin per plan is in "Unit economics by plan".</div>
+    </>
   );
 }

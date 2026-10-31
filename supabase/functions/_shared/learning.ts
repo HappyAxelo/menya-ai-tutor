@@ -13,7 +13,7 @@ export interface Profile {
   education_level: string | null; year_of_study: number | null; institution: string | null; programme: string | null;
   curriculum: string | null; subjects: string[]; goals: string | null; study_minutes: number[];
 }
-export interface LearningState { profile: Profile | null; exams: Exam[]; objectives: ObjectiveRecord[]; attempts: Attempt[] }
+export interface LearningState { profile: Profile | null; exams: Exam[]; objectives: ObjectiveRecord[]; attempts: Attempt[]; retries?: number }
 
 // ---------------- Knowledge map ----------------
 // Levels are deliberately cautious: one answer never makes a topic "strong" or "needs work".
@@ -177,11 +177,13 @@ export function todaySummary(state: LearningState, now: number) {
     nextExam: nextExam ? { ...nextExam, daysLeft: Math.round((Date.parse(nextExam.exam_date) - today) / DAY) } : null,
     progress: weeklyProgress(state.attempts, now),
     hasProfile: Boolean(state.profile?.education_level),
+    retries: state.retries ?? 0,                    // questions answered wrong earlier, waiting to be tried again
   };
 }
 
 // ---------------- Mock exams (verified bank only) ----------------
-export interface ExamItem { n: number; objective: string; templateId: string; question: string; answer: string; seed: number }
+// retry: a question the learner got wrong before, brought back (practice evidence, not independent).
+export interface ExamItem { n: number; objective: string; templateId: string; question: string; answer: string; seed: number; retry?: boolean }
 
 // Topics are interleaved (round robin) so the learner must recognise which method each question needs.
 export function buildMockExam(objectiveIds: string[], count: number, random: () => number, isFresh: (item: Item) => boolean = () => true): ExamItem[] {
@@ -236,4 +238,27 @@ export function markMockExam(items: ExamItem[], answers: Record<string, string>,
   const correct = results.filter(r => r.verdict === "correct").length;
   return { results, byObjective, score: { correct, total: items.length,
     unanswered: results.filter(r => r.verdict === "unanswered").length } };
+}
+
+// ---------------- Review Today ----------------
+// Questions answered wrong earlier (the same question again) followed by new questions on every
+// topic due for review, interleaved by topic. Retried questions come first so the learner sees
+// they can now do what they couldn't.
+export function buildReviewSet(retries: { objective_id: string; template_id: string; seed: number }[], dueObjectives: string[],
+                               random: () => number, isFresh: (item: Item) => boolean, maxNew = 5): ExamItem[] {
+  const items: ExamItem[] = [];
+  const seen = new Set<number>();
+  for (const r of retries.slice(0, 3)) {
+    const item = generateItem(r.objective_id, r.seed);
+    if (!item || item.templateId !== r.template_id) continue;     // the template changed since: skip
+    const key = questionKey(item.question);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ n: items.length + 1, objective: r.objective_id, templateId: item.templateId, question: item.question,
+                 answer: item.answer, seed: item.seed, retry: true });
+  }
+  const fresh = buildMockExam(dueObjectives.slice(0, maxNew), Math.min(maxNew, dueObjectives.length), random,
+                              item => isFresh(item) && !seen.has(questionKey(item.question)));
+  for (const f of fresh) items.push({ ...f, n: items.length + 1 });
+  return items;
 }

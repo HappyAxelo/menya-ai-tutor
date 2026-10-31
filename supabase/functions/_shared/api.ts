@@ -9,7 +9,7 @@ import type { ModelProvider } from "./providers.ts";
 import { toRecord, type Repo } from "./repo.ts";
 import { buildXlsx, type Cell } from "./xlsx.ts";
 import { MediaError, readImage, transcribe, type MediaOptions } from "./media.ts";
-import { buildMockExam, knowledgeMap, markMockExam, studyPlan, todaySummary, type ExamItem, type LearningState } from "./learning.ts";
+import { buildMockExam, buildReviewSet, knowledgeMap, markMockExam, studyPlan, todaySummary, type ExamItem, type LearningState } from "./learning.ts";
 import { objective as objectiveInfo, questionKey } from "./engine/bank.ts";
 import { emptyRecord, update as updateMastery } from "./engine/mastery.ts";
 
@@ -196,7 +196,7 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     catch (err) { return dbErrorResponse(err) ?? json(400, { error: "invalid_or_expired_invitation" }); }
   }
   if ((path === "/media/transcribe" || path === "/media/read-image") && method === "POST") return mediaRoute(path, req, ctx, user);
-  if (path.startsWith("/learn/") || path.startsWith("/exam/") || path === "/materials") return learningRoutes(path, req, ctx, user, url);
+  if (path.startsWith("/learn/") || path.startsWith("/exam/") || path.startsWith("/review/") || path === "/materials") return learningRoutes(path, req, ctx, user, url);
   if (path.startsWith("/org/")) return orgRoutes(path, req, ctx, user);
   if (path.startsWith("/admin/")) return adminRoutes(path, req, ctx, user, url);
 
@@ -311,6 +311,8 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
         return json(200, { provider: ctx.billing?.name ?? null, mode: ctx.billing?.mode ?? null,
           problems: ctx.billingProblems ?? [], rows });
       }
+      case "GET /admin/retention":
+        return json(200, await ctx.db.rpc("admin_retention_json", { p_actor: user.id }));
       case "GET /admin/overview":
         return json(200, await ctx.db.rpc("admin_overview_json", { p_actor: user.id }));
       case "GET /admin/analytics.xlsx": {
@@ -442,7 +444,8 @@ const CHUNK_CHARS = 1500;
 
 async function loadLearningState(ctx: ApiContext, userId: string): Promise<LearningState> {
   const raw = await ctx.db.rpc<any>("learning_state", { p_user: userId });
-  return { profile: raw.profile, exams: raw.exams, objectives: (raw.objectives ?? []).map(toRecord), attempts: raw.attempts ?? [] };
+  return { profile: raw.profile, exams: raw.exams, objectives: (raw.objectives ?? []).map(toRecord), attempts: raw.attempts ?? [],
+           retries: Number(raw.retries ?? 0) };
 }
 
 const validObjectives = (xs: unknown): string[] | null =>
@@ -480,7 +483,8 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
       }
       case "POST /learn/profile": {
         const b = await readJson(req);
-        const editable = ["education_level", "year_of_study", "institution", "programme", "curriculum", "subjects", "goals", "study_minutes"];
+        const editable = ["education_level", "year_of_study", "institution", "programme", "curriculum", "subjects", "goals", "study_minutes",
+          "country", "explanation_style"];
         if (!b || Object.keys(b).some(k => !editable.includes(k))) return json(400, { error: "invalid_profile" });
         const p: Record<string, unknown> = {};
         const text = (k: string, max: number) => {
@@ -497,7 +501,11 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
           if (y !== null && !(Number.isInteger(y) && (y as number) >= 1 && (y as number) <= 12)) return json(400, { error: "invalid_profile" });
           p.year_of_study = y;
         }
-        if (!text("institution", 120) || !text("programme", 120) || !text("curriculum", 120) || !text("goals", 500)) return json(400, { error: "invalid_profile" });
+        if (!text("institution", 120) || !text("programme", 120) || !text("curriculum", 120) || !text("goals", 500) || !text("country", 60)) return json(400, { error: "invalid_profile" });
+        if ("explanation_style" in b) {
+          if (b.explanation_style !== null && !["steps", "examples", "analogies", "visual"].includes(b.explanation_style as string)) return json(400, { error: "invalid_profile" });
+          p.explanation_style = b.explanation_style;
+        }
         if ("subjects" in b) {
           if (!Array.isArray(b.subjects) || b.subjects.length > 15 || !b.subjects.every(x => typeof x === "string" && x.length <= 60)) return json(400, { error: "invalid_profile" });
           p.subjects = b.subjects;
@@ -522,6 +530,13 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
         const id = Number(url.searchParams.get("id"));
         if (!Number.isSafeInteger(id)) return json(400, { error: "invalid_exam" });
         return (await ctx.db.rpc<boolean>("delete_exam", { p_user: user.id, p_id: id })) ? json(200, { ok: true }) : json(404, { error: "not_found" });
+      }
+      // Forget everything Menya learned about this learner (conversations and the account are separate).
+      case "POST /learn/delete-all": {
+        const b = await readJson(req);
+        if (b?.confirm !== "DELETE") return json(400, { error: "confirmation_required" });
+        await ctx.db.rpc("delete_my_learning_data", { p_user: user.id });
+        return json(200, { ok: true });
       }
       case "POST /learn/reset": {
         const b = await readJson(req);
@@ -553,6 +568,21 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
         return json(200, { id, title, timeLimitSeconds: timeLimit, source: "generated_practice",
           questions: items.map(it => ({ n: it.n, objective: it.objective, question: it.question })) });
       }
+      // Review Today: wrong questions again, then new questions on topics due for review. Untimed.
+      case "POST /review/start": {
+        const state = await loadLearningState(ctx, user.id);
+        const due = state.objectives.filter(r => r.next_review_at && Date.parse(r.next_review_at) <= now).map(r => r.objective_id)
+          .filter(id => objectiveInfo(id));
+        const retries = await ctx.db.rpc<any[]>("review_retries", { p_user: user.id, p_limit: 3 });
+        const served = new Set(await ctx.db.rpc<number[]>("served_keys", { p_user: user.id }));
+        const items = buildReviewSet(retries, due, Math.random, item => !served.has(questionKey(item.question)));
+        if (!items.length) return json(400, { error: "nothing_to_review" });
+        for (const it of items) if (!it.retry) await ctx.repo.markServed(user.id, it.templateId, questionKey(it.question), "review");
+        const id = await ctx.db.rpc<string>("create_mock_exam", { p_user: user.id, p_title: "Review", p_objectives: [...new Set(items.map(i => i.objective))],
+          p_items: items, p_limit: 14400, p_mode: "review" });
+        return json(200, { id, title: "Review", mode: "review", timeLimitSeconds: null, source: "generated_practice",
+          questions: items.map(it => ({ n: it.n, objective: it.objective, question: it.question, retry: Boolean(it.retry) })) });
+      }
       case "POST /exam/submit": {
         const b = await readJson(req);
         if (typeof b?.id !== "string" || !UUID_RE.test(b.id) || (b.answers != null && typeof b.answers !== "object")) return json(400, { error: "invalid_submission" });
@@ -563,21 +593,24 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
         const marked = markMockExam(items, (b.answers ?? {}) as Record<string, string>,
           (b.seconds && typeof b.seconds === "object" ? b.seconds : {}) as Record<string, number>);
         const elapsed = Math.round((now - Date.parse(exam.started_at)) / 1000);
-        const results = { ...marked, elapsedSeconds: elapsed, timeLimitSeconds: exam.time_limit_s,
-                          late: elapsed > exam.time_limit_s + 120, source: "generated_practice" };
+        const review = exam.mode === "review";
+        const results = { ...marked, mode: exam.mode ?? "exam", elapsedSeconds: elapsed, timeLimitSeconds: review ? null : exam.time_limit_s,
+                          late: !review && elapsed > exam.time_limit_s + 120, source: "generated_practice" };
         // Only the first submission counts (checked in the database, so two tabs can't both count).
         if (!(await ctx.db.rpc<boolean>("submit_mock_exam", { p_user: user.id, p_id: b.id, p_results: results }))) {
           return json(409, { error: "already_submitted" });
         }
-        // Answered questions are independent evidence (no hints in an exam); unanswered ones don't count either way.
+        // Answered questions are independent evidence (no hints); a retried question the learner saw before is practice.
+        // Unanswered ones don't count either way.
         for (const r of marked.results) {
           if (r.verdict === "unanswered") continue;
           const item = items.find(i => i.n === r.n)!;
           const prev = (await ctx.repo.getObjectiveRecord(user.id, r.objective)) ?? emptyRecord(r.objective);
-          await ctx.repo.saveObjectiveRecord(user.id, updateMastery(prev, { kind: "verify", verdict: r.verdict, hintsUsed: 0,
+          const kind = review ? (item.retry ? "practice" : "review") : "verify";
+          await ctx.repo.saveObjectiveRecord(user.id, updateMastery(prev, { kind, verdict: r.verdict, hintsUsed: 0,
             unexplained: false, misconception: r.misconceptionId, at: now }));
           await ctx.repo.recordAttempt({ user_id: user.id, session_id: null, objective_id: r.objective, template_id: item.templateId,
-            seed: item.seed, kind: "verify", verdict: r.verdict, misconception: r.misconceptionId, hints_used: 0, unexplained: false });
+            seed: item.seed, kind, verdict: r.verdict, misconception: r.misconceptionId, hints_used: 0, unexplained: false });
         }
         return json(200, results);
       }

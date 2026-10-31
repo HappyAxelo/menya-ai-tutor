@@ -611,3 +611,6 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
   .mn-map > li { grid-template-columns: 1fr auto; }
   .mn-map > li > .acts { grid-column: 1 / -1; }
 }
+.mn-review-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.mn-danger-zone { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+@media (max-width: 560px) { .mn-review-row { flex-direction: column; align-items: flex-start; } }

@@ -295,4 +295,93 @@ describe("learning companion API", () => {
     assert.match(seen[0], /Physics S5, page 12/);
     assert.match(seen[0], /secondary-school student/, "the profile's level sets the explanation level");
   });
+
+  test("Review Today brings back a wrong question (as practice) and new questions on due topics (as review)", async () => {
+    const u = await user();
+    const start = await call("POST", "/exam/start", u.token, { objectives: ["logic.binary_to_decimal"], count: 3 });
+    const keys = (await db.query<any>("select items from public.mock_exams where id = $1", [start.body.id])).rows[0].items;
+    await call("POST", "/exam/submit", u.token, { id: start.body.id, answers: { 1: "999999", 2: keys[1].answer } });
+    // Straight away there is nothing to review: the wrong answer is less than 20 hours old and nothing is due.
+    assert.equal((await call("POST", "/review/start", u.token)).body.error, "nothing_to_review");
+    // A day later.
+    await db.query("update public.assessment_attempts set created_at = created_at - interval '1 day' where user_id = $1", [u.id]);
+    await db.query("update public.learner_objectives set next_review_at = now() - interval '1 hour' where user_id = $1", [u.id]);
+    const st = await call("GET", "/learn/state", u.token);
+    assert.equal(st.body.today.retries, 1);
+    const review = await call("POST", "/review/start", u.token);
+    assert.equal(review.status, 200);
+    assert.equal(review.body.mode, "review");
+    assert.equal(review.body.timeLimitSeconds, null, "untimed");
+    assert.equal(review.body.questions[0].retry, true);
+    assert.equal(review.body.questions[0].question, keys[0].question, "the same question that was answered wrong");
+    assert.ok(review.body.questions.slice(1).every((q: any) => !q.retry && q.question !== keys[0].question), "plus new questions");
+    assert.ok(!JSON.stringify(review.body).includes("\"answer\""));
+    const rkeys = (await db.query<any>("select items from public.mock_exams where id = $1", [review.body.id])).rows[0].items;
+    const answers = Object.fromEntries(rkeys.map((k: any) => [k.n, k.answer]));
+    const res = await call("POST", "/exam/submit", u.token, { id: review.body.id, answers });
+    assert.equal(res.body.mode, "review");
+    assert.equal(res.body.score.correct, rkeys.length);
+    const kinds = (await db.query<any>("select kind from public.assessment_attempts where user_id = $1 and created_at > now() - interval '1 minute' order by id", [u.id])).rows.map(r => r.kind);
+    assert.equal(kinds[0], "practice", "a question seen before is not independent evidence");
+    assert.ok(kinds.slice(1).every(k => k === "review"));
+    assert.equal((await call("GET", "/learn/state", u.token)).body.today.retries, 0, "answered correctly now, so it leaves the list");
+  });
+
+  test("two submissions at the same moment count once", async () => {
+    const u = await user();
+    const start = await call("POST", "/exam/start", u.token, { objectives: ["ee.ohms_law"], count: 3 });
+    const both = await Promise.all([1, 2].map(() => call("POST", "/exam/submit", u.token, { id: start.body.id, answers: { 1: "1 A", 2: "2 A", 3: "3 A" } })));
+    assert.deepEqual(both.map(r => r.status).sort(), [200, 409]);
+    const n = (await db.query<any>("select count(*)::int as n from public.assessment_attempts where user_id = $1", [u.id])).rows[0].n;
+    assert.equal(n, 3);
+  });
+
+  test("country and explanation style reach the tutor; bad values are refused", async () => {
+    const u = await user();
+    assert.equal((await call("POST", "/learn/profile", u.token, { explanation_style: "telepathy" })).status, 400);
+    assert.equal((await call("POST", "/learn/profile", u.token, { country: "x".repeat(61) })).status, 400);
+    const ok = await call("POST", "/learn/profile", u.token, { country: "Rwanda", explanation_style: "analogies" });
+    assert.equal(ok.body.profile.country, "Rwanda");
+    const note = learnerContextNote(await ctx.repo.getLearnerProfile(u.id))!;
+    assert.match(note, /country: "Rwanda"/);
+    assert.match(note, /everyday analogy first/);
+  });
+
+  test("a learner can delete all their learning data, and only theirs", async () => {
+    const u = await user(), other = await user();
+    for (const x of [u, other]) {
+      await call("POST", "/learn/profile", x.token, { education_level: "university" });
+      const s = await call("POST", "/exam/start", x.token, { objectives: ["ee.ohms_law"], count: 3 });
+      await call("POST", "/exam/submit", x.token, { id: s.body.id, answers: { 1: "999" } });
+      await call("POST", "/materials", x.token, { title: "n", kind: "text", pages: [{ page: 1, text: "Ohm" }] });
+    }
+    assert.equal((await call("POST", "/learn/delete-all", u.token, {})).body.error, "confirmation_required");
+    assert.equal((await call("POST", "/learn/delete-all", u.token, { confirm: "DELETE" })).status, 200);
+    const count = async (table: string, id: string) => (await db.query<any>(`select count(*)::int as n from public.${table} where user_id = $1`, [id])).rows[0].n;
+    for (const t of ["learner_profiles", "learner_objectives", "assessment_attempts", "mock_exams", "course_materials", "material_chunks", "served_items"]) {
+      assert.equal(await count(t, u.id), 0, t);
+      assert.ok(await count(t, other.id) > 0, `${t} of another learner untouched`);
+    }
+  });
+
+  test("retention analytics: administrators only, with cohort definitions applied", async () => {
+    const learner = await user();
+    assert.equal((await call("GET", "/admin/retention", learner.token)).status, 403);
+    const admin = await user();
+    await db.query("update public.profiles set platform_role = 'admin' where id = $1", [admin.id]);
+    // A learner who signed up 20 days ago, was active on day 1 and day 8, and answered independently.
+    const old = await user();
+    await db.query("update public.profiles set created_at = now() - interval '20 days' where id = $1", [old.id]);
+    for (const daysAgo of [19, 12]) {
+      await db.query(`insert into public.assessment_attempts (user_id, objective_id, kind, verdict, hints_used, created_at)
+                      values ($1, 'ee.ohms_law', 'verify', 'correct', 0, now() - make_interval(days => $2))`, [old.id, daysAgo]);
+    }
+    const r = await call("GET", "/admin/retention", admin.token);
+    assert.equal(r.status, 200);
+    assert.ok(r.body.d1.eligible >= 1 && r.body.d1.retained >= 1);
+    assert.ok(r.body.d7.eligible >= 1 && r.body.d7.retained >= 1);
+    assert.ok(r.body.activation.activated >= 1);
+    assert.ok(r.body.independent_30d.total >= 2);
+    for (const k of ["wal", "mal", "paid_users", "lapsed_30d", "ai_cost_30d_usd", "topics_mastered", "reviews_overdue"]) assert.ok(k in r.body, k);
+  });
 });

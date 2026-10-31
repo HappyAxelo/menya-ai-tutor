@@ -12,7 +12,7 @@ const TOPICS = ["math.linear_equations", "calc.basic_derivatives", "calc.product
 const VERDICT_CLASS = { correct: "ok", incorrect: "warn", unanswered: "hint" };
 const clock = s => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
 
-export default function ExamPage({ onBack, examId = null, count = 10, onStart }) {
+export default function ExamPage({ onBack, examId = null, count = 10, review = false, onStart }) {
   const { t } = useT();
   const [exam, setExam] = useState(null);         // { id, title, timeLimitSeconds, questions }
   const [results, setResults] = useState(null);
@@ -21,21 +21,22 @@ export default function ExamPage({ onBack, examId = null, count = 10, onStart })
 
   const begin = async (body) => {
     setBusy(true); setError(null);
-    const r = await api("/exam/start", { method: "POST", body });
+    const r = await api(review ? "/review/start" : "/exam/start", { method: "POST", body });
     setBusy(false);
     if (r.ok) { setExam(r.data); setResults(null); }
-    else setError(t(r.data?.error === "choose_topics" ? "exam.chooseTopics" : r.data?.error === "exam_daily_limit" ? "exam.dailyLimit" : "exam.error"));
+    else setError(t(r.data?.error === "choose_topics" ? "exam.chooseTopics" : r.data?.error === "exam_daily_limit" ? "exam.dailyLimit"
+      : r.data?.error === "nothing_to_review" ? "exam.nothingToReview" : "exam.error"));
   };
   // Opened from an exam in the plan: start straight away.
-  useEffect(() => { if (examId != null) begin({ examId, count }); }, [examId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (review) begin({}); else if (examId != null) begin({ examId, count }); }, [examId, review]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const title = exam?.title ?? t("exam.title");
+  const title = review ? t("exam.reviewTitle") : exam?.title ?? t("exam.title");
   return (
     <Page title={results ? t("exam.results") : title} subtitle={!exam && !results ? t("exam.sub") : null} onBack={onBack}>
       {error && <Notice kind="error">{error}</Notice>}
       {results ? <Results results={results} onStart={onStart} onAgain={() => { setExam(null); setResults(null); }} />
         : exam ? <Runner exam={exam} onDone={setResults} />
-        : busy ? <Loading /> : <Setup onBegin={begin} />}
+        : busy ? <Loading /> : review ? null : <Setup onBegin={begin} />}
     </Page>
   );
 }
@@ -90,7 +91,8 @@ function Runner({ exam, onDone }) {
   const { t } = useT();
   const [i, setI] = useState(0);
   const [answers, setAnswers] = useState({});
-  const [left, setLeft] = useState(exam.timeLimitSeconds);
+  const timed = exam.timeLimitSeconds != null;   // review sets are untimed
+  const [left, setLeft] = useState(exam.timeLimitSeconds ?? 0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const seconds = useRef({});
@@ -99,13 +101,13 @@ function Runner({ exam, onDone }) {
 
   // Time on each question (for the results), and the countdown.
   const note = () => { const n = exam.questions[i].n; seconds.current[n] = (seconds.current[n] ?? 0) + (Date.now() - since.current) / 1000; since.current = Date.now(); };
-  useEffect(() => { const id = setInterval(() => setLeft(l => l - 1), 1000); return () => clearInterval(id); }, []);
+  useEffect(() => { if (!timed) return; const id = setInterval(() => setLeft(l => l - 1), 1000); return () => clearInterval(id); }, [timed]);
   const go = (to) => { note(); setI(to); };
 
   const submit = async () => {
     note();
     const blank = exam.questions.filter(x => !String(answers[x.n] ?? "").trim()).length;
-    if (blank && left > 0 && !confirm(t("exam.blankConfirm", { n: blank }))) return;
+    if (blank && (!timed || left > 0) && !confirm(t("exam.blankConfirm", { n: blank }))) return;
     setSending(true); setError(null);
     const r = await api("/exam/submit", { method: "POST", body: { id: exam.id, answers, seconds: seconds.current } });
     setSending(false);
@@ -118,9 +120,9 @@ function Runner({ exam, onDone }) {
     <Card>
       <div className="mn-exam-bar">
         <span>{t("exam.questionOf", { n: i + 1, total: exam.questions.length })}</span>
-        <span className={left < 60 ? "mn-status warn" : "mn-status"} aria-live="off">{left > 0 ? clock(left) : t("exam.timeUp")}</span>
+        {timed && <span className={left < 60 ? "mn-status warn" : "mn-status"} aria-live="off">{left > 0 ? clock(left) : t("exam.timeUp")}</span>}
       </div>
-      <div className="mn-fine left">{t(`obj.${q.objective}`)}</div>
+      <div className="mn-fine left">{t(`obj.${q.objective}`)}{q.retry && <> · <span className="mn-status hint">{t("exam.retry")}</span></>}</div>
       <div className="mn-exam-q"><Markdown>{q.question}</Markdown></div>
       <label className="mn-fine left" htmlFor="mn-exam-answer">{t("exam.yourAnswer")}</label>
       <textarea id="mn-exam-answer" className="mn-exam-answer" value={answers[q.n] ?? ""} maxLength={2000}
@@ -156,7 +158,7 @@ function Results({ results, onStart, onAgain }) {
           <div className="mn-stat"><div className="v">{clock(results.elapsedSeconds)}</div><div className="l">{t("exam.timeTaken")}</div></div>
         </div>
         {results.late && <Notice kind="info">{t("exam.late")}</Notice>}
-        <p className="mn-fine left">{t("exam.countsNote")}</p>
+        <p className="mn-fine left">{t(results.mode === "review" ? "exam.reviewCountsNote" : "exam.countsNote")}</p>
       </Card>
       <Card title={t("exam.revise")}>
         <ul className="mn-plan-list">

@@ -9,7 +9,7 @@ import { Page, Card, Button, Notice, Loading, Field, inputStyle } from "./ui.jsx
 const LEVEL_CLASS = { strong: "ok", developing: "info", started: "hint", needs_work: "warn", not_assessed: "" };
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-export default function StudyPage({ onBack, onStart, onExam }) {
+export default function StudyPage({ onBack, onStart, onExam, onReview }) {
   const { t, lang } = useT();
   const [state, setState] = useState(null);
   const [error, setError] = useState(false);
@@ -51,6 +51,19 @@ export default function StudyPage({ onBack, onStart, onExam }) {
     <Page title={t("study.title")} subtitle={t("study.sub")} onBack={onBack}>
       {msg && <Notice kind={msg.kind}>{msg.text}</Notice>}
       {!today.hasProfile && <Notice kind="info">{t("study.noProfile")}</Notice>}
+
+      <Card title={t("study.reviewToday")}>
+        {today.due.length + today.retries === 0
+          ? <p className="mn-panel-text">{t("study.reviewNone")}</p>
+          : <div className="mn-plan-list"><div className="mn-review-row">
+              <div>
+                {today.due.length > 0 && <div>{t("study.reviewDue", { n: today.due.length })}: {today.due.map(objName).join(", ")}</div>}
+                {today.retries > 0 && <div>{t("study.reviewRetries", { n: today.retries })}</div>}
+                <div className="mn-fine left">{t("study.reviewWhy")}</div>
+              </div>
+              <Button onClick={onReview}>{t("study.reviewStart")}</Button>
+            </div></div>}
+      </Card>
 
       <Card title={t("study.today")}>
         {todayItems.length === 0
@@ -114,13 +127,13 @@ export default function StudyPage({ onBack, onStart, onExam }) {
         </Card>
       )}
 
-      <ExamsCard exams={exams} onChanged={load} onExam={onExam} fmtDate={fmtDate} />
+      <ExamsCard exams={exams} map={map} onChanged={load} onExam={onExam} fmtDate={fmtDate} />
       <ProfileCard profile={profile} onSaved={load} />
     </Page>
   );
 }
 
-function ExamsCard({ exams, onChanged, onExam, fmtDate }) {
+function ExamsCard({ exams, map, onChanged, onExam, fmtDate }) {
   const { t } = useT();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -144,7 +157,8 @@ function ExamsCard({ exams, onChanged, onExam, fmtDate }) {
         <ul className="mn-plan-list compact">
           {exams.map(e => (
             <li key={e.id}>
-              <div><b>{e.title}</b> · {fmtDate(e.exam_date)}{e.objectives.length > 0 && <div className="mn-fine left">{e.objectives.map(o => t(`obj.${o}`)).join(", ")}</div>}</div>
+              <div><b>{e.title}</b> · {fmtDate(e.exam_date)}{e.objectives.length > 0 && <div className="mn-fine left">{e.objectives.map(o => t(`obj.${o}`)).join(", ")}</div>}
+                {e.objectives.length > 0 && <Coverage objectives={e.objectives} map={map} />}</div>
               <span className="acts">
                 {e.objectives.length > 0 && <Button variant="ghost" onClick={() => onExam(e.id)}>{t("study.mock")}</Button>}
                 <button className="mn-link" onClick={() => remove(e.id)}>{t("study.delete")}</button>
@@ -170,9 +184,22 @@ function ExamsCard({ exams, onChanged, onExam, fmtDate }) {
   );
 }
 
+// How ready the learner is for an exam's topics, from the knowledge map (not a prediction of the result).
+function Coverage({ objectives, map }) {
+  const { t } = useT();
+  const level = id => map.flatMap(s => s.topics).find(x => x.objective === id)?.level ?? "not_assessed";
+  const counts = objectives.reduce((c, id) => ({ ...c, [level(id)]: (c[level(id)] ?? 0) + 1 }), {});
+  return (
+    <div className="mn-fine left">{t("study.coverage", { strong: counts.strong ?? 0, total: objectives.length })}
+      {(counts.not_assessed ?? 0) > 0 && <> · {t("study.coverageUntested", { n: counts.not_assessed })}</>}
+      {(counts.needs_work ?? 0) > 0 && <> · {t("study.coverageWeak", { n: counts.needs_work })}</>}</div>
+  );
+}
+
 function ProfileCard({ profile, onSaved }) {
   const { t } = useT();
-  const empty = { education_level: "", year_of_study: "", institution: "", programme: "", curriculum: "", goals: "", subjects: "", study_minutes: [30, 30, 30, 30, 30, 0, 0] };
+  const empty = { education_level: "", year_of_study: "", institution: "", programme: "", curriculum: "", goals: "", subjects: "",
+    country: "", explanation_style: "", study_minutes: [30, 30, 30, 30, 30, 0, 0] };
   const fromProfile = p => p ? { ...empty, ...Object.fromEntries(Object.entries(p).map(([k, v]) => [k, v ?? ""])),
     subjects: (p.subjects ?? []).join(", "), study_minutes: p.study_minutes ?? empty.study_minutes } : empty;
   const [f, setF] = useState(fromProfile(profile));
@@ -184,6 +211,7 @@ function ProfileCard({ profile, onSaved }) {
     const body = {
       education_level: f.education_level || null, year_of_study: f.year_of_study ? Number(f.year_of_study) : null,
       institution: f.institution || null, programme: f.programme || null, curriculum: f.curriculum || null, goals: f.goals || null,
+      country: f.country || null, explanation_style: f.explanation_style || null,
       subjects: f.subjects.split(",").map(s => s.trim()).filter(Boolean).slice(0, 15),
       study_minutes: f.study_minutes.map(m => Math.max(0, Math.min(600, Number(m) || 0))),
     };
@@ -191,10 +219,17 @@ function ProfileCard({ profile, onSaved }) {
     setMsg(r.ok ? { kind: "ok", text: t("study.saved") } : { kind: "error", text: t("study.error") });
     if (r.ok) onSaved();
   };
+  // Everything Menya learned about the learner. Typed confirmation, because it can't be undone.
+  const deleteAll = async () => {
+    if (prompt(t("study.deleteAllConfirm")) !== "DELETE") return;
+    const r = await api("/learn/delete-all", { method: "POST", body: { confirm: "DELETE" } });
+    setMsg(r.ok ? { kind: "ok", text: t("study.deleteAllDone") } : { kind: "error", text: t("study.error") });
+    if (r.ok) { setF(empty); onSaved(); }
+  };
   const clear = async () => {
     if (!confirm(t("study.clearConfirm"))) return;
     await api("/learn/profile", { method: "POST", body: { education_level: null, year_of_study: null, institution: null, programme: null,
-      curriculum: null, goals: null, subjects: [] } });
+      curriculum: null, goals: null, subjects: [], country: null, explanation_style: null } });
     setF(empty); onSaved();
   };
 
@@ -210,9 +245,16 @@ function ProfileCard({ profile, onSaved }) {
         </Field>
         <Field label={t("study.year")}><input style={inputStyle} type="number" min="1" max="12" value={f.year_of_study} onChange={set("year_of_study")} /></Field>
         <Field label={t("study.programme")}><input style={inputStyle} maxLength={120} value={f.programme} onChange={set("programme")} placeholder={t("study.programmePh")} /></Field>
+        <Field label={t("study.country")}><input style={inputStyle} maxLength={60} value={f.country} onChange={set("country")} placeholder="Rwanda" /></Field>
         <Field label={t("study.institution")}><input style={inputStyle} maxLength={120} value={f.institution} onChange={set("institution")} /></Field>
         <Field label={t("study.curriculum")}><input style={inputStyle} maxLength={120} value={f.curriculum} onChange={set("curriculum")} placeholder={t("study.curriculumPh")} /></Field>
         <Field label={t("study.subjects")}><input style={inputStyle} value={f.subjects} onChange={set("subjects")} placeholder={t("study.subjectsPh")} /></Field>
+        <Field label={t("study.style")}>
+          <select style={inputStyle} value={f.explanation_style} onChange={set("explanation_style")}>
+            <option value="">{t("study.styleAny")}</option>
+            {["steps", "examples", "analogies", "visual"].map(s => <option key={s} value={s}>{t(`study.styleOpt.${s}`)}</option>)}
+          </select>
+        </Field>
         <Field label={t("study.goals")}><textarea style={{ ...inputStyle, minHeight: 60 }} maxLength={500} value={f.goals} onChange={set("goals")} /></Field>
         <fieldset className="mn-checks days">
           <legend>{t("study.minutesPerDay")}</legend>
@@ -229,6 +271,10 @@ function ProfileCard({ profile, onSaved }) {
           {profile && <Button variant="ghost" onClick={clear}>{t("study.clear")}</Button>}
         </div>
       </form>
+      <div className="mn-danger-zone">
+        <p className="mn-fine left">{t("study.deleteAllNote")}</p>
+        <Button variant="ghost" onClick={deleteAll}>{t("study.deleteAll")}</Button>
+      </div>
     </Card>
   );
 }

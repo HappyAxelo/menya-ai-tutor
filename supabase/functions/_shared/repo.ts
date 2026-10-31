@@ -214,7 +214,7 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
       return rows.map(r => r.objective_id);
     },
     async getLearnerProfile(userId) {
-      const rows = check(await sb.from("learner_profiles").select("education_level, year_of_study, institution, programme, curriculum, goals")
+      const rows = check(await sb.from("learner_profiles").select("education_level, year_of_study, institution, programme, curriculum, goals, country, explanation_style")
         .eq("user_id", userId), "get_learner_profile") as any[];
       return rows[0] ?? null;
     },

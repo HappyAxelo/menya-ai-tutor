@@ -1,5 +1,18 @@
 # Change log
 
+## Retention round (31 October 2026, branch `claude/retention`)
+
+Details: `docs/RETENTION_ROUND_2026-10-31.md`.
+- **Review today**: questions answered wrong at least 20 hours ago come back (practice evidence),
+  followed by new questions on topics due for review (review evidence). Untimed.
+- Profile: country and preferred way of explaining, both given to the tutor.
+- **Delete my learning data** (typed confirmation, audited).
+- Exam topic coverage on *My study* (strong / untested / weak topics; not a prediction).
+- Admin **Retention and learning** card: activation, D1/D7/D30, WAL/MAL, independent success,
+  delayed retention, mastery, reviews, practice exams, paid / lapsed, AI cost per active learner.
+- Simultaneous exam submissions count once (tested).
+- Tests: 144 backend (5 new), 22 frontend, all passing.
+
 ## Learning companion (31 October 2026, branch `claude/learning-companion`)
 
 Audit and plan: `docs/PRODUCT_AUDIT_2026-10-31.md`. Built from the audit's top six weaknesses;

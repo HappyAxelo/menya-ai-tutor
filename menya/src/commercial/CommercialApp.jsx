@@ -202,8 +202,9 @@ export default function CommercialApp() {
           {page === "pricing" && <PricingPage account={account} onBack={back} />}
           {page === "progress" && <ProgressPage onBack={back} onReview={objective => { setReviewRequest({ objective, key: Date.now() }); back(); }} />}
           {page === "study" && <StudyPage onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }}
-            onExam={(id, count) => { setExamFor({ id, count, key: Date.now() }); setPage("exam"); }} />}
-          {page === "exam" && <ExamPage key={examFor?.key ?? "new"} examId={examFor?.id ?? null} count={examFor?.count ?? 10} onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }} />}
+            onExam={(id, count) => { setExamFor({ id, count, key: Date.now() }); setPage("exam"); }}
+            onReview={() => { setExamFor({ review: true, key: Date.now() }); setPage("exam"); }} />}
+          {page === "exam" && <ExamPage key={examFor?.key ?? "new"} examId={examFor?.id ?? null} count={examFor?.count ?? 10} review={Boolean(examFor?.review)} onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }} />}
           {page === "notes" && <MaterialsPage onBack={back} onAsk={draft => { setReviewRequest({ draft, key: Date.now() }); back(); }} />}
           {page === "account" && <AccountPage account={account} email={session.user.email} onBack={back} onPricing={() => setPage("pricing")} refresh={refresh} />}
           {page === "org" && <OrgPage orgs={account?.org_admin_of ?? []} onBack={back} />}
