@@ -66,7 +66,8 @@ export default function PricingPage({ account, onBack }) {
             const price = (o) => (p[o.column] === 0 ? t("plan.free") : formatPrice(p[o.column], p.currency));
             return (
               <div key={p.id} className={`mn-plan${current ? " highlight" : ""}${p.id === "exam" ? " exam" : ""}`}>
-                {current && <span className="ribbon">{t("pricing.yourPlan")}</span>}
+                {current ? <span className="ribbon">{t("pricing.yourPlan")}</span>
+                  : p.id === "professional" && <span className="ribbon">{t("pricing.bestValue")}</span>}
                 <div className="pname">{name}</div>
                 <div className="ptag">{tr(`plan.tagline.${p.id}`, p.tagline)}</div>
                 <div className="price">
@@ -84,8 +85,9 @@ export default function PricingPage({ account, onBack }) {
                   {p.features.map(f => <li key={f}><Check size={15} aria-hidden="true" />{tr(`feature.${f}`, f)}</li>)}
                 </ul>
                 <div className="limits">
-                  {p.id === "exam" ? t("pricing.fairUse")
+                  {p.id === "exam" ? t("pricing.fairUse") : p.id === "professional" ? t("pricing.fairUseUnlimited", { day: p.daily_request_limit })
                     : <>{t("pricing.limits", { day: p.daily_request_limit, month: p.monthly_request_limit })}</>}<br />
+                  {p.daily_image_limit == null ? t("pricing.picturesUnlimited") : t("pricing.pictures", { n: p.daily_image_limit })}<br />
                   {t("pricing.turns", { n: p.max_session_turns })}
                   {p.monthly_premium_limit > 0 && <><br />{t("pricing.premium", { n: p.monthly_premium_limit })}</>}
                 </div>

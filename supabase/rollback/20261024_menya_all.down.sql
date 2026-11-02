@@ -7,7 +7,7 @@
 drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists
-  public.learning_state(uuid), public.save_learning_profile(uuid, jsonb), public.search_materials(uuid, text, integer),
+  public.diagram_allowance(uuid, text), public.learning_state(uuid), public.save_learning_profile(uuid, jsonb), public.search_materials(uuid, text, integer),
   public.served_keys(uuid), public.add_exam(uuid, text, date, jsonb), public.delete_exam(uuid, bigint),
   public.reset_objective(uuid, text), public.create_mock_exam(uuid, text, jsonb, jsonb, integer, text), public.review_retries(uuid, integer),
   public.delete_my_learning_data(uuid), public.admin_retention_json(uuid), public.get_mock_exam(uuid, uuid),

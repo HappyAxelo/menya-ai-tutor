@@ -6,6 +6,7 @@
 export const ACTION_LABELS = {
   hint: "Asked for a hint",
   simpler: "Asked for a simpler explanation",
+  diagram: "Asked to see it as a picture",
   example: "Asked for a worked example",
   check: "Check my answer",
   practice: "Asked for a similar practice question",
@@ -29,6 +30,7 @@ export function availableActions({ hasConversation, loading, hintsUsed, problem,
   if (!solved && !independent && hintsUsed < 3) actions.push({ id: "hint", label: "Give me a hint", detail: `${3 - hintsUsed} left`, left: 3 - hintsUsed });
   if (!solved && engine) actions.push({ id: "stuck", label: "I'm stuck", menu: ["start", "step", "mistake", "concept"] });
   if (!solved && !independent) actions.push({ id: "simpler", label: "Explain more simply" });
+  if (!solved && !independent && engine) actions.push({ id: "diagram", label: "Show it as a picture" });
   if (!solved && !independent) actions.push({ id: "example", label: "Show a worked example" });
   if (solved && engine?.objective) actions.push({ id: "verify", label: "Check yourself", primary: true });
   actions.push({ id: "practice", label: solved ? "Try a similar question" : "Give me a similar question", primary: solved && !engine?.objective });
@@ -53,7 +55,7 @@ export function historyToMessages(rows) {
       role: "assistant", messageId: r.id ?? null, content: r.content, type: r.meta?.type ?? "question", hintLevel: r.meta?.hintLevel ?? null,
       conceptsDetected: Array.isArray(r.meta?.concepts) ? r.meta.concepts : [],
       misconceptionDetected: r.meta?.misconception ?? null, progressSummary: r.meta?.summary ?? null,
-      solved: r.meta?.solved === true,
+      solved: r.meta?.solved === true, diagram: r.meta?.diagram ?? null,
     };
   });
 }

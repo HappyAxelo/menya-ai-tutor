@@ -107,6 +107,9 @@ export interface Repo {
   // Learning companion: the learner's profile and passages from their own materials.
   getLearnerProfile(userId: string): Promise<LearnerContext | null>;
   searchMaterials(userId: string, query: string, limit: number): Promise<MaterialPassage[]>;
+  // Pictures in replies: today's allowance (limit null = none), and recording one (false = limit just reached).
+  diagramAllowance(userId: string, planId: string): Promise<{ limit: number | null; used: number }>;
+  useDiagram(userId: string, cap: number): Promise<boolean>;
   recordLearningEvent(event: LearningEvent): Promise<void>;
   processPaymentEvent(provider: string, event: unknown, raw: unknown): Promise<string>;
   audit(entry: { actor_id: string | null; action: string; target_type?: string; target_id?: string; org_id?: string | null; details?: Record<string, unknown> }): Promise<void>;
@@ -220,6 +223,12 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
     },
     async searchMaterials(userId, query, limit) {
       return check(await sb.rpc("search_materials", { p_user: userId, p_query: query, p_limit: limit }), "search_materials") as MaterialPassage[];
+    },
+    async diagramAllowance(userId, planId) {
+      return check(await sb.rpc("diagram_allowance", { p_user: userId, p_plan: planId }), "diagram_allowance") as { limit: number | null; used: number };
+    },
+    async useDiagram(userId, cap) {
+      return check(await sb.rpc("media_allow", { p_user: userId, p_kind: "diagram", p_cap: cap }), "use_diagram") as boolean;
     },
     async recordLearningEvent(event) {
       check(await sb.from("learning_events").insert(event), "record_learning_event");

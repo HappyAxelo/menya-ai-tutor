@@ -13,7 +13,7 @@ https://supabase.com/dashboard/project/tgrihnmngbamxxjnedlc
 2. Supabase dashboard → **Edge Functions** → **Secrets** (or *Project Settings → Edge Functions*)
    → **Add new secret**:
    - Name: `GROQ_API_KEY` — Value: your Groq key.
-   - Optional, for Professional's advanced reasoning: `ANTHROPIC_API_KEY` — your Anthropic key.
+   - Optional, for the Unlimited plan's advanced reasoning: `ANTHROPIC_API_KEY` — your Anthropic key.
 3. Save. The `api` function picks it up on its next start (within a minute or two).
 
 The key lives only in Supabase's server-side secrets. It is never in the web app, GitHub,
@@ -63,7 +63,7 @@ Menya runs entirely on free tiers today, and nothing in it can create a bill as 
   *Keep backend awake* GitHub Action calls the API every 3 days to prevent that. (GitHub turns
   scheduled actions off after 60 days without commits — push anything, or run it from the
   Actions tab, to turn it back on.)
-- **No Anthropic key** is set. The Professional plan's "advanced reasoning" role is skipped
+- **No Anthropic key** is set. The Unlimited plan's "advanced reasoning" role is skipped
   without one.
 - **GitHub Pages** and **GitHub Actions** are free for public repositories.
 

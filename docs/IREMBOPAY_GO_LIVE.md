@@ -31,7 +31,7 @@ merchant account these are usually):
 | Pro | 1 semester (4 months) | $35 | `pro:semester` |
 | Pro | 1 year | $90 | `pro:year` |
 | Exam Pass | 2 weeks | $8 | `exam:two_weeks` |
-| Professional | 1 month | $25 | `professional:month` |
+| Unlimited | 1 month | $20 | `professional:month` (the key keeps its old name) |
 
 Each payment buys one period. There is no automatic renewal: the learner pays again
 when the period ends. This is simple one-off invoices, which IremboPay supports.
@@ -117,7 +117,7 @@ goes back to "email us"; plans already paid for keep running to the end of their
 Menya's prices are stored in US dollars. IremboPay charges in the currency of the
 payment account, using the `amount` you put in `IREMBOPAY_PLANS`.
 
-- **USD account:** amounts are the dollar prices: 10, 35, 90, 8, 25.
+- **USD account:** amounts are the dollar prices: 10, 35, 90, 8, 20.
 - **RWF account:** amounts are the francs to charge, e.g. at 1 USD = *R* RWF, Pro month
   = 10 × *R*, rounded to a friendly number. The helper page does this. The website still
   shows dollar prices, so it is worth adding "(paid in RWF at about … RWF)" to your
@@ -133,7 +133,7 @@ payment is `PAID`, and it went to your payment account; anything else is ignored
  "pro:semester":{"code":"PI-xxxx","amount":50500},
  "pro:year":{"code":"PI-xxxx","amount":130000},
  "exam:two_weeks":{"code":"PI-xxxx","amount":11600},
- "professional:month":{"code":"PI-xxxx","amount":36000}}
+ "professional:month":{"code":"PI-xxxx","amount":29000}}
 ```
 
 (The amounts above are only an illustration at 1 USD ≈ 1,450 RWF; use the codes from the

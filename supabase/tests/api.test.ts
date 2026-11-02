@@ -69,7 +69,7 @@ describe("authentication", () => {
     const price = (id: string) => plans.plans.find((p: any) => p.id === id);
     assert.deepEqual([price("pro").price_monthly_cents, price("pro").price_semester_cents, price("pro").price_yearly_cents], [1000, 3500, 9000]);
     assert.equal(price("exam").price_two_weeks_cents, 800);
-    assert.equal(price("professional").price_monthly_cents, 2500);
+    assert.equal(price("professional").price_monthly_cents, 2000);
     assert.ok(plans.plans.every((p: any) => p.currency === "USD"));
   });
 });

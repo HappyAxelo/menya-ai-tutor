@@ -6,12 +6,13 @@
 //   usage/cost record (+ learning event) → response
 // ============================================================
 import {
-  actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, hintRequest, languageNote, learnerContextNote, materialsNote, problemNote, parseTutorJson, publicReply,
+  actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, diagramNote, hintRequest, NO_PICTURE_NOTE, languageNote, learnerContextNote, materialsNote, problemNote, parseTutorJson, publicReply,
   REWRITE_REQUEST, recheckRequest, unbalancedRequest, engineNote, presentRequest, STUCK_REASONS, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
 import { matchesAnswer, revealsAnswer, statesAnswer } from "./answerGuard.ts";
 import { checkEquation } from "./chemistry.ts";
+import { asksForPicture, renderDiagram, type Diagram } from "./diagram.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
@@ -199,6 +200,15 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     return { status: 409, body: { error: "hint_limit", message: "All 3 hints for this problem have been used." } };
   }
 
+  // Pictures: enforced here, whatever the browser asks for. Pressing the picture button with none left costs nothing.
+  const asksDiagram = input.action === "diagram" || (input.action === "message" && asksForPicture(input.message));
+  const allowance = await repo.diagramAllowance(userId, ent.plan_id);
+  const canDraw = allowance.limit == null || allowance.used < allowance.limit;
+  if (input.action === "diagram" && !canDraw) {
+    return { status: 429, body: { error: "diagram_limit", message: "You've used today's pictures on your plan.", plan: ent.plan_id,
+                                  limit: allowance.limit, upgrade_to: NEXT_PLAN[ent.plan_id] ?? null } };
+  }
+
   const lang = followStudent ? (detected ?? session.language) : input.language;
   const history = await repo.loadMessages(session.id, ent.context_turns * 2);
   const rememberedAnswer = input.sessionId ? await repo.getSessionAnswer(session.id) : null;
@@ -311,7 +321,9 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     language: input.language, workedSolutions: ent.worked_solutions, privateFields: true, level: input.learnerLevel ?? profileLevel, style: input.style,
     depth: ent.analytics_level === "enhanced" ? "detailed" : "standard",
   });
-  const schema = buildResponseSchema(true);
+  // Offered when asked for, or when the tutor is explaining: not on quick guiding turns.
+  const offerDiagram = canDraw && !presented && (asksDiagram || plan.state === "EXPLAIN" || plan.state === "MODEL");
+  const schema = buildResponseSchema(true, offerDiagram);
   const messages: ChatMessage[] = [
     ...(profileNote ? [{ role: "user" as const, content: profileNote }] : []),
     ...history.map(m => ({ role: m.role, content: m.content })),
@@ -321,6 +333,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     ...(followStudent ? (detected ? [{ role: "user" as const, content: languageNote(detected) }] : [])
       : (input.action === "message" || input.action === "check" ? [{ role: "user" as const, content: chosenLanguageNote(input.language!, detected) }] : [])),
     ...(notesNote ? [{ role: "user" as const, content: notesNote }] : []),
+    ...(offerDiagram ? [{ role: "user" as const, content: diagramNote(asksDiagram) }] : asksDiagram ? [{ role: "user" as const, content: NO_PICTURE_NOTE }] : []),
     { role: "user", content: userContent },
   ];
 
@@ -332,6 +345,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const remaining = () => deadline - now();
   // The model config with its timeout capped to the time left in this request.
   const withinBudget = (config: RouteCandidate["config"]) => ({ ...config, timeout_ms: Math.min(config.timeout_ms, remaining()) });
+  let answerMayShow = false;
   for (const candidate of route) {
     const provider = providers[candidate.config.provider];
     for (let tryNo = 0; tryNo < 2 && !served; tryNo++) {
@@ -357,6 +371,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         // Confirming a student's own correct attempt may restate it in another form
         // (x(2 sin x + x cos x) as 2x·sin x + x²·cos x); a solve still needs matchesAnswer below.
         const confirmsAttempt = isAttempt && !newProblem && reply.solved && reply.type === "affirmation";
+        answerMayShow = earnedSolution || confirmsAttempt;
         if (!earnedSolution && !confirmsAttempt && revealsAnswer(reply.message, reply.finalAnswer, studentTexts)) {
           let rewritten: TutorReply | null = null;
           // No time left for a rewrite: the safe message below is sent instead.
@@ -473,6 +488,16 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const assessedObjective = reply.assessment && reply.assessment.objective !== "other" && reply.assessment.confidence >= 0.6 ? reply.assessment.objective : null;
   const sessionObjective = presented?.item.objective ?? objectiveId ?? assessedObjective;
 
+  // A picture is shown only if it can be drawn correctly, doesn't give the answer away, and the allowance
+  // still has room (checked and recorded together). One that isn't shown costs the learner nothing.
+  let diagram: Diagram | null = null;
+  if (offerDiagram && reply.diagram) {
+    const drawn = renderDiagram(reply.diagram);
+    const leaks = drawn && !answerMayShow && revealsAnswer(drawn.text, reply.finalAnswer, studentTexts);
+    if (drawn && !leaks && await repo.useDiagram(userId, allowance.limit ?? 1_000_000)) diagram = drawn;
+    log({ event: "diagram", kind: reply.diagram.kind, shown: Boolean(diagram), drawable: Boolean(drawn), leak: Boolean(leaks) });
+  }
+
   // Persist conversation (never the private fields)
   const [, replyId] = await repo.appendMessages(session.id, userId, [
     { role: "user", content: userContent, meta: userMeta },
@@ -483,6 +508,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       ...(sessionObjective ? { objective: sessionObjective } : {}),
       ...(verifiedSolve ? { solved: true } : {}),
       ...(progressSummaryOk(reply, verifiedSolve) ? { summary: reply.progressSummary } : {}),
+      ...(diagram ? { diagram: { svg: diagram.svg, alt: diagram.alt } } : {}),
     } },
   ]);
   if (reply.finalAnswer && reply.finalAnswer !== rememberedAnswer) await repo.setSessionAnswer(session.id, reply.finalAnswer);
@@ -528,6 +554,10 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       reply: { ...publicReply(reply), messageId: replyId ?? null, solved: verifiedSolve, progressSummary: progressSummaryOk(reply, verifiedSolve) ? reply.progressSummary : null },
       sessionId: session.id,
       hintsUsed,
+      diagram: diagram ? { svg: diagram.svg, alt: diagram.alt } : null,
+      // The learner asked for a picture and none came: why, so the app can say so plainly.
+      pictureNote: !asksDiagram || diagram ? null : canDraw ? { reason: "failed" }
+        : { reason: "limit", limit: allowance.limit, upgrade_to: NEXT_PLAN[ent.plan_id] ?? null },
       problem: { solved: !newProblem && (session.solved || verifiedSolve), practice, attempts: attemptsNow },
       advancedReasoning: candidate.premium,  // plain-language flag; no model names
       engine: {

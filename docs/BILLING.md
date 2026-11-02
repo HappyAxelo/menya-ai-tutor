@@ -21,7 +21,7 @@ How it works:
 
 Setup (owner):
 1. Get an IremboPay merchant account; in the merchant portal create a **payment account** (RWF)
-   and one **product** per plan and period (e.g. Pro monthly, Pro yearly, Professional monthly).
+   and one **product** per plan and period (e.g. Pro monthly, Pro yearly, Unlimited monthly).
 2. Set the webhook/callback URL to
    `https://tgrihnmngbamxxjnedlc.supabase.co/functions/v1/api/billing/webhook`.
 3. Supabase → Edge Functions → Secrets:

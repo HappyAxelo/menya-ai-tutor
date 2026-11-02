@@ -210,6 +210,21 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
         </div>
         {done && (
           <>
+            {msg.diagram && (
+              <figure className="mn-diagram">
+                <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(msg.diagram.svg)}`} alt={msg.diagram.alt || t("picture.alt")} />
+                <figcaption>{t("picture.caption")}</figcaption>
+              </figure>
+            )}
+            {msg.pictureNote && (
+              <div className="mn-callout warn">
+                <ImageIcon size={16} aria-hidden="true" />
+                <div>
+                  {t(msg.pictureNote.reason === "limit" ? "picture.limit" : "picture.failed")}
+                  {msg.pictureNote.reason === "limit" && msg.pictureNote.upgrade_to && <>{" "}<button className="mn-link" onClick={onPlans}>{t("msg.comparePlans")}</button></>}
+                </div>
+              </div>
+            )}
             {msg.misconceptionDetected && (
               <div className="mn-callout warn"><TriangleAlert size={16} aria-hidden="true" /><div><b>{t("callout.misconception")}</b>{msg.misconceptionDetected}</div></div>
             )}
@@ -451,7 +466,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     const prefs = { learnerLevel: settings.level, style: settings.style };
     const lang = language !== "auto" ? language : lastLanguage;
     try {
-      let parsed, advanced = false, engineView = null;
+      let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null;
       if (client) {
         const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined,
           attachments: attachments?.map(({ name, kind, text: body }) => ({ name, kind, text: body })) });
@@ -459,7 +474,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
           const message = errorText(t, r.error, r.message, { seconds: r.retryAfter ?? 30 });
           throw Object.assign(new Error(message), { limit: r.isLimit ? r : null, retryable: r.retryable });
         }
-        parsed = r.reply; advanced = r.advanced; engineView = r.engine;
+        parsed = r.reply; advanced = r.advanced; engineView = r.engine; diagram = r.diagram; pictureNote = r.pictureNote;
         setHintsUsed(r.hintsUsed ?? 0);
         setProblem(r.problem);
         setEngine(r.engine);
@@ -481,7 +496,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         content: parsed.message, type: action === "hint" ? "hint" : parsed.type, hintLevel: parsed.hintLevel,
         conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected,
         progressSummary: parsed.progressSummary, solved: parsed.solved === true, advanced, messageId: parsed.messageId ?? null,
-        engine: client ? engineView : null,
+        engine: client ? engineView : null, diagram, pictureNote,
       });
     } catch (err) {
       if (err.limit) pushAssistant({ content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo });

@@ -44,6 +44,15 @@ Stated plainly so nobody overclaims. Updated 31 October 2026.
   (.doc/.ppt/.xls) are not read. Scanned PDFs: only the first 3 pages are read (as images).
   Handwriting recognition depends on the vision model and photo quality.
 
+- **Pictures come in eight kinds only**: graphs, circuits, right-angled triangles, forces, step or cycle
+  diagrams, rows of cells, bar charts and atoms. Menya's code draws them, so anything else (a cell, the
+  heart, a map, geometry beyond right-angled triangles) gets no picture and is explained in words.
+  What is drawn is only as right as the model's description: curves and geometry are computed, but
+  the model chooses, for example, which forces act on a block. Not reviewed by subject experts yet.
+- **"Unlimited" is not unlimited messages.** Pictures have no daily cap; messages have a stated fair-use
+  cap (1,000 a day, 20,000 a month), and all plans share the AI provider's free-tier capacity, so heavy
+  use can mean "very busy, try again" until a paid AI tier is bought.
+
 ## Implemented but not yet verified in production
 
 - **IremboPay**: built from the public API documentation and tested against signed sample

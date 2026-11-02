@@ -19,7 +19,7 @@
 export type EngineState = "DIAGNOSE" | "GUIDE" | "HINT" | "EXPLAIN" | "MODEL" | "PRACTISE" | "VERIFY" | "REVIEW" | "MASTERED";
 export type Mode = "learn" | "explain";
 export type StuckReason = "start" | "step" | "mistake" | "concept";
-export type EngineAction = "message" | "hint" | "simpler" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck";
+export type EngineAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck";
 export type CheckedVerdict = "correct" | "incorrect" | "unreadable" | "unknown";
 
 export const HINT_LADDER: Record<number, string> = {
@@ -80,6 +80,7 @@ export function decideTurn(ctx: TurnContext): TurnPlan {
   if (ctx.action === "review") return plan("REVIEW", null, "spaced review of an earlier objective", { presentItem: "review" });
   if (ctx.action === "summary") return plan(ctx.previous.state ?? "GUIDE", null, "summary requested");
   if (ctx.action === "example") return plan("MODEL", 4, "learner asked for a worked example of a similar problem");
+  if (ctx.action === "diagram") return plan("EXPLAIN", Math.max(ctx.previous.hintLevel ?? 0, 2), "learner asked to see it as a picture: same point, drawn, no further toward the answer");
   if (ctx.action === "simpler") return plan("EXPLAIN", Math.max(ctx.previous.hintLevel ?? 0, 2), "learner found the last reply hard: re-explain more simply, no further toward the answer");
 
   // A verified answer to a bank item or the current problem.

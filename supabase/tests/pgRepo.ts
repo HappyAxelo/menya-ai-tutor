@@ -13,6 +13,12 @@ export function pgRepo(db: PGlite): Repo {
     async searchMaterials(userId, query, limit) {
       return (await db.query<any>("select title, kind, page, content from public.search_materials($1, $2, $3)", [userId, query, limit])).rows;
     },
+    async diagramAllowance(userId, planId) {
+      return (await one("select public.diagram_allowance($1, $2) as a", [userId, planId])).a;
+    },
+    async useDiagram(userId, cap) {
+      return (await one("select public.media_allow($1, 'diagram', $2) as ok", [userId, cap])).ok;
+    },
     async resolveEntitlement(userId) { return one("select * from public.resolve_entitlement($1)", [userId]); },
     async getModelConfigs() {
       const rows = (await db.query<any>("select * from public.model_configs")).rows;

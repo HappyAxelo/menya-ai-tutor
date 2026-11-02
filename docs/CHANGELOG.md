@@ -1,5 +1,18 @@
 # Change log
 
+## Pictures, and the Unlimited plan (2 November 2026, branch `claude/visual-explanations`)
+
+- The tutor can show pictures: graphs, circuits, right-angled triangles, forces, step or cycle diagrams,
+  rows of cells, bar charts, atoms. The model only describes what to show; `diagram.ts` draws it. A
+  first version where the model wrote the drawing itself was rejected after a real test: marked
+  points were off the curve and circuits were jumbled. No image-generation service, so no fee per picture.
+- Daily limits, enforced on the server (`plans.daily_image_limit`, editable in Admin): Free 1, Pro 3,
+  Exam Pass 3, Unlimited none. A picture that can't be drawn or would give away the answer isn't shown and
+  isn't counted. **Show it as a picture** button, and pictures when asked for in words in four languages.
+- Professional is now **Unlimited**, $20 / month (id stays `professional`). Messages raised to 1,000 a day and
+  20,000 a month (fair use, stated on the pricing page). "Best value" label on the pricing page.
+- Tests: diagram drawing and limits added (`supabase/tests/diagram.test.ts`).
+
 ## Retention round (31 October 2026, branch `claude/retention`)
 
 Details: `docs/RETENTION_ROUND_2026-10-31.md`.

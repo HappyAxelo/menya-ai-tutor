@@ -6,6 +6,7 @@
 
 import { ASSESSMENT_SCHEMA, HINT_LADDER, parseAssessment, type Assessment, type TurnPlan } from "./engine/state.ts";
 import { OBJECTIVE_IDS, objective as objectiveInfo, type Item } from "./engine/bank.ts";
+import { DIAGRAM_KINDS, parseDiagramSpec, type DiagramSpec } from "./diagram.ts";
 
 export type TutorReplyType = "question" | "affirmation" | "hint" | "redirect" | "summary" | "explanation" | "worked_solution";
 export type Difficulty = "basic" | "standard" | "complex";
@@ -27,6 +28,7 @@ export interface TutorReply {
   // Private: the model's structured view of the student's latest message, validated
   // by the engine against what the server can check itself.
   assessment?: Assessment | null;
+  diagram?: DiagramSpec | null;  // what to draw; never sent to the browser (diagram.ts turns it into the picture)
 }
 
 export interface PolicyOptions {
@@ -167,8 +169,13 @@ REPLY LENGTH
 
 // Nullable fields use anyOf: accepted by Groq strict mode and Anthropic structured outputs.
 const nullable = (type: string) => ({ anyOf: [{ type }, { type: "null" }] });
+const DIAGRAM_SCHEMA = { anyOf: [{ type: "null" }, { type: "object", properties: {
+  kind: { type: "string", enum: DIAGRAM_KINDS }, title: { type: "string" }, alt: { type: "string" },
+  items: { type: "array", items: { type: "object", properties: { role: { type: "string" }, label: { type: "string" }, value: { type: "string" } },
+                                   required: ["role", "label", "value"], additionalProperties: false } },
+}, required: ["kind", "title", "alt", "items"], additionalProperties: false }] };
 
-export function buildResponseSchema(privateFields = false) {
+export function buildResponseSchema(privateFields = false, withDiagram = false) {
   const properties: Record<string, unknown> = {
     language: { type: "string" },
     message: { type: "string" },
@@ -183,6 +190,7 @@ export function buildResponseSchema(privateFields = false) {
     properties.finalAnswer = { type: "string" }; // required, "" when there is no single answer
     properties.difficulty = { type: "string", enum: ["basic", "standard", "complex"] };
     properties.assessment = ASSESSMENT_SCHEMA(OBJECTIVE_IDS);
+    if (withDiagram) properties.diagram = DIAGRAM_SCHEMA;
   }
   return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };
 }
@@ -254,8 +262,8 @@ export function problemNote({ hintsUsed, attempts, practice }: { hintsUsed: numb
 
 // Learner actions besides typing a message. Each becomes an app message
 // (English, in brackets) that the model answers in the learner's language.
-export type TutorAction = "message" | "hint" | "simpler" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck";
-export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "example", "check", "practice", "summary", "verify", "review", "stuck"];
+export type TutorAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck";
+export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "diagram", "example", "check", "practice", "summary", "verify", "review", "stuck"];
 export const STUCK_REASONS = ["start", "step", "mistake", "concept"] as const;
 
 export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, language?: string | null, studentText?: string): string {
@@ -263,6 +271,8 @@ export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, 
   switch (action) {
     case "simpler":
       return `[EXPLAIN MORE SIMPLY] The student found your last reply hard to follow. Re-explain the same point in simpler words, with an everyday comparison or a small concrete number example. Do not move further toward the final answer than before. End with one short question. Reply in ${lang}.`;
+    case "diagram":
+      return `[SHOW IT AS A PICTURE] The student wants to see your last point drawn. Draw it in the diagram field and explain the picture in one or two short sentences, ending with one question that uses it. Do not move further toward the answer. Reply in ${lang}.`;
     case "example":
       return `[WORKED EXAMPLE] The student wants to see the method. Fully work through a SIMILAR problem with different numbers or values (type "explanation"), showing each step briefly. Choose values whose result is DIFFERENT from the answer to the student's problem. Do not solve the student's own problem and do not use its numbers. Finish by asking them to apply the same steps to their problem. Reply in ${lang}.`;
     case "check":
@@ -322,6 +332,7 @@ export function parseTutorJson(raw: string): TutorReply | null {
       finalAnswer: typeof p.finalAnswer === "string" && p.finalAnswer.trim() ? p.finalAnswer.trim() : null,
       difficulty: ["basic", "standard", "complex"].includes(p.difficulty) ? p.difficulty : undefined,
       assessment: parseAssessment(p.assessment, OBJECTIVE_IDS),
+      diagram: parseDiagramSpec(p.diagram),
     };
   } catch {
     return null;
@@ -330,7 +341,7 @@ export function parseTutorJson(raw: string): TutorReply | null {
 
 // What the browser receives: never the private fields.
 export function publicReply(r: TutorReply) {
-  const { finalAnswer: _f, difficulty: _d, assessment: _a, ...rest } = r;
+  const { finalAnswer: _f, difficulty: _d, assessment: _a, diagram: _p, ...rest } = r;
   return rest;
 }
 
@@ -424,3 +435,19 @@ Rules: if your reply uses them, the message must name the source in brackets, e.
 
 ${quoted}`;
 }
+
+// Offered only on turns where a picture may help, because it adds to the prompt and the reply.
+export function diagramNote(asked: boolean): string {
+  return `[APP NOTE] Pictures: ${asked ? "the student asked for one, so describe it in the diagram field unless none of the kinds below fits" : "you may describe a picture in the diagram field, but only if it would really help; otherwise null"}. You don't draw: the app draws exactly what you describe, so only these kinds exist. items are {role, label, value}; labels are short and in the student's language.
+- graph: role "curve" (label "y = x^2 - 4", value the expression "x^2-4", in x), optional role "point" (label, value "2,0"; mark the points the student asks about; points not on the curve are dropped), optional role "range" (value "-5,5").
+- circuit: one role "battery" (label "12 V"), then in order "resistor", "lamp", "capacitor", "switch", "ammeter" or "voltmeter" (label "4 Ω"; value "parallel" if in parallel with the others marked so, otherwise ""), optional role "current" (label "I").
+- triangle (right-angled): roles "angle" (label "θ"), "opposite", "adjacent", "hypotenuse" (label; value the length if known).
+- forces: role "surface" (value "flat" or "incline 30"), then one role "force" for EVERY force (label "W", value one of down, up, left, right, normal, along-up, along-down). On a slope: weight is down, the normal reaction is normal, friction holding a block still is along-up.
+- flow: role "step" in order (label); add role "loop" if it is a cycle.
+- array: role "cell" (label; value "highlight", "dim" or ""); start a new row with role "row" (label) to show steps.
+- bars: role "bar" (label, value a number).
+- atom: role "nucleus" (label, the symbol only, like "Na"), then role "shell" (value the number of electrons), innermost first.
+title is short; alt is one sentence describing the picture. Use "" for values that don't apply. Never put the answer to the student's problem in a label. The message must make sense on its own.`;
+}
+
+export const NO_PICTURE_NOTE = "[APP NOTE] The student asked for a picture but has used today's picture allowance. Explain clearly in words instead. Don't offer or promise a picture; the app tells them about the limit.";

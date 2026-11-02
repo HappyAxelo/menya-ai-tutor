@@ -106,7 +106,7 @@ export function backendTutorClient() {
     if (!r.ok) {
       // Plan limits (quota, session length, hints) get a plan button; temporary failures get Retry.
       // The error code lets the app show the message in the learner's language.
-      const isLimit = ["daily_limit", "monthly_limit", "premium_limit", "premium_not_included", "org_limit", "session_limit", "hint_limit"].includes(r.data.error);
+      const isLimit = ["daily_limit", "monthly_limit", "premium_limit", "premium_not_included", "org_limit", "session_limit", "hint_limit", "diagram_limit"].includes(r.data.error);
       const retryable = r.status === 0 || r.status >= 500 || r.data.error === "rate_limited";
       return { ok: false, status: r.status, error: r.data.error, isLimit, retryable, upgradeTo: r.data.upgrade_to ?? null,
                retryAfter: r.data.retry_after_seconds ?? null,
@@ -114,10 +114,11 @@ export function backendTutorClient() {
     }
     sessionId = r.data.sessionId;
     return { ok: true, reply: r.data.reply, quota: r.data.quota, advanced: r.data.advancedReasoning,
-             hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null, engine: r.data.engine ?? null };
+             hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null, engine: r.data.engine ?? null,
+             diagram: r.data.diagram ?? null, pictureNote: r.data.pictureNote ?? null };
   };
   return {
-    // action: message | hint | simpler | example | check | practice | summary | verify | review | stuck
+    // action: message | hint | simpler | diagram | example | check | practice | summary | verify | review | stuck
     // mode: learn | explain; stuck: start | step | mistake | concept; objective: for review
     act: (action, { text, language, learnerLevel, style, mode, stuck, objective, attachments }) =>
       call({ action, message: text, language, learnerLevel, style, mode, stuck, objective, attachments }),
