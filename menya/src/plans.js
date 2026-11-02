@@ -8,15 +8,15 @@ export const PLAN_CATALOG = [
     features: ["Step-by-step Socratic tutoring", "Three progressive hints per problem", "Your sessions saved to your account"],
   },
   {
-    id: "pro", name: "Pro", tagline: "For regular study", priceMonthlyCents: 800, highlight: true,
+    id: "pro", name: "Pro", tagline: "For students who want daily learning support, more practice and better study flexibility", priceMonthlyCents: 500, highlight: true,
     daily: 150, monthly: 3000, premium: 0,
     features: ["Everything in Free", "Many more messages each day", "Longer sessions that remember more of your work",
       "More detailed explanations and checks", "Up to 3 pictures or diagrams a day"],
   },
   {
-    id: "professional", name: "Unlimited", tagline: "Unlimited pictures and practically unlimited practice", priceMonthlyCents: 1500,
+    id: "professional", name: "Max", tagline: "For students who use Menya regularly for studying, practice and exam preparation", priceMonthlyCents: 800,
     daily: 1000, monthly: 20000, premium: 0,
-    features: ["Everything in Pro", "Unlimited pictures and diagrams", "Practically unlimited messages (fair use)", "The longest conversations, with the most remembered"],
+    features: ["Everything in Pro", "1,000 messages a day and 20,000 a month", "Up to 10 pictures or diagrams a day", "The longest conversations, with the most remembered"],
   },
 ];
 

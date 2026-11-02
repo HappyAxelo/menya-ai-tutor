@@ -4,7 +4,7 @@
 // roles in the database. Responses never include secrets or stack traces.
 // ============================================================
 import { handleTutor } from "./tutorService.ts";
-import { BILLING_INTERVALS, PRICE_COLUMN, WebhookSignatureError, type BillingInterval, type BillingProvider } from "./billing.ts";
+import { BILLING_INTERVALS, PRICE_COLUMN, periodEnd, WebhookSignatureError, type BillingInterval, type BillingProvider } from "./billing.ts";
 import type { ModelProvider } from "./providers.ts";
 import { toRecord, type Repo } from "./repo.ts";
 import { buildXlsx, type Cell } from "./xlsx.ts";
@@ -173,10 +173,22 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     if (!plan || plan.id === "free") return json(400, { error: "invalid_plan" });
     if (plan[PRICE_COLUMN[interval]] == null) return json(400, { error: "interval_not_offered" });
     if (ctx.billing.products && !ctx.billing.products[`${plan.id}:${interval}`]) return json(400, { error: "interval_not_offered" });
+    // Don't take money for time the learner couldn't use: a lower plan that would end before their higher plan does.
+    const ent = await ctx.repo.resolveEntitlement(user.id);
+    const rank = (id: string) => plans.findIndex(p => p.id === id);
+    if (ent.period_end && rank(ent.plan_id) > rank(plan.id) && Date.parse(ent.period_end) >= periodEnd(new Date(), interval).getTime()) {
+      return json(409, { error: "higher_plan_active", until: ent.period_end });
+    }
     try {
-      const { url: checkoutUrl } = await ctx.billing.createCheckout({ userId: user.id, email: user.email, planId: plan.id, interval,
+      const checkout = await ctx.billing.createCheckout({ userId: user.id, email: user.email, planId: plan.id, interval,
         successUrl: `${ctx.appUrl}/?checkout=done`, cancelUrl: `${ctx.appUrl}/?checkout=cancelled` });
-      return json(200, { url: checkoutUrl });
+      if (checkout.reference) {
+        // History only: if this fails, the payment still works and the notification records it.
+        await ctx.db.rpc("record_payment_started", { p: { user_id: user.id, provider: ctx.billing.name, transaction_id: checkout.reference,
+          plan_id: plan.id, interval, amount: checkout.amount, currency: checkout.currency } }).catch(err =>
+            ctx.log({ level: "error", event: "payment_record_failed", message: err instanceof Error ? err.message : String(err) }));
+      }
+      return json(200, { url: checkout.url });
     } catch (err) {
       ctx.log({ level: "error", event: "checkout_failed", message: err instanceof Error ? err.message : String(err) });
       return json(502, { error: "checkout_unavailable", message: "Checkout is temporarily unavailable." });
@@ -188,8 +200,13 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     await ctx.deleteUser(user.id); // cascades to profile, sessions, messages, memberships; usage rows are kept anonymised
     return json(200, { ok: true });
   }
+  if (path === "/billing/history" && method === "GET") {
+    return json(200, { payments: await ctx.db.rpc("list_my_payments", { p_user: user.id }) });
+  }
   if (path === "/account/export" && method === "GET") {
-    return json(200, await ctx.db.rpc("export_my_data", { p_user: user.id }), { "Content-Disposition": "attachment; filename=menya-data.json" });
+    const [data, payments] = await Promise.all([ctx.db.rpc<Record<string, unknown>>("export_my_data", { p_user: user.id }),
+      ctx.db.rpc("list_my_payments", { p_user: user.id })]);
+    return json(200, { ...data, payments }, { "Content-Disposition": "attachment; filename=menya-data.json" });
   }
 
   if (path === "/org/accept" && method === "POST") {
@@ -220,7 +237,14 @@ async function billingWebhook(req: Request, ctx: ApiContext): Promise<Response> 
     throw err;
   }
   try {
+    // Paying again before a one-off period ends adds to it, so no paid days are lost.
+    const s = event.subscription;
+    if (s?.user_id && s.cancel_at_period_end && s.current_period_start && s.interval) {
+      const end = await ctx.db.rpc<string | null>("current_plan_end", { p_user: s.user_id, p_plan: s.plan_id });
+      if (end && Date.parse(end) > Date.parse(s.current_period_start)) s.current_period_end = periodEnd(new Date(end), s.interval).toISOString();
+    }
     const result = await ctx.repo.processPaymentEvent(ctx.billing.name, event, JSON.parse(raw));
+    if (event.payment) await ctx.db.rpc("record_payment_result", { p: event.payment });
     return json(200, { result });
   } catch (err) {
     ctx.log({ level: "error", event: "webhook_failed", provider: ctx.billing.name, message: err instanceof Error ? err.message : String(err) });
@@ -314,6 +338,8 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
         return json(200, { provider: ctx.billing?.name ?? null, mode: ctx.billing?.mode ?? null,
           problems: ctx.billingProblems ?? [], rows });
       }
+      case "GET /admin/revenue":
+        return json(200, await ctx.db.rpc("admin_revenue_json", { p_actor: user.id }));
       case "GET /admin/retention":
         return json(200, await ctx.db.rpc("admin_retention_json", { p_actor: user.id }));
       case "GET /admin/overview":
@@ -642,9 +668,8 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
         if (chars > MAX_MATERIAL_CHARS) return json(413, { error: "material_too_large", maxChars: MAX_MATERIAL_CHARS });
         const chunks = chunkPages(pages as { page: number; text: string }[]);
         if (!chunks.length) return json(400, { error: "material_empty" });
-        const ent = await ctx.repo.resolveEntitlement(user.id);
         const id = await ctx.db.rpc("add_material", { p_user: user.id, p_title: b.title, p_kind: b.kind,
-          p_pages: Math.max(...pages.map((p: any) => p.page)), p_chars: chars, p_chunks: chunks, p_max: ent.plan_id === "free" ? 3 : 30 });
+          p_pages: Math.max(...pages.map((p: any) => p.page)), p_chars: chars, p_chunks: chunks, p_max: 0 });
         return json(200, { id, passages: chunks.length });
       }
       case "DELETE /materials": {

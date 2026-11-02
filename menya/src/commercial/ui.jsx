@@ -34,10 +34,10 @@ function Crashed({ onBack }) {
   );
 }
 
-export function Page({ title, subtitle, children, onBack }) {
+export function Page({ title, subtitle, children, onBack, className = "" }) {
   const { t } = useT();
   return (
-    <main className="mn-page">
+    <main className={`mn-page ${className}`.trim()}>
       {onBack && <button onClick={onBack} className="mn-back"><ArrowLeft size={15} aria-hidden="true" />{t("page.back")}</button>}
       <h1>{title}</h1>
       {subtitle && <p className="mn-page-sub">{subtitle}</p>}

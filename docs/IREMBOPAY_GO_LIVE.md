@@ -44,9 +44,9 @@ merchant account these are usually):
 
 | Plan | Period | Price (USD) | Key in Menya |
 |---|---|---|---|
-| Pro | 1 month | $8 | `pro:month` |
-| Exam Pass | 2 weeks | $8 | `exam:two_weeks` |
-| Unlimited | 1 month | $15 | `professional:month` (the key keeps its old name) |
+| Pro | 1 month | $5 | `pro:month` |
+| Exam Pass | 14 days | $5 | `exam:two_weeks` |
+| Max | 1 month | $8 | `professional:month` (the key keeps its old name) |
 
 Each payment buys one period. There is no automatic renewal: the learner pays again
 when the period ends. This is simple one-off invoices, which IremboPay supports.
@@ -131,7 +131,7 @@ goes back to "email us"; plans already paid for keep running to the end of their
 ## D. Currency
 
 Mobile money works only on RWF invoices, so use an RWF payment account and put francs in
-`IREMBOPAY_PLANS`: at 1 USD = *R* RWF, Pro month = 8 × *R*, rounded to a friendly number. The helper page
+`IREMBOPAY_PLANS`: at 1 USD = *R* RWF, Pro month = 5 × *R*, rounded to a friendly number. The helper page
 does this. The pricing page lists plans in dollars, and each pay button shows the francs actually charged.
 
 Menya only grants the plan if the notification is correctly signed, the payment is `PAID` to your account
@@ -140,9 +140,9 @@ for at least the configured amount, and IremboPay confirms the same when Menya a
 ## E. Example `IREMBOPAY_PLANS`
 
 ```json
-{"pro:month":{"code":"PI-xxxx","amount":11600},
- "exam:two_weeks":{"code":"PI-xxxx","amount":11600},
- "professional:month":{"code":"PI-xxxx","amount":21750}}
+{"pro:month":{"code":"PI-xxxx","amount":7250},
+ "exam:two_weeks":{"code":"PI-xxxx","amount":7250},
+ "professional:month":{"code":"PI-xxxx","amount":11600}}
 ```
 
 (The amounts above are only an illustration at 1 USD ≈ 1,450 RWF; use the codes from the

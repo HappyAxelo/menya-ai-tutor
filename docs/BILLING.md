@@ -21,7 +21,7 @@ How it works:
 
 Setup (owner):
 1. Get an IremboPay merchant account; in the merchant portal create a **payment account** (RWF)
-   and one **product** per plan and period (e.g. Pro monthly, Pro yearly, Unlimited monthly).
+   and one **product** per plan and period (e.g. Pro monthly, Exam Pass, Max monthly).
 2. Set the webhook/callback URL to
    `https://tgrihnmngbamxxjnedlc.supabase.co/functions/v1/api/billing/webhook`.
 3. Supabase → Edge Functions → Secrets:
@@ -31,7 +31,7 @@ Setup (owner):
    | `BILLING_PROVIDER` | `irembopay` |
    | `IREMBOPAY_SECRET_KEY` | from the merchant portal |
    | `IREMBOPAY_PAYMENT_ACCOUNT` | your payment account identifier |
-   | `IREMBOPAY_PLANS` | one entry per plan and period sold: `pro:month`, `exam:two_weeks`, `professional:month` (Unlimited), e.g. `{"pro:month":{"code":"PI-...","amount":11600},"exam:two_weeks":{"code":"PI-...","amount":11600},"professional:month":{"code":"PI-...","amount":21750}}` (amounts in the payment account's currency: these are USD; use the RWF equivalents with an RWF account) |
+   | `IREMBOPAY_PLANS` | one entry per plan and period sold: `pro:month`, `exam:two_weeks`, `professional:month` (Max), e.g. `{"pro:month":{"code":"PI-...","amount":7250},"exam:two_weeks":{"code":"PI-...","amount":7250},"professional:month":{"code":"PI-...","amount":11600}}` (amounts in the payment account's currency: these are USD; use the RWF equivalents with an RWF account) |
    | `IREMBOPAY_ENV` | `sandbox` first, `production` when verified |
 
 4. Set the same prices in the `plans` table (`price_monthly_cents`/`price_yearly_cents` in RWF ×100

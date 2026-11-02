@@ -274,9 +274,9 @@ describe("unit economics", () => {
       model: "claude-opus-5-5", premium: true, input_tokens: 1000, output_tokens: 500, est_cost_usd: 5, status: "success" } });
     const rows = await db.query<any>("select * from public.admin_unit_economics(current_date) where plan_id = 'professional'");
     const r = rows.rows[0];
-    assert.equal(Number(r.est_revenue_usd), 15, "Unlimited is $15 a month");
+    assert.equal(Number(r.est_revenue_usd), 8, "Max is $8 a month");
     assert.equal(Number(r.ai_cost_usd), 5);
-    assert.equal(Number(r.gross_margin_pct), 66.7);
+    assert.equal(Number(r.gross_margin_pct), 37.5);
   });
 });
 

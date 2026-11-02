@@ -25,10 +25,16 @@ export function periodEnd(start: Date, interval: BillingInterval): Date {
   return end;
 }
 
+export interface PaymentRecord {
+  provider: string; transaction_id: string; invoice_number?: string; user_id: string; plan_id: string; interval: BillingInterval;
+  amount?: number; currency?: string; status: "paid" | "failed" | "cancelled"; payment_method?: string; paid_at?: string;
+}
+
 export interface NormalizedEvent {
   id: string;
   type: string;
   occurred_at?: string;
+  payment?: PaymentRecord;       // what to write in the payment history, when the provider tells us
   subscription: null | {
     provider_subscription_id: string;
     provider_customer_id?: string;
@@ -54,11 +60,14 @@ export interface CheckoutRequest {
   cancelUrl: string;
 }
 
+// reference, amount and currency let the payment be recorded as pending; only url is required.
+export interface CheckoutResult { url: string; reference?: string; amount?: number; currency?: string }
+
 export interface BillingProvider {
   name: string;
   // Throws WebhookSignatureError if the request is not authentic.
   verifyWebhook(headers: Headers, rawBody: string): Promise<NormalizedEvent>;
-  createCheckout(req: CheckoutRequest): Promise<{ url: string }>;
+  createCheckout(req: CheckoutRequest): Promise<CheckoutResult>;
   createPortal(customerId: string, returnUrl: string): Promise<{ url: string }>;
   // What can be bought ("plan:period" -> product). Unset = everything priced in the plans table.
   products?: Record<string, { code: string; amount: number }>;
@@ -188,7 +197,12 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
       // Only a paid invoice for one of our plans, at the configured price and account, grants anything.
       const genuine = txn && planCfg && d.paymentStatus === "PAID" && d.paymentAccountIdentifier === cfg.paymentAccount &&
         Number(d.amount) >= planCfg.amount;
-      if (!genuine) return { id, type: `invoice.${String(d.paymentStatus ?? "unknown").toLowerCase()}`, subscription: null };
+      const outcome = ({ FAILED: "failed", CANCELLED: "cancelled", CANCELED: "cancelled" } as Record<string, "failed" | "cancelled">)[d.paymentStatus];
+      if (!genuine) return { id, type: `invoice.${String(d.paymentStatus ?? "unknown").toLowerCase()}`, subscription: null,
+        // A failed or cancelled payment on our account goes in the learner's history. It never grants anything.
+        ...(outcome && txn && d.paymentAccountIdentifier === cfg.paymentAccount ? { payment: {
+          provider: "irembopay", transaction_id: d.transactionId, invoice_number: d.invoiceNumber, user_id: txn.userId, plan_id: txn.planId,
+          interval: txn.interval, currency: d.currency, status: outcome, payment_method: d.paymentMethod } } : {}) };
       // IremboPay asks merchants to verify the status before activating anything, so a plan is granted only
       // after asking them directly. If they can't be reached this throws: nothing is recorded, the request
       // fails, and the notification can be sent again from their portal.
@@ -204,6 +218,9 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
       const end = periodEnd(start, txn!.interval);
       return {
         id, type: "invoice.paid", occurred_at: start.toISOString(),
+        payment: { provider: "irembopay", transaction_id: d.transactionId, invoice_number: d.invoiceNumber, user_id: txn!.userId, plan_id: txn!.planId,
+                   interval: txn!.interval, amount: Number(invoice.amount), currency: invoice.currency ?? d.currency, status: "paid",
+                   payment_method: invoice.paymentMethod ?? d.paymentMethod, paid_at: start.toISOString() },
         subscription: {
           provider_subscription_id: d.transactionId, provider_customer_id: d.customer?.email ?? undefined,
           user_id: txn!.userId, plan_id: txn!.planId, interval: txn!.interval, status: "active",
@@ -215,11 +232,12 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
       const plan = cfg.plans[`${req.planId}:${req.interval}`];
       if (!plan) throw new Error(`no IremboPay product configured for ${req.planId}:${req.interval}`);
       const expires = new Date(now() + 24 * 3600 * 1000).toISOString().replace("Z", "+00:00");
+      const transactionId = iremboPayTransactionId(req.userId, req.planId, req.interval, now());
       const res = await doFetch(`${base}/payments/invoices`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "irembopay-secretKey": cfg.secretKey, "X-API-Version": "2" },
         body: JSON.stringify({
-          transactionId: iremboPayTransactionId(req.userId, req.planId, req.interval, now()),
+          transactionId,
           paymentAccountIdentifier: cfg.paymentAccount,
           paymentItems: [{ code: plan.code, quantity: 1, unitAmount: plan.amount }],
           description: `Menya AI ${req.planId} (${{ month: "1 month", semester: "1 semester (4 months)", year: "1 year", two_weeks: "2 weeks" }[req.interval]})`,
@@ -231,7 +249,7 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
       const data = await res.json().catch(() => null);
       const url = data?.data?.paymentLinkUrl;
       if (!res.ok || typeof url !== "string") throw new Error(`IremboPay invoice failed (HTTP ${res.status})`);
-      return { url };
+      return { url, reference: transactionId, amount: plan.amount, currency: cfg.currency ?? "RWF" };
     },
     async createPortal() {
       throw new Error("IremboPay has no customer portal: learners renew by paying again.");

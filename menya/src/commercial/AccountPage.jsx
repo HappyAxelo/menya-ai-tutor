@@ -8,8 +8,11 @@ export default function AccountPage({ account, email, onBack, onPricing, refresh
   const [sessions, setSessions] = useState(null);
   const [confirmText, setConfirmText] = useState("");
   const [msg, setMsg] = useState(null);
+  const [payments, setPayments] = useState(null);
 
   useEffect(() => { listSessions().then(setSessions).catch(() => setSessions([])); }, []);
+  // Fresh numbers each visit (pictures and notes aren't counted in the chat's usage updates).
+  useEffect(() => { refresh?.(); api("/billing/history").then(r => setPayments(r.ok ? r.data.payments : [])); }, [refresh]);
 
   if (!account) return <Page title={t("account.title")} onBack={onBack}><Loading /></Page>;
   const { limits, used } = account;
@@ -38,20 +41,35 @@ export default function AccountPage({ account, email, onBack, onPricing, refresh
             <div style={{ fontSize: "13px", color: C.dim, marginTop: "4px", lineHeight: 1.6 }}>
               {account.source === "organization" && `${t("account.fromInstitution")} `}
               {status && `${t(`account.status.${status}`)}. `}
-              {date && (account.cancel_at_period_end || status === "canceled" ? t("account.endsOn", { date })
+              {date && (account.cancel_at_period_end ? t("account.renews", { date }) : status === "canceled" ? t("account.endsOn", { date })
                 : status === "past_due" ? t("account.updateBy", { date }) : t("account.renews", { date }))}
+              {account.expired_plan && t("account.expiredOn", { plan: t(`plan.${account.expired_plan.plan}`), date: new Date(account.expired_plan.ended).toLocaleDateString([lang]) })}
+              {account.payment_pending && <> {t("account.pendingPayment")}</>}
             </div>
           </div>
-          {account.source !== "organization" && <Button variant="ghost" onClick={onPricing}>{account.plan === "free" ? t("account.seePaid") : t("account.changePlan")}</Button>}
+          {account.source !== "organization" && <Button variant="ghost" onClick={onPricing}>{account.expired_plan ? t("account.renew") : account.plan === "free" ? t("account.seePaid") : t("account.renewOrChange")}</Button>}
         </div>
       </Card>
 
       <Card title={t("account.usage")}>
         <Meter label={t("account.today")} used={used.daily} limit={limits.daily} />
         <Meter label={t("account.month")} used={used.monthly} limit={limits.monthly} />
+        {limits.images != null && <Meter label={t("account.pictures")} used={used.images ?? 0} limit={limits.images} />}
+        {limits.notes != null && <Meter label={t("account.notes")} used={used.notes ?? 0} limit={limits.notes} />}
         {limits.premium > 0 && <Meter label={t("account.premium")} used={used.premium} limit={limits.premium} />}
         <p className="mn-panel-text small">{t("account.resetNote", { n: limits.session_turns })}</p>
         <button onClick={refresh} className="mn-btn outline" style={{ marginTop: 8 }}>{t("account.refresh")}</button>
+      </Card>
+
+      <Card title={t("account.payments")}>
+        {!payments ? <Loading /> : (
+          <Table empty={t("account.noPayments")} rows={payments} columns={[
+            { key: "created_at", label: t("account.col.date"), render: p => new Date(p.paid_at ?? p.created_at).toLocaleDateString([lang]) },
+            { key: "plan", label: t("account.col.plan"), render: p => t(`plan.${p.plan}`) },
+            { key: "amount", label: t("account.col.amount"), align: "right", render: p => (p.amount != null ? `${Number(p.amount).toLocaleString([lang])} ${p.currency ?? ""}` : "—") },
+            { key: "status", label: t("account.col.status"), render: p => t(`pay.status.${p.status}`) },
+          ]} />
+        )}
       </Card>
 
       <Card title={t("account.recent")}>

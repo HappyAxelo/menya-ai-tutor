@@ -28,7 +28,7 @@ export default function PlansView({ onClose }) {
               <ul>{p.features.map(f => <li key={f}><Check size={16} strokeWidth={2.6} />{f}</li>)}</ul>
               <div className="limits">
                 {p.daily} messages / day · {p.monthly.toLocaleString()} / month
-                {p.premium > 0 && <><br />{p.premium} advanced-reasoning requests / month</>}
+                
               </div>
               {p.id === "free"
                 ? <button className="mn-btn outline" disabled>Included</button>

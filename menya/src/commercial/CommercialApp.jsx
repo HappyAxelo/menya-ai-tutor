@@ -35,6 +35,7 @@ export default function CommercialApp() {
   const [currentId, setCurrentId] = useState(null);   // conversation on screen
   const [listKey, setListKey] = useState(0);          // bump to reload the conversation list
   const [reviewRequest, setReviewRequest] = useState(null); // { objective } | { text } | { draft }, plus key: work started from another page
+  const [noteDismissed, setNoteDismissed] = useState(false);
   const [examFor, setExamFor] = useState(null);             // { id, count } when a practice exam is opened for an exam
   const [newChatKey, setNewChatKey] = useState(0);    // bump to start a new conversation
   // The open conversation is remembered for this tab, so a page refresh reopens it.
@@ -150,6 +151,13 @@ export default function CommercialApp() {
     [t("menu.signOut"), () => supabase.auth.signOut()],
   ];
   const planName = account ? t(`plan.${account.plan}`) : "";
+  // One calm line, not a pop-up: daily messages nearly used, or a paid period about to end (nothing renews by itself).
+  const NEXT = { free: "pro", pro: "professional", exam: "professional" };
+  const nearLimit = account && account.limits.daily > 0 && account.used.daily >= Math.ceil(account.limits.daily * 0.9);
+  const endsInDays = account?.period_end && account.source === "subscription" ? Math.ceil((Date.parse(account.period_end) - Date.now()) / 864e5) : null;
+  const gentleNote = !account || noteDismissed ? null
+    : nearLimit ? `${t("limit.near", { used: account.used.daily, limit: account.limits.daily })}${account.source !== "organization" && NEXT[account.plan] ? ` ${t("limit.upgrade", { plan: t(`plan.${NEXT[account.plan]}`) })}` : ""}`
+    : endsInDays != null && endsInDays <= 3 && endsInDays >= 0 ? t("limit.ending", { plan: planName, n: endsInDays }) : null;
   const daysLeft = account ? Math.max(account.limits.daily - account.used.daily, 0) : null;
   const nav = (
     <>
@@ -187,6 +195,14 @@ export default function CommercialApp() {
         <div className="mn-banner">
           <Notice kind={banner.kind}>
             {t(banner.key)} <button onClick={() => setBanner(null)} className="mn-link">{t("banner.dismiss")}</button>
+          </Notice>
+        </div>
+      )}
+      {gentleNote && (
+        <div className="mn-banner">
+          <Notice kind="info">
+            {gentleNote} <button onClick={() => setPage("pricing")} className="mn-link">{t("limit.seePlans")}</button>
+            {" · "}<button onClick={() => setNoteDismissed(true)} className="mn-link">{t("banner.dismiss")}</button>
           </Notice>
         </div>
       )}

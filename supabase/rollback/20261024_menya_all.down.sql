@@ -7,6 +7,8 @@
 drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists
+  public.record_payment_started(jsonb), public.record_payment_result(jsonb), public.list_my_payments(uuid),
+  public.current_plan_end(uuid, text), public.admin_revenue_json(uuid),
   public.diagram_allowance(uuid, text), public.learning_state(uuid), public.save_learning_profile(uuid, jsonb), public.search_materials(uuid, text, integer),
   public.served_keys(uuid), public.add_exam(uuid, text, date, jsonb), public.delete_exam(uuid, bigint),
   public.reset_objective(uuid, text), public.create_mock_exam(uuid, text, jsonb, jsonb, integer, text), public.review_retries(uuid, integer),
@@ -30,7 +32,7 @@ drop function if exists
   public.is_platform_admin(uuid), public.handle_new_user() cascade;
 
 drop table if exists
-  public.material_chunks, public.course_materials, public.mock_exams, public.learner_exams, public.learner_profiles,
+  public.payments, public.material_chunks, public.course_materials, public.mock_exams, public.learner_exams, public.learner_profiles,
   public.media_usage, public.learner_objectives, public.assessment_attempts, public.served_items, public.session_items, public.tutor_feedback, public.learning_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
   public.usage_records, public.request_reservations, public.rate_buckets, public.usage_counters,
   public.payment_events, public.subscriptions, public.org_invitations, public.org_members,

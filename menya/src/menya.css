@@ -624,3 +624,35 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 @media (max-width: 560px) {
   .mn-auth-lang { position: static; display: flex; justify-content: center; margin-bottom: 12px; }
 }
+
+/* ---------- Pricing page: white, Menya indigo, mobile first ---------- */
+.mn-page.mn-pricing { --indigo: #2E2A85; --bg: #fff; --bg-elev: #fff; --surface: #fff; --surface-2: #f6f6fb; --surface-3: #eeedf7; --border: #e3e2ef; --border-strong: #c9c7de;
+  --text: #1d1b2e; --text-2: #3f3d56; --muted: #5b5873; --faint: #6d6a85; --accent: #2E2A85; --accent-soft: rgba(46, 42, 133, 0.08); --ring: #2E2A85;
+  --primary: #2E2A85; --primary-hover: #25226d; --on-primary: #fff; color: var(--text); background: #fff; max-width: none; min-height: 100vh; box-sizing: border-box; }
+.mn-pricing > * { max-width: 1040px; margin-left: auto; margin-right: auto; }
+.mn-price-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }
+@media (min-width: 640px) { .mn-price-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 980px) { .mn-price-grid { grid-template-columns: repeat(4, 1fr); } }
+.mn-price-card { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 22px 18px 18px; border: 1px solid var(--border); border-radius: 14px; background: #fff; }
+.mn-price-card.featured { border: 2px solid var(--indigo); }
+.mn-price-card .badge { align-self: flex-start; font-size: 12px; font-weight: 600; color: var(--indigo); background: var(--accent-soft); border-radius: 999px; padding: 3px 10px; }
+.mn-price-card h2 { margin: 0; font-size: 18px; font-weight: 700; color: var(--indigo); }
+.mn-price-card .amount { font-size: 30px; font-weight: 700; line-height: 1.1; }
+.mn-price-card .amount small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.mn-price-card .who { flex: 1; margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+.mn-price-card .mn-btn, .mn-price-card button { width: 100%; justify-content: center; text-align: center; box-sizing: border-box; }
+.mn-price-h { font-size: 20px; font-weight: 700; color: var(--indigo); margin-top: 34px; margin-bottom: 10px; }
+.mn-price-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+.mn-price-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 14px; }
+.mn-price-table th, .mn-price-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: center; }
+.mn-price-table tr:last-child th, .mn-price-table tr:last-child td { border-bottom: 0; }
+.mn-price-table thead th { color: var(--indigo); font-weight: 700; background: var(--surface-2); }
+.mn-price-table tbody th { text-align: left; font-weight: 500; color: var(--text-2); position: sticky; left: 0; background: #fff; }
+.mn-price-note { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+.mn-price-included { list-style: none; padding: 0; display: grid; gap: 10px; font-size: 14.5px; line-height: 1.5; }
+.mn-price-included li { display: flex; gap: 10px; }
+.mn-price-included svg { flex-shrink: 0; margin-top: 3px; color: var(--indigo); }
+.mn-price-faq details { border-bottom: 1px solid var(--border); padding: 12px 2px; }
+.mn-price-faq summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+.mn-price-faq p { margin: 8px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--text-2); }
+.mn-pricing .mn-card, .mn-pricing > section { margin-top: 28px; }

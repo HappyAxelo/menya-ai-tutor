@@ -24,9 +24,8 @@ Stated plainly so nobody overclaims. Updated 31 October 2026.
 - **Bank coverage is small** (12 objectives, 11 templates). Many first-year topics (Kirchhoff's
   laws with multiple loops, integration, data structures beyond loops, Karnaugh maps…) have no
   templates yet; for those, practice problems are model-written and not verified.
-- **Automatic recurring payments.** IremboPay has no subscriptions in the API used here; each
-  payment buys one period, and paying early starts the new period at the payment time (unused
-  days of the old period are not carried over).
+- **Automatic recurring payments.** IremboPay doesn't offer them for mobile money through its API; each
+  payment buys one period. Paying early for the same plan adds to the time left.
 - **More than one HPC job at a time.** The server routes to one registered HPC address.
   Several jobs (load balancing) would need a list of addresses.
 
@@ -52,9 +51,8 @@ Stated plainly so nobody overclaims. Updated 31 October 2026.
   heart, a map, geometry beyond right-angled triangles) gets no picture and is explained in words.
   What is drawn is only as right as the model's description: curves and geometry are computed, but
   the model chooses, for example, which forces act on a block. Not reviewed by subject experts yet.
-- **"Unlimited" is not unlimited messages.** Pictures have no daily cap; messages have a stated fair-use
-  cap (1,000 a day, 20,000 a month), and all plans share the AI provider's free-tier capacity, so heavy
-  use can mean "very busy, try again" until a paid AI tier is bought.
+- **All plans share the AI provider's free-tier capacity**, so heavy use can mean "very busy, try again"
+  until a paid AI tier is bought, whatever plan a student is on.
 
 ## Implemented but not yet verified in production
 

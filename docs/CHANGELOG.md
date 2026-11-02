@@ -1,5 +1,15 @@
 # Change log
 
+## Pro, Exam Pass and Max (November 2026, branch `claude/plans-pro-exam-max`)
+
+Details and deployment: `docs/SUBSCRIPTIONS.md`. Pro $5 / month, Exam Pass $5 / 14 days, Max $8 / month (id stays
+`professional`). Pictures 1, 3, 10, 10 a day. Pricing page redesigned (white, indigo, comparison table, plain answers
+on limits, expiry, renewal and cancelling). New `payments` table: history, pending and failed states, admin revenue from
+actual payments. Early renewal adds time; a lower plan that couldn't be used is refused before payment. Dashboard shows
+pictures, notes, expiry, renewal and history; calm notices near a limit and in the last 3 days. Notes and exam limits moved
+to the plans table. False wording removed: "renews on", Anthropic in the privacy page. IremboPay's request, verification and
+signature are unchanged.
+
 ## Plans promise only what students get (November 2026, branch `claude/honest-plan-wording`)
 
 "A stronger model" and "advanced reasoning" removed from Pro and Unlimited: all plans run on the same model

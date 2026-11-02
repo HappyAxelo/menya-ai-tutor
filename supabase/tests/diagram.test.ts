@@ -139,7 +139,7 @@ describe("picture limits per plan", () => {
     assert.equal(m.calls.length, before);
   });
 
-  test("Pro gets 3 a day, and is pointed at Unlimited after that", async () => {
+  test("Pro gets 3 a day, and is pointed at Max after that", async () => {
     const u = await createUser(db), m = model();
     await subscribe(u, "pro");
     let sessionId: unknown;
@@ -149,12 +149,18 @@ describe("picture limits per plan", () => {
     assert.equal((fourth.body.pictureNote as any).upgrade_to, "professional");
   });
 
-  test("Unlimited has no daily picture limit", async () => {
-    const u = await createUser(db), m = model();
-    await subscribe(u, "professional");
-    let sessionId: unknown;
-    for (let i = 0; i < 8; i++) { const r = await run(u, m, ask(sessionId ? { sessionId } : {})); sessionId = r.body.sessionId; assert.ok(r.body.diagram, `picture ${i + 1}`); assert.equal(r.body.pictureNote, null); }
-    assert.equal(await pictures(u), 8);
+  test("Max and Exam Pass get 10 a day, with nothing further to upgrade to on Max", async () => {
+    for (const plan of ["professional", "exam"]) {
+      const u = await createUser(db), m = model();
+      await subscribe(u, plan);
+      let sessionId: unknown;
+      for (let i = 0; i < 10; i++) { const r = await run(u, m, ask(sessionId ? { sessionId } : {})); sessionId = r.body.sessionId; assert.ok(r.body.diagram, `${plan} picture ${i + 1}`); }
+      const eleventh = await run(u, m, ask({ sessionId }));
+      assert.equal(eleventh.body.diagram, null);
+      assert.equal((eleventh.body.pictureNote as any).limit, 10);
+      if (plan === "professional") assert.equal((eleventh.body.pictureNote as any).upgrade_to, null);
+      assert.equal(await pictures(u), 10);
+    }
   });
 
   test("a picture that can't be drawn, or that gives the answer away, isn't shown and isn't counted", async () => {
@@ -193,8 +199,8 @@ describe("picture limits per plan", () => {
   test("the plans table holds the limits and the new name and price", async () => {
     const plans = await rpc(db, "public_plans", {}) as any[];
     const by = Object.fromEntries(plans.map(p => [p.id, p]));
-    assert.deepEqual([by.free.daily_image_limit, by.pro.daily_image_limit, by.exam.daily_image_limit, by.professional.daily_image_limit], [1, 3, 3, null]);
-    assert.equal(by.professional.name, "Unlimited");
-    assert.equal(by.professional.price_monthly_cents, 1500);
+    assert.deepEqual([by.free.daily_image_limit, by.pro.daily_image_limit, by.exam.daily_image_limit, by.professional.daily_image_limit], [1, 3, 10, 10]);
+    assert.equal(by.professional.name, "Max");
+    assert.equal(by.professional.price_monthly_cents, 800);
   });
 });

@@ -13,15 +13,16 @@ export default function AdminPage({ onBack }) {
   const [overview, setOverview] = useState(null);
   const [billing, setBilling] = useState(null);
   const [retention, setRetention] = useState(null);
+  const [revenue, setRevenue] = useState(null);
   const [users, setUsers] = useState(null);
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState(null);
 
   const load = useCallback(async () => {
     const m = `${month}-01`;
-    const [e, a, h, c, o, b, rt] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config"), api("/admin/overview"), api("/admin/billing"), api("/admin/retention")]);
+    const [e, a, h, c, o, b, rt, rv] = await Promise.all([api(`/admin/economics?month=${m}`), api("/admin/alerts"), api("/admin/health"), api("/admin/config"), api("/admin/overview"), api("/admin/billing"), api("/admin/retention"), api("/admin/revenue")]);
     if (e.status === 403) { setMsg({ kind: "error", text: "Administrator access required." }); return; }
-    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data); setOverview(o.ok ? o.data : null); setBilling(b.ok ? b.data : null); setRetention(rt.ok ? rt.data : null);
+    setEcon(e.data.rows); setAlerts(a.data); setHealth(h.data.providers); setConfig(c.data); setOverview(o.ok ? o.data : null); setBilling(b.ok ? b.data : null); setRetention(rt.ok ? rt.data : null); setRevenue(rv.ok ? rv.data : null);
   }, [month]);
   useEffect(() => { load(); }, [load]);
 
@@ -31,7 +32,7 @@ export default function AdminPage({ onBack }) {
   };
 
   const grant = async (user) => {
-    const plan = prompt("Grant which plan? (pro, or professional for Unlimited)", "pro");
+    const plan = prompt("Grant which plan? (pro, exam, or professional for Max)", "pro");
     if (!plan) return;
     const days = Number(prompt("For how many days?", "30"));
     const note = prompt("Reason (stored in the audit log)", "") ?? "";
@@ -111,6 +112,10 @@ export default function AdminPage({ onBack }) {
         </div>
       </Card>
 
+      <Card title="Subscribers and revenue">
+        {!revenue ? <Loading /> : <RevenueView r={revenue} />}
+      </Card>
+
       <Card title="Retention and learning">
         {!retention ? <Loading /> : <RetentionView r={retention} />}
       </Card>
@@ -156,7 +161,7 @@ export default function AdminPage({ onBack }) {
 
       {config && (
         <Card title="Plan limits (edit and press Enter)">
-          <Table rows={config.plans} columns={["daily_image_limit", "daily_request_limit", "monthly_request_limit", "monthly_premium_limit", "premium_safety_margin", "requests_per_minute", "max_session_turns", "context_turns", "price_monthly_cents", "price_semester_cents", "price_yearly_cents", "price_two_weeks_cents"]
+          <Table rows={config.plans} columns={["daily_image_limit", "material_limit", "daily_exam_limit", "daily_request_limit", "monthly_request_limit", "monthly_premium_limit", "premium_safety_margin", "requests_per_minute", "max_session_turns", "context_turns", "price_monthly_cents", "price_semester_cents", "price_yearly_cents", "price_two_weeks_cents"]
             .reduce((cols, f) => [...cols, { key: f, label: f.replace(/_/g, " ").toUpperCase(), render: p => (
               <input defaultValue={p[f] ?? ""} aria-label={`${p.id} ${f}`} onKeyDown={e => e.key === "Enter" && savePlan(p.id, f, e.target.value)}
                 style={{ ...inputStyle, width: "90px", padding: "4px 6px", fontSize: "12px", fontFamily: mono }} />) }], [{ key: "id", label: "Plan" }])} />
@@ -220,6 +225,37 @@ function RetentionView({ r }) {
         { key: "label", label: "Measure" }, { key: "value", label: "Value", align: "right" }, { key: "note", label: "Meaning", wrap: true },
       ]} />
       <div style={{ fontSize: "12px", color: C.muted, marginTop: "8px" }}>Small numbers swing a lot: read percentages together with the counts. Gross margin per plan is in "Unit economics by plan".</div>
+    </>
+  );
+}
+
+// Money from payment records only. Amounts stay in the currency they were paid in.
+const moneyList = (rows) => (rows?.length ? rows.map(x => `${Number(x.amount).toLocaleString()} ${x.currency ?? ""}`).join(" + ") : "0");
+function RevenueView({ r }) {
+  const rows = [
+    ...r.subscribers_by_plan.map(p => [`${p.name} subscribers`, p.paying, p.granted ? `plus ${p.granted} granted by hand` : "paid and active now"]),
+    ["Monthly plan payments (30 days)", moneyList(r.monthly_plan_revenue_30d), "actual payments for monthly plans. Each is one month: nothing renews by itself"],
+    ["All revenue (30 days)", moneyList(r.revenue_30d), "every confirmed payment, before IremboPay's fees"],
+    ["Exam Pass sales (30 days)", r.exam_pass_sales_30d, ""],
+    ["New / renewals (30 days)", `${r.new_subscriptions_30d} / ${r.renewals_30d}`, "first-ever payment / paid again for the same plan"],
+    ["Expired (30 days)", r.expired_30d, "paid plan ended, nothing active now"],
+    ["Failed or cancelled / pending", `${r.failed_payments_30d} / ${r.pending_payments}`, "failed or cancelled in 30 days / checkouts open now"],
+    ["Conversion", r.conversion.users ? `${Math.round((100 * r.conversion.ever_paid) / r.conversion.users)}%` : "—", `${r.conversion.ever_paid} of ${r.conversion.users} learners have ever paid`],
+    ["AI requests today / this month", `${r.ai.requests_today} / ${r.ai.requests_month}`, `${Number(r.ai.tokens_month).toLocaleString()} tokens this month`],
+    ["AI cost this month", `$${Number(r.ai.cost_month_usd).toFixed(2)}`, r.ai.cost_per_subscriber_usd != null ? `$${Number(r.ai.cost_per_subscriber_usd).toFixed(4)} per paying subscriber` : "estimate from provider tokens × configured prices"],
+    ["Voice / photos / pictures today", `${r.media_today.transcribe ?? 0} / ${r.media_today.read_image ?? 0} / ${r.media_today.diagram ?? 0}`, "counts only; these aren't priced yet"],
+  ];
+  return (
+    <>
+      <Table rows={rows.map(([label, value, note]) => ({ label, value, note }))} columns={[
+        { key: "label", label: "Measure" }, { key: "value", label: "Value", align: "right" }, { key: "note", label: "Meaning", wrap: true },
+      ]} />
+      <div style={{ fontSize: "13px", fontWeight: 600, margin: "14px 0 6px" }}>Payment methods (30 days)</div>
+      <Table empty="No confirmed payments yet." rows={r.by_method_30d} columns={[{ key: "method", label: "Method" }, { key: "payments", label: "Payments", align: "right" },
+        { key: "amount", label: "Amount", align: "right", render: m => `${Number(m.amount).toLocaleString()} ${m.currency ?? ""}` }]} />
+      <div style={{ fontSize: "13px", fontWeight: 600, margin: "14px 0 6px" }}>Unusually heavy use today</div>
+      <Table empty="Nobody above the review level." rows={r.heavy_users} columns={[{ key: "email", label: "Learner" }, { key: "plan", label: "Plan" },
+        { key: "requests_today", label: "Messages today", align: "right" }, { key: "cost_30d_usd", label: "AI cost, 30 days", align: "right", render: h => `$${Number(h.cost_30d_usd).toFixed(4)}` }]} />
     </>
   );
 }
