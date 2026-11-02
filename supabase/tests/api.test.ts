@@ -67,9 +67,9 @@ describe("authentication", () => {
     assert.deepEqual(plans.plans.map((p: any) => p.id), ["free", "pro", "exam", "professional"]);
     assert.equal(plans.plans[3].monthly_premium_limit, 190, "allowance shown after safety margin");
     const price = (id: string) => plans.plans.find((p: any) => p.id === id);
-    assert.deepEqual([price("pro").price_monthly_cents, price("pro").price_semester_cents, price("pro").price_yearly_cents], [1000, 3500, 9000]);
+    assert.deepEqual([price("pro").price_monthly_cents, price("pro").price_semester_cents, price("pro").price_yearly_cents], [800, null, null], "Pro is sold by the month");
     assert.equal(price("exam").price_two_weeks_cents, 800);
-    assert.equal(price("professional").price_monthly_cents, 2000);
+    assert.equal(price("professional").price_monthly_cents, 1500);
     assert.ok(plans.plans.every((p: any) => p.currency === "USD"));
   });
 });
@@ -178,10 +178,10 @@ describe("feedback and analytics", () => {
       assert.equal(status.mode, "sandbox");
       assert.deepEqual(status.problems, ['IREMBOPAY_PLANS: unknown key "pro:decade"']);
       const byKey = Object.fromEntries(status.rows.map((r: any) => [r.key, r]));
-      assert.deepEqual(Object.keys(byKey).sort(), ["exam:two_weeks", "pro:month", "pro:semester", "pro:year", "professional:month"]);
+      assert.deepEqual(Object.keys(byKey).sort(), ["exam:two_weeks", "pro:month", "professional:month"]);
       assert.equal(byKey["pro:month"].payable, true);
       assert.equal(byKey["pro:month"].amount, 14500);
-      assert.equal(byKey["pro:year"].payable, false);
+      assert.equal(byKey["exam:two_weeks"].payable, false);
       assert.ok(!JSON.stringify(status).includes("sk_test"), "the secret key is never returned");
     } finally {
       ctx.billing = saved; ctx.billingProblems = undefined;
@@ -319,16 +319,16 @@ describe("billing webhooks", () => {
     const asked: string[] = [];
     ctx.billing = { ...saved!, createCheckout: async (req) => { asked.push(`${req.planId}:${req.interval}`); return { url: "https://pay.example/inv" }; } };
     const checkout = (plan: string, interval: string) => call("POST", "/billing/checkout", { token: u.token, body: { plan, interval } });
-    for (const [plan, interval] of [["pro", "month"], ["pro", "semester"], ["pro", "year"], ["exam", "two_weeks"], ["professional", "month"]]) {
+    for (const [plan, interval] of [["pro", "month"], ["exam", "two_weeks"], ["professional", "month"]]) {
       assert.equal((await checkout(plan, interval)).status, 200, `${plan}:${interval}`);
     }
-    for (const [plan, interval] of [["exam", "month"], ["professional", "year"], ["pro", "two_weeks"]]) {
+    for (const [plan, interval] of [["exam", "month"], ["professional", "year"], ["pro", "two_weeks"], ["pro", "semester"], ["pro", "year"]]) {
       const r = await checkout(plan, interval);
       assert.equal(r.status, 400, `${plan}:${interval}`);
       assert.equal((await r.json()).error, "interval_not_offered");
     }
     ctx.billing = saved;
-    assert.deepEqual(asked, ["pro:month", "pro:semester", "pro:year", "exam:two_weeks", "professional:month"]);
+    assert.deepEqual(asked, ["pro:month", "exam:two_weeks", "professional:month"]);
   });
 });
 

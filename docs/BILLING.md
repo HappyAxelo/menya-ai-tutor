@@ -31,7 +31,7 @@ Setup (owner):
    | `BILLING_PROVIDER` | `irembopay` |
    | `IREMBOPAY_SECRET_KEY` | from the merchant portal |
    | `IREMBOPAY_PAYMENT_ACCOUNT` | your payment account identifier |
-   | `IREMBOPAY_PLANS` | one entry per plan and period sold: `pro:month`, `pro:semester`, `pro:year`, `exam:two_weeks`, `professional:month`, e.g. `{"pro:month":{"code":"PI-...","amount":10},"pro:semester":{"code":"PI-...","amount":35},"pro:year":{"code":"PI-...","amount":90},"exam:two_weeks":{"code":"PI-...","amount":8},"professional:month":{"code":"PI-...","amount":25}}` (amounts in the payment account's currency: these are USD; use the RWF equivalents with an RWF account) |
+   | `IREMBOPAY_PLANS` | one entry per plan and period sold: `pro:month`, `exam:two_weeks`, `professional:month` (Unlimited), e.g. `{"pro:month":{"code":"PI-...","amount":11600},"exam:two_weeks":{"code":"PI-...","amount":11600},"professional:month":{"code":"PI-...","amount":21750}}` (amounts in the payment account's currency: these are USD; use the RWF equivalents with an RWF account) |
    | `IREMBOPAY_ENV` | `sandbox` first, `production` when verified |
 
 4. Set the same prices in the `plans` table (`price_monthly_cents`/`price_yearly_cents` in RWF ×100

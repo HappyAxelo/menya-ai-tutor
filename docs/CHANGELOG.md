@@ -1,5 +1,10 @@
 # Change log
 
+## New prices (2 November 2026, branch `claude/new-prices`)
+
+Pro $8 a month, sold by the month only (at $8 the old $35 semester cost more than paying monthly).
+Unlimited $15 a month. Exam Pass stays $8 for 2 weeks. Free unchanged.
+
 ## IremboPay: aligned with their documentation and email (November 2026, branch `claude/irembopay-docs-fixes`)
 
 - A plan is granted only after asking IremboPay directly (`GET /payments/invoices/{invoice}`), as they

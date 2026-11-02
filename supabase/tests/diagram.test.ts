@@ -195,6 +195,6 @@ describe("picture limits per plan", () => {
     const by = Object.fromEntries(plans.map(p => [p.id, p]));
     assert.deepEqual([by.free.daily_image_limit, by.pro.daily_image_limit, by.exam.daily_image_limit, by.professional.daily_image_limit], [1, 3, 3, null]);
     assert.equal(by.professional.name, "Unlimited");
-    assert.equal(by.professional.price_monthly_cents, 2000);
+    assert.equal(by.professional.price_monthly_cents, 1500);
   });
 });

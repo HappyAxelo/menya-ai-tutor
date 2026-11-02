@@ -44,11 +44,9 @@ merchant account these are usually):
 
 | Plan | Period | Price (USD) | Key in Menya |
 |---|---|---|---|
-| Pro | 1 month | $10 | `pro:month` |
-| Pro | 1 semester (4 months) | $35 | `pro:semester` |
-| Pro | 1 year | $90 | `pro:year` |
+| Pro | 1 month | $8 | `pro:month` |
 | Exam Pass | 2 weeks | $8 | `exam:two_weeks` |
-| Unlimited | 1 month | $20 | `professional:month` (the key keeps its old name) |
+| Unlimited | 1 month | $15 | `professional:month` (the key keeps its old name) |
 
 Each payment buys one period. There is no automatic renewal: the learner pays again
 when the period ends. This is simple one-off invoices, which IremboPay supports.
@@ -67,7 +65,7 @@ when the period ends. This is simple one-off invoices, which IremboPay supports.
    (If only RWF, I charge the RWF equivalent of my prices; see section D.)
    → ______________________
 6. **Products / payment items:** I need one product code per row of the table above
-   (5 codes). Do I create them in the portal myself, or do you create them?
+   (3 codes). Do I create them in the portal myself, or do you create them?
    Must each product have a fixed price? → ______________________
 7. **Notifications (webhook / callback URL):** where do I register it? Mine is:
    `https://tgrihnmngbamxxjnedlc.supabase.co/functions/v1/api/billing/webhook`
@@ -90,9 +88,9 @@ when the period ends. This is simple one-off invoices, which IremboPay supports.
 
 ## C. After the meeting: switch it on (sandbox first)
 
-1. **Make the 5 products** in the IremboPay portal (sandbox) and note each code.
+1. **Make the 3 products** in the IremboPay portal (sandbox) and note each code.
 2. **Make the `IREMBOPAY_PLANS` value:** open `IremboPay plan helper.html` (in the
-   Desktop folder), type the 5 codes, the account currency and, for RWF, today's exchange
+   Desktop folder), type the 3 codes, the account currency and, for RWF, today's exchange
    rate. Press *Copy*. (Or write it by hand: see the example below.)
 3. **Supabase dashboard → Edge Functions → Secrets** (project `tgrihnmngbamxxjnedlc`), add:
 
@@ -121,7 +119,7 @@ when the period ends. This is simple one-off invoices, which IremboPay supports.
    and on the admin page **Billing webhooks → Received (24h)** goes up by 1.
    If the plan doesn't change: Supabase → Edge Functions → `api` → **Logs**, search for
    `webhook_rejected` or `checkout_failed` (the reason is written there; no keys are logged).
-7. **Go live:** create the same 5 products in **production**, then change three secrets:
+7. **Go live:** create the same 3 products in **production**, then change three secrets:
    `IREMBOPAY_ENV` = `production`, `IREMBOPAY_SECRET_KEY` = the production key,
    `IREMBOPAY_PLANS` = the production codes (and `IREMBOPAY_PAYMENT_ACCOUNT` if it differs).
    Register the same webhook URL for production. The admin card now says
@@ -133,7 +131,7 @@ goes back to "email us"; plans already paid for keep running to the end of their
 ## D. Currency
 
 Mobile money works only on RWF invoices, so use an RWF payment account and put francs in
-`IREMBOPAY_PLANS`: at 1 USD = *R* RWF, Pro month = 10 × *R*, rounded to a friendly number. The helper page
+`IREMBOPAY_PLANS`: at 1 USD = *R* RWF, Pro month = 8 × *R*, rounded to a friendly number. The helper page
 does this. The pricing page lists plans in dollars, and each pay button shows the francs actually charged.
 
 Menya only grants the plan if the notification is correctly signed, the payment is `PAID` to your account
@@ -142,11 +140,9 @@ for at least the configured amount, and IremboPay confirms the same when Menya a
 ## E. Example `IREMBOPAY_PLANS`
 
 ```json
-{"pro:month":{"code":"PI-xxxx","amount":14500},
- "pro:semester":{"code":"PI-xxxx","amount":50500},
- "pro:year":{"code":"PI-xxxx","amount":130000},
+{"pro:month":{"code":"PI-xxxx","amount":11600},
  "exam:two_weeks":{"code":"PI-xxxx","amount":11600},
- "professional:month":{"code":"PI-xxxx","amount":29000}}
+ "professional:month":{"code":"PI-xxxx","amount":21750}}
 ```
 
 (The amounts above are only an illustration at 1 USD ≈ 1,450 RWF; use the codes from the

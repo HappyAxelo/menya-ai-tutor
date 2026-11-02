@@ -8,13 +8,13 @@ export const PLAN_CATALOG = [
     features: ["Step-by-step Socratic tutoring", "Three progressive hints per problem", "Your sessions saved to your account"],
   },
   {
-    id: "pro", name: "Pro", tagline: "For regular study", priceMonthlyCents: 1500, highlight: true,
+    id: "pro", name: "Pro", tagline: "For regular study", priceMonthlyCents: 800, highlight: true,
     daily: 150, monthly: 3000, premium: 0,
     features: ["Everything in Free", "Many more messages each day", "Longer sessions that remember more of your work",
       "More detailed explanations and checks", "A stronger model for hard questions", "Up to 3 pictures or diagrams a day"],
   },
   {
-    id: "professional", name: "Unlimited", tagline: "Unlimited pictures and practically unlimited practice", priceMonthlyCents: 2000,
+    id: "professional", name: "Unlimited", tagline: "Unlimited pictures and practically unlimited practice", priceMonthlyCents: 1500,
     daily: 1000, monthly: 20000, premium: 190,
     features: ["Everything in Pro", "Unlimited pictures and diagrams", "Practically unlimited messages (fair use)", "Our strongest standard model for everyday tutoring",
       "Advanced reasoning on hard problems, within a monthly allowance"],
