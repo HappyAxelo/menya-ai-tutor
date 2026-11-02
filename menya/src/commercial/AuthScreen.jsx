@@ -51,14 +51,19 @@ export default function AuthScreen({ inviteToken }) {
   const [state, setState] = useState("idle"); // idle | sending | sent | error
   const [error, setError] = useState(""); // a translation key
   const [showEmail, setShowEmail] = useState(false);
-  const [googleEnabled, setGoogleEnabled] = useState(null); // null = checking
+  const [googleEnabled, setGoogleEnabled] = useState(true);
 
-  // Only offer Google once the owner has enabled it in Supabase Auth.
+  // Sign-in shows straight away and never waits for the network: on a slow connection this check can
+  // take a long time. Only a clear "Google is off" from the server removes the button.
   useEffect(() => {
     const url = import.meta.env.VITE_SUPABASE_URL, key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    fetch(`${url}/auth/v1/settings`, { headers: { apikey: key } })
-      .then(r => r.json()).then(d => setGoogleEnabled(Boolean(d?.external?.google)))
-      .catch(() => setGoogleEnabled(false));
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 8000);
+    fetch(`${url}/auth/v1/settings`, { headers: { apikey: key }, signal: stop.signal })
+      .then(r => (r.ok ? r.json() : null)).then(d => { if (d?.external && d.external.google === false) setGoogleEnabled(false); })
+      .catch(() => {})
+      .finally(() => clearTimeout(timer));
+    return () => { clearTimeout(timer); stop.abort(); };
   }, []);
   const emailOpen = showEmail || googleEnabled === false;
 
@@ -107,7 +112,7 @@ export default function AuthScreen({ inviteToken }) {
             <span style={{ flex: 1, height: "1px", background: C.border }} />{t("auth.or")}<span style={{ flex: 1, height: "1px", background: C.border }} />
           </div>
         )}
-        {googleEnabled === null ? null : !emailOpen ? (
+        {!emailOpen ? (
           <button onClick={() => setShowEmail(true)} style={{ display: "block", margin: "0 auto", background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: "13.5px" }}>
             {t("auth.emailInstead")}
           </button>

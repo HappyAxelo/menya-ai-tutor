@@ -1,5 +1,12 @@
 # Change log
 
+## Sign-in always visible (November 2026, branch `claude/signin-always-visible`)
+
+The sign-in page showed no way to sign in until a check for Google sign-in came back, with no time limit,
+so on a slow connection it could stay without any button. Sign-in now shows at once; only a clear "Google
+is off" from the server removes that button. On phones the language choice sits above the logo instead of
+over it.
+
 ## New prices (2 November 2026, branch `claude/new-prices`)
 
 Pro $8 a month, sold by the month only (at $8 the old $35 semester cost more than paying monthly).
