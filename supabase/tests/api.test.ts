@@ -65,7 +65,7 @@ describe("authentication", () => {
     assert.equal((await call("GET", "/health")).status, 200);
     const plans = await (await call("GET", "/plans")).json();
     assert.deepEqual(plans.plans.map((p: any) => p.id), ["free", "pro", "exam", "professional"]);
-    assert.equal(plans.plans[3].monthly_premium_limit, 190, "allowance shown after safety margin");
+    assert.equal(plans.plans[3].monthly_premium_limit, 0, "no premium model is promised until one is connected");
     const price = (id: string) => plans.plans.find((p: any) => p.id === id);
     assert.deepEqual([price("pro").price_monthly_cents, price("pro").price_semester_cents, price("pro").price_yearly_cents], [800, null, null], "Pro is sold by the month");
     assert.equal(price("exam").price_two_weeks_cents, 800);

@@ -44,6 +44,9 @@ Stated plainly so nobody overclaims. Updated 31 October 2026.
   (.doc/.ppt/.xls) are not read. Scanned PDFs: only the first 3 pages are read (as images).
   Handwriting recognition depends on the vision model and photo quality.
 
+- **All plans use the same AI model today.** Paid plans differ by limits, memory, explanation detail and
+  pictures, not by a better model. No premium model is connected and its allowance is 0. Don't advertise a
+  stronger model until one is running.
 - **Pictures come in eight kinds only**: graphs, circuits, right-angled triangles, forces, step or cycle
   diagrams, rows of cells, bar charts and atoms. Menya's code draws them, so anything else (a cell, the
   heart, a map, geometry beyond right-angled triangles) gets no picture and is explained in words.

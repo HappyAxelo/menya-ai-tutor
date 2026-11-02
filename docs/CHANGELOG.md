@@ -1,5 +1,11 @@
 # Change log
 
+## Plans promise only what students get (November 2026, branch `claude/honest-plan-wording`)
+
+"A stronger model" and "advanced reasoning" removed from Pro and Unlimited: all plans run on the same model
+and no premium model is connected. Premium allowance set to 0 for Unlimited, which also hides its pricing line
+and account meter and prevents accidental premium costs.
+
 ## Sign-in always visible (November 2026, branch `claude/signin-always-visible`)
 
 The sign-in page showed no way to sign in until a check for Google sign-in came back, with no time limit,

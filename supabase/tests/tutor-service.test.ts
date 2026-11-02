@@ -82,6 +82,8 @@ describe("tutor pipeline", () => {
   });
 
   test("Pro routes complex questions to the strong model; Professional to premium within allowance", async () => {
+    // The allowance is 0 until a premium model is connected; this is how it behaves once it's switched on in Admin.
+    await db.query("update public.plans set monthly_premium_limit = 200, premium_safety_margin = 10 where id = 'professional'");
     const pro = await createUser(db), prof = await createUser(db);
     await subscribe(pro, "pro"); await subscribe(prof, "professional");
     const groq = fakeProvider("groq", () => reply({ difficulty: "complex" }));

@@ -49,7 +49,7 @@ export default function AccountPage({ account, email, onBack, onPricing, refresh
       <Card title={t("account.usage")}>
         <Meter label={t("account.today")} used={used.daily} limit={limits.daily} />
         <Meter label={t("account.month")} used={used.monthly} limit={limits.monthly} />
-        <Meter label={t("account.premium")} used={used.premium} limit={limits.premium} />
+        {limits.premium > 0 && <Meter label={t("account.premium")} used={used.premium} limit={limits.premium} />}
         <p className="mn-panel-text small">{t("account.resetNote", { n: limits.session_turns })}</p>
         <button onClick={refresh} className="mn-btn outline" style={{ marginTop: 8 }}>{t("account.refresh")}</button>
       </Card>
