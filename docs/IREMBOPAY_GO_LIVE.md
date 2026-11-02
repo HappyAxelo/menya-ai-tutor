@@ -11,6 +11,23 @@ your merchant account). The sandbox payment in step C is the first real check.
 
 ---
 
+## What IremboPay has confirmed (their email, November 2026)
+
+- **Onboarding fee: RWF 1,000,000.** Sandbox credentials are given only after it is paid.
+- **Channels:** MTN Mobile Money, Airtel Money, bank transfer, Visa, Mastercard, American Express.
+- **Callback URL is mandatory**; they notify successful, failed and cancelled payments. The backend must
+  verify the status before activating anything. Menya does both.
+- **Mobile money works only on RWF invoices** (API documentation), so use an **RWF** payment account.
+- **Recurring payments**: payment links and cards only, not mobile money through the API. Menya sells one
+  period per payment, which works for every channel; students pay again when it ends.
+- **Refunds**: IremboPay refunds confirmed duplicate payments only. Any other refund is yours to pay after
+  settlement, outside the system, and you then end the plan by hand. No refund API yet.
+- **Settlement**: Wednesdays and Fridays. Reports are on the merchant dashboard.
+- **Payment page**: the payment link has no return address, so Menya opens it in its own tab and waits for
+  the confirmation.
+
+Still unknown: the fee per transaction, and whether the onboarding fee is one-off (see the questions below).
+
 ## A. Take to the meeting
 
 **Documents** (ask IremboPay to confirm the exact list when you book; for a business
@@ -86,6 +103,7 @@ when the period ends. This is simple one-off invoices, which IremboPay supports.
    | `IREMBOPAY_SECRET_KEY` | the **sandbox** secret key from the portal |
    | `IREMBOPAY_PAYMENT_ACCOUNT` | the payment account identifier |
    | `IREMBOPAY_PLANS` | the text from the helper |
+   | `IREMBOPAY_CURRENCY` | optional: `RWF` is assumed. Other currencies can't take mobile money |
 
    No code change or redeploy is needed. The server reads secrets when it starts, which
    happens again within a few minutes; if step 5 still shows the old state after ~10
@@ -114,17 +132,12 @@ goes back to "email us"; plans already paid for keep running to the end of their
 
 ## D. Currency
 
-Menya's prices are stored in US dollars. IremboPay charges in the currency of the
-payment account, using the `amount` you put in `IREMBOPAY_PLANS`.
+Mobile money works only on RWF invoices, so use an RWF payment account and put francs in
+`IREMBOPAY_PLANS`: at 1 USD = *R* RWF, Pro month = 10 × *R*, rounded to a friendly number. The helper page
+does this. The pricing page lists plans in dollars, and each pay button shows the francs actually charged.
 
-- **USD account:** amounts are the dollar prices: 10, 35, 90, 8, 20.
-- **RWF account:** amounts are the francs to charge, e.g. at 1 USD = *R* RWF, Pro month
-  = 10 × *R*, rounded to a friendly number. The helper page does this. The website still
-  shows dollar prices, so it is worth adding "(paid in RWF at about … RWF)" to your
-  announcement, or changing the displayed prices later.
-
-Menya only grants the plan if the amount paid is **at least** the configured amount, the
-payment is `PAID`, and it went to your payment account; anything else is ignored.
+Menya only grants the plan if the notification is correctly signed, the payment is `PAID` to your account
+for at least the configured amount, and IremboPay confirms the same when Menya asks them directly.
 
 ## E. Example `IREMBOPAY_PLANS`
 

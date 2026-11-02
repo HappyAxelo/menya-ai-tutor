@@ -40,7 +40,7 @@ Setup (owner):
    learner on Pro and `payment_events` has one processed row. Then switch `IREMBOPAY_ENV`.
 
 Limits: no automatic renewal (learners pay again); paying early starts the new period at the
-payment time; refunds are handled in the IremboPay portal and the plan must then be ended by
+payment time; IremboPay refunds only confirmed duplicate payments (others are yours to pay after settlement) and the plan must then be ended by
 an admin (grant a 0-day plan or wait for expiry).
 
 ## Status

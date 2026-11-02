@@ -164,6 +164,7 @@ describe("feedback and analytics", () => {
       const plans = await (await call("GET", "/plans")).json();
       assert.equal(plans.checkoutAvailable, true);
       assert.deepEqual(plans.checkoutOptions, ["pro:month"]);
+      assert.deepEqual(plans.checkoutPrices, { "pro:month": { amount: 14500, currency: "RWF" } }, "the pay button shows the francs charged");
       const learner = await user();
       const refused = await call("POST", "/billing/checkout", { token: learner.token, body: { plan: "pro", interval: "year" } });
       assert.equal(refused.status, 400);

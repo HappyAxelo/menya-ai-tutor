@@ -199,7 +199,7 @@ export default function CommercialApp() {
       {showHistory && <HistoryDrawer onClose={() => setShowHistory(false)} {...historyProps} />}
       {page !== "tutor" && (
         <ErrorBoundary key={page} onReset={back}>
-          {page === "pricing" && <PricingPage account={account} onBack={back} />}
+          {page === "pricing" && <PricingPage account={account} onBack={back} refresh={refresh} />}
           {page === "progress" && <ProgressPage onBack={back} onReview={objective => { setReviewRequest({ objective, key: Date.now() }); back(); }} />}
           {page === "study" && <StudyPage onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }}
             onExam={(id, count) => { setExamFor({ id, count, key: Date.now() }); setPage("exam"); }}

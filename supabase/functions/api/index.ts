@@ -63,6 +63,7 @@ const ctx: ApiContext = {
     IREMBOPAY_PAYMENT_ACCOUNT: env("IREMBOPAY_PAYMENT_ACCOUNT"),
     IREMBOPAY_PLANS: env("IREMBOPAY_PLANS"),
     IREMBOPAY_ENV: env("IREMBOPAY_ENV"),
+    IREMBOPAY_CURRENCY: env("IREMBOPAY_CURRENCY"),
   })),
   async getUser(jwt) {
     const { data, error } = await sb.auth.getUser(jwt);

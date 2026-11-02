@@ -12,7 +12,20 @@ const PLANS = { "pro:month": { code: "PI-PRO-M", amount: 5000 }, "pro:year": { c
   "pro:semester": { code: "PI-PRO-S", amount: 17500 }, "exam:two_weeks": { code: "PI-EXM-W", amount: 4000 } };
 const NOW = Date.parse("2026-10-29T08:00:00Z");
 
+// IremboPay's "get invoice" answer: what they say about each invoice a notification mentions.
+const INVOICES = new Map<string, Record<string, unknown>>();
+const invoiceApi = (async (url: string) => {
+  const invoice = INVOICES.get(decodeURIComponent(String(url).split("/").at(-1)!));
+  return invoice ? new Response(JSON.stringify({ success: true, data: invoice }), { status: 200 }) : new Response("{}", { status: 404 });
+}) as unknown as typeof fetch;
+
 function notification(userId: string, over: Record<string, unknown> = {}) {
+  const body = notificationBody(userId, over), d = JSON.parse(body).data;
+  INVOICES.set(d.invoiceNumber, d);
+  return body;
+}
+
+function notificationBody(userId: string, over: Record<string, unknown> = {}) {
   return JSON.stringify({ success: true, data: {
     amount: 5000, invoiceNumber: "880123456789", transactionId: iremboPayTransactionId(userId, "pro", "month", NOW - 60_000),
     createdAt: "2026-10-29T09:59:00.000+02:00", paidAt: "2026-10-29T10:00:00.000+02:00", paymentMethod: "MOMO_PUSH",
@@ -60,7 +73,7 @@ describe("IremboPay", () => {
   });
 
   test("only a PAID invoice, to our account, at the full price, grants anything", async () => {
-    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => NOW });
+    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => NOW, fetchImpl: invoiceApi });
     const id = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
     for (const over of [{ paymentStatus: "NEW" }, { paymentAccountIdentifier: "OTHER-RWF" }, { amount: 100 }, { transactionId: "SOMEONE-ELSE-123" }]) {
       const body = notification(id, over);
@@ -74,9 +87,56 @@ describe("IremboPay", () => {
     assert.equal(ev.subscription!.current_period_end, "2026-11-29T08:00:00.000Z");
   });
 
+  test("a plan is granted only after IremboPay itself confirms the payment", async () => {
+    const id = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+    const asked: { url: string; headers: Record<string, string> }[] = [];
+    const answering = (invoice: Record<string, unknown> | null, status = 200) => (async (url: string, init: RequestInit) => {
+      asked.push({ url: String(url), headers: init.headers as Record<string, string> });
+      return new Response(JSON.stringify(invoice ? { data: invoice } : {}), { status });
+    }) as unknown as typeof fetch;
+    const provider = (fetchImpl: typeof fetch) => iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, sandbox: true, now: () => NOW, fetchImpl });
+    const body = notification(id), d = JSON.parse(body).data;
+
+    const good = await provider(answering(d)).verifyWebhook(await headers(body), body);
+    assert.equal(good.subscription!.plan_id, "pro");
+    assert.equal(asked[0].url, `https://api.sandbox.irembopay.com/payments/invoices/${d.invoiceNumber}`);
+    assert.equal(asked[0].headers["irembopay-secretKey"], KEY);
+
+    // A correctly signed notification that IremboPay's records don't back up grants nothing.
+    for (const over of [{ paymentStatus: "NEW" }, { transactionId: "MNY-PROM-other" }, { paymentAccountIdentifier: "OTHER" }, { amount: 100 }]) {
+      const ev = await provider(answering({ ...d, ...over })).verifyWebhook(await headers(body), body);
+      assert.equal(ev.subscription, null, JSON.stringify(over));
+      assert.equal(ev.id, `${d.invoiceNumber}:UNCONFIRMED`, "a later genuine notification isn't blocked as a duplicate");
+    }
+    // If they can't be reached, fail: the notification can be sent again, and no plan is given on trust.
+    await assert.rejects(provider(answering(null, 503)).verifyWebhook(await headers(body), body), /invoice check failed/);
+
+    // A failed or cancelled notification doesn't even need the check.
+    asked.length = 0;
+    const failed = notificationBody(id, { paymentStatus: "FAILED" });
+    assert.equal((await provider(answering(d)).verifyWebhook(await headers(failed), failed)).subscription, null);
+    assert.equal(asked.length, 0);
+  });
+
+  test("the signature header works with the space IremboPay's documentation shows", async () => {
+    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => NOW, fetchImpl: invoiceApi });
+    const body = notification("6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f");
+    const signed = await signIremboPayWebhook(KEY, body, NOW);
+    const ev = await pay.verifyWebhook(new Headers({ "irembopay-signature": signed.replace(",", ", ") }), body);
+    assert.equal(ev.subscription!.plan_id, "pro");
+  });
+
+  test("students are told what they will really be charged, and warned settings can't take mobile money", () => {
+    const base = { BILLING_PROVIDER: "irembopay", IREMBOPAY_SECRET_KEY: KEY, IREMBOPAY_PAYMENT_ACCOUNT: ACCOUNT, IREMBOPAY_PLANS: JSON.stringify(PLANS) };
+    assert.equal(billingSetup(base).billing!.currency, "RWF", "RWF unless told otherwise");
+    assert.deepEqual(billingSetup(base).problems, []);
+    assert.ok(billingSetup({ ...base, IREMBOPAY_CURRENCY: "USD" }).problems.some(p => /Mobile money only works on RWF/.test(p)));
+    assert.ok(billingSetup({ ...base, IREMBOPAY_CURRENCY: "XYZ" }).problems.some(p => /use RWF, USD, EUR or GBP/.test(p)));
+  });
+
   test("a semester lasts 4 months and an Exam Pass 14 days; the pass outranks Pro while it lasts", async () => {
     const learner = await createUser(db);
-    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => Date.now() });
+    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => Date.now(), fetchImpl: invoiceApi });
     const paidAt = new Date();
     const semester = notification(learner, { amount: 17500, invoiceNumber: "880000000001", paidAt: paidAt.toISOString(),
       transactionId: iremboPayTransactionId(learner, "pro", "semester") });
@@ -99,7 +159,7 @@ describe("IremboPay", () => {
 
   test("a paid notification upgrades the learner to Pro for one month; a repeat does nothing", async () => {
     const learner = await createUser(db);
-    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => Date.now() });
+    const pay = iremboPayProvider({ secretKey: KEY, paymentAccount: ACCOUNT, plans: PLANS, now: () => Date.now(), fetchImpl: invoiceApi });
     const body = notification(learner, { paidAt: new Date().toISOString() });
     const ev = await pay.verifyWebhook(await headers(body, Date.now()), body);
     assert.equal(await rpc(db, "process_payment_event", { p_provider: "irembopay", p_event: ev, p_raw: JSON.parse(body) }), "processed");

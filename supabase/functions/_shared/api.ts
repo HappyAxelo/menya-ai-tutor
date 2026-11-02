@@ -119,7 +119,10 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
     // checkoutOptions ("plan:period") which pay buttons to show (null = every priced period).
     const options = ctx.billing?.products ? Object.keys(ctx.billing.products) : null;
     return json(200, { plans: await ctx.db.rpc("public_plans", {}),
-      checkoutAvailable: Boolean(ctx.billing) && (!options || options.length > 0), checkoutOptions: options });
+      checkoutAvailable: Boolean(ctx.billing) && (!options || options.length > 0), checkoutOptions: options,
+      // What the pay buttons charge, when that differs from the plan's listed price (francs on an RWF account).
+      checkoutPrices: ctx.billing?.products ? Object.fromEntries(Object.entries(ctx.billing.products)
+        .map(([key, p]) => [key, { amount: p.amount, currency: ctx.billing!.currency }])) : null });
   }
   if (path === "/quote" && method === "POST") {
     const b = await readJson(req);

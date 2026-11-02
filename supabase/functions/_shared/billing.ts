@@ -63,6 +63,7 @@ export interface BillingProvider {
   // What can be bought ("plan:period" -> product). Unset = everything priced in the plans table.
   products?: Record<string, { code: string; amount: number }>;
   mode?: "sandbox" | "production";
+  currency?: string;              // what product amounts are charged in
 }
 
 const enc = new TextEncoder();
@@ -126,6 +127,7 @@ export interface IremboPayPlan { code: string; amount: number }  // product code
 export interface IremboPayConfig {
   secretKey: string;
   paymentAccount: string;                       // paymentAccountIdentifier from the portal (sets the currency)
+  currency?: string;                            // that account's currency, shown to learners (mobile money needs RWF)
   plans: Record<string, IremboPayPlan>;         // keys "pro:month", "pro:year", "professional:month", ...
   sandbox?: boolean;
   fetchImpl?: typeof fetch;
@@ -167,6 +169,7 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
     name: "irembopay",
     products: cfg.plans,
     mode: cfg.sandbox ? "sandbox" : "production",
+    currency: cfg.currency ?? "RWF",
     async verifyWebhook(headers, rawBody) {
       const parts = Object.fromEntries((headers.get("irembopay-signature") ?? "").split(",")
         .map(p => p.trim().split("=", 2) as [string, string]));
@@ -186,6 +189,17 @@ export function iremboPayProvider(cfg: IremboPayConfig): BillingProvider {
       const genuine = txn && planCfg && d.paymentStatus === "PAID" && d.paymentAccountIdentifier === cfg.paymentAccount &&
         Number(d.amount) >= planCfg.amount;
       if (!genuine) return { id, type: `invoice.${String(d.paymentStatus ?? "unknown").toLowerCase()}`, subscription: null };
+      // IremboPay asks merchants to verify the status before activating anything, so a plan is granted only
+      // after asking them directly. If they can't be reached this throws: nothing is recorded, the request
+      // fails, and the notification can be sent again from their portal.
+      const check = await doFetch(`${base}/payments/invoices/${encodeURIComponent(d.invoiceNumber)}`, {
+        headers: { "irembopay-secretKey": cfg.secretKey, "X-API-Version": "2" },
+      });
+      if (!check.ok) throw new Error(`IremboPay invoice check failed (HTTP ${check.status})`);
+      const invoice = (await check.json().catch(() => null))?.data;
+      const confirmed = invoice?.paymentStatus === "PAID" && invoice.transactionId === d.transactionId &&
+        invoice.paymentAccountIdentifier === cfg.paymentAccount && Number(invoice.amount) >= planCfg.amount;
+      if (!confirmed) return { id: `${d.invoiceNumber}:UNCONFIRMED`, type: "invoice.unconfirmed", subscription: null };
       const start = new Date(d.paidAt ? Date.parse(d.paidAt) : now());
       const end = periodEnd(start, txn!.interval);
       return {
@@ -232,6 +246,7 @@ export interface BillingEnv {
   IREMBOPAY_PAYMENT_ACCOUNT?: string;
   IREMBOPAY_PLANS?: string;             // JSON: {"pro:month":{"code":"PI-...","amount":5000}, ...}
   IREMBOPAY_ENV?: string;               // "sandbox" (default) or "production"
+  IREMBOPAY_CURRENCY?: string;          // the payment account's currency: RWF (default), USD, EUR or GBP
 }
 
 export function buildBillingProvider(env: BillingEnv): BillingProvider | null {
@@ -244,7 +259,7 @@ export function buildBillingProvider(env: BillingEnv): BillingProvider | null {
     case "irembopay":
       return iremboPayProvider({
         secretKey: env.IREMBOPAY_SECRET_KEY ?? "", paymentAccount: env.IREMBOPAY_PAYMENT_ACCOUNT ?? "",
-        plans: parseIremboPayPlans(env.IREMBOPAY_PLANS).plans, sandbox: env.IREMBOPAY_ENV !== "production",
+        plans: parseIremboPayPlans(env.IREMBOPAY_PLANS).plans, sandbox: env.IREMBOPAY_ENV !== "production", currency: env.IREMBOPAY_CURRENCY || "RWF",
       });
     default:
       throw new Error(`Billing provider "${env.BILLING_PROVIDER}" has no adapter yet. See docs/BILLING.md.`);
@@ -281,6 +296,11 @@ export function billingSetup(env: BillingEnv): { billing: BillingProvider | null
     if (!Object.keys(parsed.plans).length) problems.push("IREMBOPAY_PLANS has no usable product, so nothing can be bought yet");
     if (env.IREMBOPAY_ENV && !["sandbox", "production"].includes(env.IREMBOPAY_ENV)) {
       problems.push(`IREMBOPAY_ENV is "${env.IREMBOPAY_ENV}"; use sandbox or production (running as sandbox)`);
+    }
+    if (env.IREMBOPAY_CURRENCY && !["RWF", "USD", "EUR", "GBP"].includes(env.IREMBOPAY_CURRENCY)) {
+      problems.push(`IREMBOPAY_CURRENCY is "${env.IREMBOPAY_CURRENCY}"; use RWF, USD, EUR or GBP`);
+    } else if (env.IREMBOPAY_CURRENCY && env.IREMBOPAY_CURRENCY !== "RWF") {
+      problems.push(`Mobile money only works on RWF invoices: with ${env.IREMBOPAY_CURRENCY}, students can't pay by MTN or Airtel`);
     }
   }
   try {

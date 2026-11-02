@@ -14,11 +14,13 @@ const PERIODS = [
   { id: "two_weeks", column: "price_two_weeks_cents", months: null },
 ];
 
-export default function PricingPage({ account, onBack }) {
+export default function PricingPage({ account, onBack, refresh }) {
   const { t } = useT();
   const [plans, setPlans] = useState(null);
   const [checkoutAvailable, setCheckoutAvailable] = useState(false);
   const [checkoutOptions, setCheckoutOptions] = useState(null); // "plan:period" the payment provider sells; null = all
+  const [checkoutPrices, setCheckoutPrices] = useState(null);   // what each pay button really charges, when known
+  const [waiting, setWaiting] = useState(null);                 // { url, plan, periodEnd }: payment open in another tab
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(null);
 
@@ -27,6 +29,7 @@ export default function PricingPage({ account, onBack }) {
       setPlans(r.ok ? r.data.plans : []);
       setCheckoutAvailable(Boolean(r.ok && r.data.checkoutAvailable));
       setCheckoutOptions(r.ok && Array.isArray(r.data.checkoutOptions) ? r.data.checkoutOptions : null);
+      setCheckoutPrices(r.ok ? r.data.checkoutPrices ?? null : null);
       if (!r.ok) setNotice({ kind: "error", text: t("pricing.loadError") });
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -36,17 +39,44 @@ export default function PricingPage({ account, onBack }) {
   const tr = (key, english) => { const s = t(key); return s === key ? english : s; };
   const [before, after] = t("pricing.noPayment").split("{email}");
 
+  // The payment page has no way to send the learner back, so it opens in its own tab and this page
+  // watches for the plan to change. The tab must open inside the click: phones block it after a wait.
   const upgrade = async (plan, interval) => {
+    const tab = window.open("", "_blank");
     setBusy(`${plan.id}:${interval}`); setNotice(null);
     const r = await api("/billing/checkout", { method: "POST", body: { plan: plan.id, interval } });
     setBusy(null);
-    if (r.ok && r.data.url) { window.location.href = r.data.url; return; }
+    if (r.ok && r.data.url) {
+      if (tab) { tab.opener = null; tab.location.href = r.data.url; }
+      setWaiting({ url: r.data.url, plan: account?.plan, periodEnd: account?.period_end ?? null });
+      return;
+    }
+    tab?.close();
     setNotice({ kind: "error", text: t("pricing.checkoutError") });
   };
+
+  // Every 5 seconds for 15 minutes: IremboPay's confirmation reaches the server, the account changes.
+  useEffect(() => {
+    if (!waiting || !refresh) return;
+    let tries = 0;
+    const id = setInterval(() => { if (++tries > 180) { clearInterval(id); setWaiting(null); } else refresh(); }, 5000);
+    return () => clearInterval(id);
+  }, [waiting, refresh]);
+  useEffect(() => {
+    if (waiting && account && (account.plan !== waiting.plan || (account.period_end ?? null) !== waiting.periodEnd)) {
+      setWaiting(null);
+      setNotice({ kind: "ok", text: t("pricing.paidThanks", { plan: tr(`plan.${account.plan}`, account.plan) }) });
+    }
+  }, [account, waiting]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Page title={t("pricing.title")} subtitle={t("pricing.sub")} onBack={onBack}>
       {notice && <Notice kind={notice.kind}>{notice.text}</Notice>}
+      {waiting && (
+        <Notice kind="info">
+          {t("pricing.waiting")} <a href={waiting.url} target="_blank" rel="noopener noreferrer">{t("pricing.openPayment")}</a>
+        </Notice>
+      )}
       {plans && !checkoutAvailable && (
         <Notice kind="info">
           {before}<a href={`mailto:${CONTACT}?subject=Menya%20plan%20upgrade`}>{CONTACT}</a>{after}
@@ -64,6 +94,11 @@ export default function PricingPage({ account, onBack }) {
             // "Save 25%" against paying monthly for the same time.
             const saving = (o) => (monthly && o.months > 1 ? Math.round(100 * (1 - p[o.column] / (monthly * o.months))) : 0);
             const price = (o) => (p[o.column] === 0 ? t("plan.free") : formatPrice(p[o.column], p.currency));
+            // On a pay button: the amount really charged (francs on an RWF account).
+            const charge = (o) => {
+              const c = checkoutPrices?.[`${p.id}:${o.id}`];
+              return c ? new Intl.NumberFormat(undefined, { style: "currency", currency: c.currency, maximumFractionDigits: 0 }).format(c.amount) : price(o);
+            };
             return (
               <div key={p.id} className={`mn-plan${current ? " highlight" : ""}${p.id === "exam" ? " exam" : ""}`}>
                 {current ? <span className="ribbon">{t("pricing.yourPlan")}</span>
@@ -97,7 +132,7 @@ export default function PricingPage({ account, onBack }) {
                     ? <div className="pay-options">
                         {payable.map((o, i) => (
                           <Button key={o.id} variant={i === 0 ? undefined : "ghost"} onClick={() => upgrade(p, o.id)} disabled={busy !== null}>
-                            {busy === `${p.id}:${o.id}` ? t("pricing.opening") : t("pricing.pay", { price: price(o), period: t(`pricing.per.${o.id}`) })}
+                            {busy === `${p.id}:${o.id}` ? t("pricing.opening") : t("pricing.pay", { price: charge(o), period: t(`pricing.per.${o.id}`) })}
                           </Button>
                         ))}
                       </div>

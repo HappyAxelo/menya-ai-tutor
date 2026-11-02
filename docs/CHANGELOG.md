@@ -1,5 +1,15 @@
 # Change log
 
+## IremboPay: aligned with their documentation and email (November 2026, branch `claude/irembopay-docs-fixes`)
+
+- A plan is granted only after asking IremboPay directly (`GET /payments/invoices/{invoice}`), as they
+  require. If they can't be reached, nothing is granted and the notification can be re-sent.
+- The payment link can't return to the site, so it opens in its own tab and the pricing page watches for
+  the confirmation, then says so.
+- Pay buttons show the amount really charged (RWF). `IREMBOPAY_CURRENCY` optional; a non-RWF value warns
+  on the admin Payments card that mobile money won't work.
+- Still not tried against IremboPay's sandbox: credentials come only after the RWF 1,000,000 onboarding fee.
+
 ## Pictures, and the Unlimited plan (2 November 2026, branch `claude/visual-explanations`)
 
 - The tutor can show pictures: graphs, circuits, right-angled triangles, forces, step or cycle diagrams,
