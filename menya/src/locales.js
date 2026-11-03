@@ -4,6 +4,7 @@
 // speakers before wide release (see docs/CHANGELOG.md).
 
 const en = {
+  "research.guest": "Research searches come with a free account. This answer wasn't checked against current research.",
   "menu.open": "Your profile and menu",
   "menu.profile": "My profile",
   "menu.progress": "My learning progress",
@@ -666,6 +667,7 @@ const en = {
 };
 
 const rw = {
+  "research.guest": "Ubushakashatsi buza na konti y'ubuntu. Iki gisubizo nticyagenzuwe mu bushakashatsi bugezweho.",
   "menu.open": "Umwirondoro n'urutonde",
   "menu.profile": "Umwirondoro wanjye",
   "menu.progress": "Aho ngeze niga",
@@ -1328,6 +1330,7 @@ const rw = {
 };
 
 const fr = {
+  "research.guest": "Les recherches sont incluses avec un compte gratuit. Cette réponse n'a pas été vérifiée dans la recherche actuelle.",
   "menu.open": "Votre profil et menu",
   "menu.profile": "Mon profil",
   "menu.progress": "Ma progression",
@@ -1990,6 +1993,7 @@ const fr = {
 };
 
 const sw = {
+  "research.guest": "Utafiti unakuja na akaunti ya bure. Jibu hili halijakaguliwa na utafiti wa sasa.",
   "menu.open": "Wasifu wako na menyu",
   "menu.profile": "Wasifu wangu",
   "menu.progress": "Maendeleo yangu",

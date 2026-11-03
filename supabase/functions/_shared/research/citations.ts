@@ -84,8 +84,34 @@ export function researchNote(papers: Paper[], maxAbstract: number): string {
 ${blocks.join("\n\n")}`;
 }
 
-export const NO_RESEARCH_NOTE = "[APP NOTE] A search of the academic databases was attempted for this question, but no usable results came back. Say plainly, in one sentence, that you could not check current research for this answer, then answer from general knowledge and mark uncertain points. Don't name any study, author, journal or statistic.";
-export const RESEARCH_LIMIT_NOTE = "[APP NOTE] The student has used today's research searches, so no academic databases were searched. Answer from general knowledge and say you did not check current research. Don't name any study, author, journal or statistic.";
+const NO_SOURCES_RULES = "The app tells the student that this answer wasn't checked, so don't say it yourself. Explain the idea from general knowledge, marking uncertain points. Don't name any study, author, journal or statistic, and don't write \"studies show\", \"research shows\" or anything else that claims evidence you haven't seen.";
+export const NO_RESEARCH_NOTE = `[APP NOTE] A search of the academic databases was attempted for this question, but no usable results came back. ${NO_SOURCES_RULES}`;
+export const RESEARCH_LIMIT_NOTE = `[APP NOTE] No academic databases were searched for this question. ${NO_SOURCES_RULES}`;
+
+// The app's own statement, first in the reply, so it holds whatever the model wrote and survives copying.
+const NOT_CHECKED: Record<string, string> = {
+  English: "Not checked against current research: this is general background.",
+  French: "Non vérifié dans la recherche actuelle : ce sont des connaissances générales.",
+  Swahili: "Halijakaguliwa na utafiti wa sasa: haya ni maarifa ya jumla.",
+  Kinyarwanda: "Ntibyagenzuwe mu bushakashatsi bugezweho: ubu ni ubumenyi rusange.",
+  Spanish: "No comprobado con la investigación actual: esto es conocimiento general.",
+  Portuguese: "Não verificado na investigação atual: isto é conhecimento geral.",
+};
+export const notCheckedLine = (language: string) => `*${NOT_CHECKED[language] ?? NOT_CHECKED.English}*`;
+
+// With no source behind it, "studies show that X" is a claim of evidence nobody checked: it becomes plain X.
+const UNSOURCED = /\b(?:(?:recent|many|several|multiple|some|most|the)\s+)?(?:studies|research|evidence|literature)\s+(?:has\s+|have\s+)?(?:shows?|shown|suggests?|suggested|finds?|found|indicates?|indicated|demonstrates?|demonstrated)\s+that\s+/gi;
+const UNSOURCED_FR = /\b(?:(?:des|les|de nombreuses|plusieurs)\s+)?(?:[ée]tudes|recherches?)\s+(?:montrent|sugg[èe]rent|indiquent|montre|sugg[èe]re|indique)\s+que?\s*/gi;
+export function dropUnsourcedClaims(message: string): { message: string; removed: number } {
+  let removed = 0;
+  const pieces = message.split(/(```[\s\S]*?```|`[^`\n]+`)/);
+  const text = pieces.map((p, i) => {
+    if (i % 2) return p;
+    return p.replace(UNSOURCED, () => { removed++; return "Generally, "; }).replace(UNSOURCED_FR, () => { removed++; return "En général, "; })
+      .replace(/([,;:] )(Generally|En général), /g, (_, pre, w) => `${pre}${w.toLowerCase()}, `);
+  }).join("");
+  return { message: text, removed };
+}
 
 // Earlier sources in this conversation can be cited again, but only from what was shown before.
 export function earlierSourcesNote(sources: PublicSource[]): string {

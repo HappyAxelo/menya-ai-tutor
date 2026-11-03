@@ -197,6 +197,7 @@ function ResearchSources({ research, onPlans }) {
   );
   return (
     <div className="mn-research">
+      {status === "guest" && <div className="mn-callout warn"><Library size={16} aria-hidden="true" /><div>{t("research.guest")} <button className="mn-link" onClick={onPlans}>{t("guest.createAccount")}</button></div></div>}
       {status === "limit" && <div className="mn-callout warn"><Library size={16} aria-hidden="true" /><div>{t("research.limit")} <button className="mn-link" onClick={onPlans}>{t("msg.comparePlans")}</button></div></div>}
       {status === "unavailable" && <div className="mn-callout warn"><Library size={16} aria-hidden="true" /><div>{t("research.unavailable")}</div></div>}
       {status === "empty" && <div className="mn-callout warn"><Library size={16} aria-hidden="true" /><div>{t("research.empty")}</div></div>}

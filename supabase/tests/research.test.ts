@@ -12,7 +12,7 @@ import { handleTutor } from "../functions/_shared/tutorService.ts";
 import { CONNECTORS, parseArxiv, parsePubmed, cleanDoi, type Paper } from "../functions/_shared/research/connectors.ts";
 import { decideResearch, keywordsFrom, scrubPersonal } from "../functions/_shared/research/select.ts";
 import { bestExcerpt, dedupe, rank, resetCooldowns, runResearch } from "../functions/_shared/research/pipeline.ts";
-import { apaReference, checkCitations, failureCount, inTextCitation, neutralise, researchNote, toPublicSource } from "../functions/_shared/research/citations.ts";
+import { apaReference, checkCitations, dropUnsourcedClaims, failureCount, notCheckedLine, inTextCitation, neutralise, researchNote, toPublicSource } from "../functions/_shared/research/citations.ts";
 import { classifyRequest, decideTurn, isStruggling, type TurnContext } from "../functions/_shared/engine/state.ts";
 import { buildSystemPrompt, learnerMemoryNote, parseTutorJson, polishReply } from "../functions/_shared/policy.ts";
 import type { ModelProvider } from "../functions/_shared/providers.ts";
@@ -362,6 +362,41 @@ describe("research inside the tutor", () => {
     assert.match(noteOf(), /no usable results came back/);
     assert.equal((await repo.researchAllowance(user, "free")).used, 0);
   });
+  test("no sources: the reply starts with the app's statement, and \"studies show\" doesn't survive", async () => {
+    reply = "Studies show that rainfall drives outbreaks. However, research has shown that data quality limits models.";
+    const user = await createUser(db, "r8@test.local");
+    const b = (await ask(user, "What does research say about malaria prediction?", fakeFetch({ "": () => ({ fail: true }) }).fetch)).body as any;
+    assert.equal(b.reply.message, "*Not checked against current research: this is general background.*\n\nGenerally, rainfall drives outbreaks. However, generally, data quality limits models.");
+    assert.equal((await db.query<any>("select citation_failures from public.research_queries order by id desc limit 1")).rows[0].citation_failures, 2);
+  });
+  test("past today's allowance: the same statement, with the limit status rather than the guest one", async () => {
+    reply = "Rainfall matters.";
+    const user = await createUser(db, "r9@test.local");
+    await db.query("update public.plans set daily_research_limit = 0 where id = 'free'");
+    const b = (await ask(user, "What does research say about malaria prediction?", goodFetch().fetch)).body as any;
+    await db.query("update public.plans set daily_research_limit = 3 where id = 'free'");
+    assert.equal(b.research.status, "limit");
+    assert.match(b.reply.message, /^\*Not checked/);
+  });
+  test("real sources: the words stay, and there's no statement", async () => {
+    reply = "Studies show that rainfall matters [S1].";
+    const user = await createUser(db, "r10@test.local");
+    const b = (await ask(user, "What does research say about malaria prediction?", goodFetch().fetch)).body as any;
+    assert.match(b.reply.message, /^Studies show that rainfall matters \(\[/);
+  });
+  test("an ordinary question: no statement, but an unsourced \"studies show\" still goes", async () => {
+    reply = "Studies show that force equals mass times acceleration.";
+    const user = await createUser(db, "r11@test.local");
+    const b = (await ask(user, "What is Newton's second law?", goodFetch().fetch)).body as any;
+    assert.equal(b.reply.message, "Generally, force equals mass times acceleration.");
+  });
+  test("the statement follows the reply's language; code is left alone", () => {
+    assert.match(notCheckedLine("French"), /Non vérifié/);
+    assert.match(notCheckedLine("Klingon"), /Not checked/);
+    const code = "```\n# studies show that x\n```";
+    assert.equal(dropUnsourcedClaims(code).message, code);
+    assert.equal(dropUnsourcedClaims("Des études montrent que la pluie compte.").message, "En général, la pluie compte.");
+  });
   test("the model's invented reference is removed even when the search failed", async () => {
     reply = "Rates fell by 40% (Fabricated et al., 2021). See 10.5555/invented.";
     const user = await createUser(db, "r4@test.local");
@@ -387,7 +422,8 @@ describe("research inside the tutor", () => {
     const f2 = goodFetch();
     const g = (await ask(gid, "What does research say about malaria prediction?", f2.fetch, { research: true })).body as any;
     assert.equal(f2.asked.length, 0);
-    assert.equal(g.research.status, "limit");
+    assert.equal(g.research.status, "guest");
+    assert.match(g.reply.message, /^\*Not checked against current research/);
   });
   test("a follow-up can cite the earlier source, and only that", async () => {
     reply = "Rainfall [S1].";

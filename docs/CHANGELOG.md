@@ -7,6 +7,7 @@
 - **Profile:** profile button and menu, profile page, My courses, Help and support, secure logout, logout on all devices.
 - **Admin:** Academic research section: service status, usage, switches, limits and live tests.
 - **Fixed, both already live:** code blocks in tutor replies lost their fences, so they never rendered as code. The header menu shared a CSS class with the "I'm stuck" menu, so it floated over the page and could cover "Skip for now".
+- With no sources retrieved, replies start with "Not checked against current research" and unsourced "studies show that" is removed. Guests get accurate wording and a sign-up button.
 - New per-plan limit `daily_research_limit` (Free 3, Pro 15, Exam Pass 15, Max 30, Guest 0). Prices and message limits unchanged.
 
 ## Guest access and new entry screen (November 2026, branch `claude/guest-access`)

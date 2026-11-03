@@ -19,7 +19,7 @@ import type { Entitlement, Repo, Session } from "./repo.ts";
 import { asksForAnswer, classifyRequest, decideTurn, isStruggling, isUnexplained, reconcile, type CheckedVerdict, type EngineAction, type Mode, type StuckReason } from "./engine/state.ts";
 import { decideResearch, keywordsFrom, scrubPersonal, type ResearchDecision } from "./research/select.ts";
 import { runResearch, type ResearchDeps, type ResearchResult } from "./research/pipeline.ts";
-import { checkCitations, earlierSourcesNote, failureCount, NO_RESEARCH_NOTE, RESEARCH_LIMIT_NOTE, researchNote, toPublicSource, type PublicSource } from "./research/citations.ts";
+import { checkCitations, dropUnsourcedClaims, earlierSourcesNote, failureCount, notCheckedLine, NO_RESEARCH_NOTE, RESEARCH_LIMIT_NOTE, researchNote, toPublicSource, type PublicSource } from "./research/citations.ts";
 import { generateItem, markItem, questionKey, misconceptionText, objective as objectiveInfo, OBJECTIVE_IDS, type Item } from "./engine/bank.ts";
 import { emptyRecord, estimate, evidenceKind, update as updateMastery } from "./engine/mastery.ts";
 
@@ -550,10 +550,17 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     citation = checkCitations(reply.message, citable, { researched: researchDecision.tier !== "none", studentText: studentTexts.join(" ") });
     reply.message = citation.message;
     if (citation && failureCount(citation.failures)) log({ event: "citation_removed", ...citation.failures });
+    // Nothing retrieved means no evidence to claim, and when the student wanted evidence the reply says so first.
+    if (!citable.length) {
+      const dropped = dropUnsourcedClaims(reply.message);
+      reply.message = dropped.message;
+      if (dropped.removed) { citation.failures.authorYear += dropped.removed; log({ event: "unsourced_claim_removed", count: dropped.removed }); }
+      if (researchDecision.tier !== "none") reply.message = `${notCheckedLine(reply.language || session.language || "English")}\n\n${reply.message}`;
+    }
   }
   const citedSources = (citation?.cited ?? []).map(i => citable[i]);
   const researchView = researchDecision.tier === "none" && !citedSources.length ? null : {
-    status: researchDecision.tier === "none" ? "ok" : !researchLeft ? "limit" : research?.papers.length ? "ok" : research && !research.degraded ? "empty" : "unavailable",
+    status: researchDecision.tier === "none" ? "ok" : !researchLeft ? (ent.plan_id === "guest" ? "guest" : "limit") : research?.papers.length ? "ok" : research && !research.degraded ? "empty" : "unavailable",
     sources: citedSources,
     further: research?.papers.length ? searchedSources.filter(s => !citedSources.includes(s)).slice(0, 3) : [],
     partial: Boolean(research?.degraded && research.papers.length),

@@ -116,6 +116,8 @@ Status is carried through honestly. Preprints are labelled as such. "Journal art
 claimed for a paper individually, because the services don't confirm it. Each reference states whether Menya read the abstract, excerpts
 or only the title. Retracted papers are dropped where the service marks them.
 
+**When nothing was retrieved** (a guest, no searches left, services down, or no match), the reply starts with the app's own line, "Not checked against current research", and "studies show that…" is reduced to the plain statement, because there's no evidence behind it. The model is told the same. Other wordings, such as "research shows a link", aren't rewritten, so the opening line is what guards those.
+
 **Limit, and it matters:** this proves each citation is a real retrieved paper. It does **not** prove the paper supports the sentence.
 The model is told to claim only what the text says, but a summary can still overreach. In the demo, one reply credited a broad claim to a
 student journal article. Ranking also favours closely matching text over standing in the field, so a weak paper can rank above a
@@ -161,7 +163,7 @@ speaker's review.
 
 ## 11. Tests
 
-Run: `cd supabase && npm test` and `cd menya && npm test`. On commit of this release: 270 backend and 28 front-end tests, none failing.
+Run: `cd supabase && npm test` and `cd menya && npm test`. On commit of this release: 275 backend and 28 front-end tests, none failing.
 Outside services and the model are scripted in these tests. `dev/try-research.ts` and `dev/try-tutoring.ts` use the real ones.
 
 **Acceptance list**
@@ -176,7 +178,7 @@ Outside services and the model are scripted in these tests. `dev/try-research.ts
 | 12 | Conflicting evidence | Instruction only; **not measured** |
 | 13, 22 | Failures and timeouts | Tested |
 | 15-18 | Profile, usage, progress, logout | Browser test on the local backend |
-| 19 | Logout invalidates the session | **Client tested. The server side needs checking on live Supabase after deployment** |
+| 19 | Logout invalidates the session | Checked on live Supabase with a guest session: after logout the old token gets 403 from Supabase and 401 from Menya's API, and the refresh token gets 400. Real Google and email logout not tried |
 | 20-21 | Guests restricted; accounts intact | Tested in the database; re-check on live |
 | 23-24 | Keys, monitoring | Tested |
 | 25 | Prompt injection | Tested, plus one real-model run. Risk reduced, not gone |
