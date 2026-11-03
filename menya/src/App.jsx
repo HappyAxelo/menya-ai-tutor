@@ -221,7 +221,7 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
                 <ImageIcon size={16} aria-hidden="true" />
                 <div>
                   {t(msg.pictureNote.reason === "limit" ? "picture.limit" : "picture.failed")}
-                  {msg.pictureNote.reason === "limit" && msg.pictureNote.upgrade_to && <>{" "}<button className="mn-link" onClick={onPlans}>{t("msg.comparePlans")}</button></>}
+                  {msg.pictureNote.reason === "limit" && msg.pictureNote.upgrade_to && <>{" "}<button className="mn-link" onClick={onPlans}>{msg.pictureNote.upgrade_to === "free" ? t("guest.createAccount") : t("msg.comparePlans")}</button></>}
                 </div>
               </div>
             )}
@@ -242,7 +242,7 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
               </div>
             )}
             {msg.type === "limit" && (
-              <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={onPlans}>{msg.upgradeTo ? t("msg.comparePlans") : t("msg.viewPlan")}</button>
+              <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={onPlans}>{msg.upgradeTo === "free" ? t("guest.createAccount") : msg.upgradeTo ? t("msg.comparePlans") : t("msg.viewPlan")}</button>
             )}
             {msg.type === "error" && msg.retry && (
               <button className="mn-btn outline" style={{ marginTop: 12 }} onClick={() => onRetry(msg.retry)} disabled={retryDisabled}><RotateCcw size={14} />{t("msg.tryAgain")}</button>
@@ -375,7 +375,7 @@ function Welcome({ client, userName, composer, onExample, onIntent, introOpen, o
 // onSessionChange(id): the saved conversation now on screen (null for a new one).
 // newChatKey: changing it starts a new conversation (the sidebar's "New conversation").
 // userName: first name for the greeting (from the Google profile), if known.
-export default function AITutor({ client = null, headerExtras = null, onUsage = null, account = null, onNavigate = null, resume = null,
+export default function AITutor({ client = null, guest = false, headerExtras = null, onUsage = null, account = null, onNavigate = null, resume = null,
                                   sidebar = null, onSessionChange = null, newChatKey = 0, userName = null, reviewRequest = null }) {
   const [apiKey, setApiKey] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -656,7 +656,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
     <>
     {scratchpad}
     <form className={`mn-composer${dragging ? " dragging" : ""}`} onSubmit={e => { e.preventDefault(); send(); }}
-      onDragOver={e => { if (client && e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragging(true); } }}
+      onDragOver={e => { if (client && !guest && e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={() => setDragging(false)}
       onDrop={e => { if (!client) return; e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}>
       {dragging && <div className="mn-drop-hint">{t("attach.drop")}</div>}
@@ -679,7 +679,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
           const go = settings.enterToSend ? !e.shiftKey : (e.ctrlKey || e.metaKey);
           if (go) { e.preventDefault(); send(); }
         }}
-        onPaste={e => { const pasted = [...(e.clipboardData?.files ?? [])]; if (client && pasted.length) { e.preventDefault(); addFiles(pasted); } }}
+        onPaste={e => { const pasted = [...(e.clipboardData?.files ?? [])]; if (client && !guest && pasted.length) { e.preventDefault(); addFiles(pasted); } }}
         maxLength={4000}
         placeholder={empty ? t("composer.placeholder") : t("composer.placeholderFollowUp")}
         aria-label={t("composer.aria")} />
@@ -697,7 +697,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
             <NotebookPen size={15} />
           </button>
         )}
-        {client && (
+        {client && !guest && (
           <>
             <button type="button" className="mn-btn icon" onClick={() => fileInputRef.current?.click()} disabled={files.length >= 5}
               title={files.length >= 5 ? t("attach.max") : t("attach.button")} aria-label={t("attach.button")}>
@@ -720,7 +720,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
           </span>
         )}
         {!voice && <span className="mn-kbd mn-hide-sm">{settings.enterToSend ? t("composer.kbdEnter") : t("composer.kbdCtrl")}</span>}
-        {client && (
+        {client && !guest && (
           <button type="button" className={`mn-mic${voice && voice.phase !== "transcribing" ? " live" : ""}`} disabled={voice?.phase === "transcribing" || loading}
             onClick={() => (voice ? stopVoice() : startVoice())}
             aria-label={voice ? t("voice.stop") : t("voice.start")} title={voice ? t("voice.stop") : t("voice.start")}>
@@ -770,7 +770,7 @@ export default function AITutor({ client = null, headerExtras = null, onUsage = 
         <main className="mn-thread">
           <div className="mn-thread-inner">
             {empty && (
-              <Welcome client={client} userName={userName} onNavigate={onNavigate} onExample={q => runAction("message", q)} onIntent={useIntent}
+              <Welcome client={client} userName={userName} onNavigate={guest ? null : onNavigate} onExample={q => runAction("message", q)} onIntent={useIntent}
                 onReview={objective => runAction("review", "", { objective })}
                 introOpen={introOpen} onDismissIntro={dismissIntro}
                 composer={<div className="mn-welcome-composer">{offlineNote}{composer}</div>} />

@@ -14,7 +14,8 @@ const SUPABASE_STUBS = `
   create role authenticated nologin;
   create role service_role nologin bypassrls;
   create schema auth;
-  create table auth.users (id uuid primary key, email text);
+  create table auth.users (id uuid primary key, email text, is_anonymous boolean not null default false);
+  create table auth.identities (user_id uuid references auth.users(id) on delete cascade, provider text not null);
   create function auth.uid() returns uuid language sql stable as $$
     select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
   $$;

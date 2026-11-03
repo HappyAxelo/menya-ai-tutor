@@ -66,7 +66,7 @@ const MIN_CALL_MS = 5_000; // don't start a call with less time than this
 export interface ServiceResponse { status: number; body: Record<string, unknown> }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const NEXT_PLAN: Record<string, string | null> = { free: "pro", pro: "professional", exam: "professional", professional: null };
+const NEXT_PLAN: Record<string, string | null> = { guest: "free", free: "pro", pro: "professional", exam: "professional", professional: null };
 
 // Shown only if a reply still revealed the answer after one rewrite.
 // Before the student has tried anything, a "you're close" message makes no sense.
@@ -149,6 +149,10 @@ const NOT_YET_FALLBACK: Record<string, string> = {
 const PRESENT_LABEL = { practice: "Practice problem", verify: "Check yourself (no hints this time)", review: "Review" } as const;
 
 function quotaError(reason: string, plan: string, retryAfter?: number): ServiceResponse {
+  // A guest's allowance is used up: the app offers a free account.
+  if (plan === "guest" && (reason === "daily_limit" || reason === "monthly_limit")) {
+    return { status: 429, body: { error: "guest_limit", message: "You've experienced how Menya works. Create a free account to continue learning and save your progress.", plan, upgrade_to: "free" } };
+  }
   const messages: Record<string, string> = {
     daily_limit: "You've used today's tutor messages on your plan. They reset at midnight UTC.",
     monthly_limit: "You've used this month's tutor messages on your plan.",

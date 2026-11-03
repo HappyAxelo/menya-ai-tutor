@@ -112,6 +112,10 @@ export default function AdminPage({ onBack }) {
         </div>
       </Card>
 
+      <Card title="Sign-ups and guests">
+        <SignupsView />
+      </Card>
+
       <Card title="Subscribers and revenue">
         {!revenue ? <Loading /> : <RevenueView r={revenue} />}
       </Card>
@@ -256,6 +260,52 @@ function RevenueView({ r }) {
       <div style={{ fontSize: "13px", fontWeight: 600, margin: "14px 0 6px" }}>Unusually heavy use today</div>
       <Table empty="Nobody above the review level." rows={r.heavy_users} columns={[{ key: "email", label: "Learner" }, { key: "plan", label: "Plan" },
         { key: "requests_today", label: "Messages today", align: "right" }, { key: "cost_30d_usd", label: "AI cost, 30 days", align: "right", render: h => `$${Number(h.cost_30d_usd).toFixed(4)}` }]} />
+    </>
+  );
+}
+
+// Real records only. A guest session isn't a person: one student on two phones is two sessions.
+function SignupsView() {
+  const [days, setDays] = useState(30);
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    setD(null);
+    const iso = (t) => new Date(t).toISOString().slice(0, 10);
+    api(`/admin/auth?from=${iso(Date.now() - (days - 1) * 864e5)}&to=${iso(Date.now())}`).then(r => setD(r.ok ? r.data : { failed: true }));
+  }, [days]);
+  if (!d) return <Loading />;
+  if (d.failed) return <Notice kind="error">Couldn't load these numbers.</Notice>;
+  const pct = (a, b) => (b > 0 ? `${Math.round((100 * a) / b)}%` : "—");
+  const providers = Object.entries(d.by_provider);
+  const rows = [
+    ["Accounts in total", d.accounts_total, "people who signed in with Google or email"],
+    ["New accounts: today / 7 days / 30 days", `${d.registrations.today} / ${d.registrations.week} / ${d.registrations.month}`, ""],
+    [`New accounts in these ${days} days`, d.registrations.in_range, providers.length ? providers.map(([p, n]) => `${p}: ${n}`).join(", ") : "none"],
+    ["Guest sessions", d.guest_sessions, `${d.guest_sessions_all_time} all time. A session is one browser, not one person`],
+    ["Guests active today", d.guests_active_today, "sessions that got a reply today"],
+    ["Messages per guest session", d.guest_sessions ? (d.guest_messages / d.guest_sessions).toFixed(1) : "—", `${d.guest_messages} messages`],
+    ["Reached the guest limit", d.reached_limit, pct(d.reached_limit, d.guest_sessions) + " of sessions"],
+    ["Guest to account", pct(d.converted, d.guest_sessions), `${d.converted} of ${d.guest_sessions} sessions`],
+    ["Started signing up, didn't finish", d.abandoned_signup, `of ${d.started_signup} who started. Only guests are counted: sign-ups that begin without a guest session aren't visible to us`],
+    ["Guest to paid", pct(d.converted_to_paid, d.guest_sessions), `${d.converted_to_paid} sessions became paying accounts`],
+  ];
+  const max = Math.max(1, ...d.trend.map(x => Math.max(x.guests, x.accounts)));
+  return (
+    <>
+      <div className="mn-row wrap" role="group" aria-label="Period">
+        {[7, 30, 90].map(n => <Button key={n} variant={n === days ? undefined : "ghost"} onClick={() => setDays(n)}>{n} days</Button>)}
+      </div>
+      <Table rows={rows.map(([label, value, note]) => ({ label, value, note }))} columns={[
+        { key: "label", label: "Measure" }, { key: "value", label: "Value", align: "right" }, { key: "note", label: "Meaning", wrap: true },
+      ]} />
+      <div className="mn-trend" role="img" aria-label={`Guest sessions and new accounts per day, last ${days} days`}>
+        {d.trend.map(x => (
+          <div key={x.day} title={`${x.day}: ${x.guests} guest sessions, ${x.accounts} new accounts`}>
+            <i style={{ height: `${(x.guests / max) * 100}%` }} /><b style={{ height: `${(x.accounts / max) * 100}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="mn-trend-key"><span><i /> Guest sessions</span><span><b /> New accounts</span></div>
     </>
   );
 }

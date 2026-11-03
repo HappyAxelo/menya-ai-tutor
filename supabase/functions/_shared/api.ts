@@ -22,7 +22,7 @@ export class DbError extends Error {
   constructor(message: string, code?: string) { super(message); this.code = code; }
 }
 
-export interface AuthUser { id: string; email: string | null }
+export interface AuthUser { id: string; email: string | null; isGuest?: boolean }
 
 export interface ApiContext {
   repo: Repo;
@@ -105,6 +105,8 @@ export async function handleApi(req: Request, ctx: ApiContext): Promise<Response
   return res;
 }
 
+const GUEST_ROUTES = new Set(["POST /tutor", "POST /feedback", "POST /guest/claim-ticket", "DELETE /account"]);
+
 async function route(req: Request, ctx: ApiContext): Promise<Response> {
   const url = new URL(req.url);
   // Path is /api/<route...> on Supabase (/functions/v1/api/... externally).
@@ -147,10 +149,33 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
   const user = jwt ? await ctx.getUser(jwt) : null;
   if (!user) return json(401, { error: "unauthenticated" });
 
+  // A guest can only do what's listed here; everything else needs an account. Limits come from the guest plan.
+  if (user.isGuest && !GUEST_ROUTES.has(`${method} ${path}`)) return json(403, { error: "account_required" });
+
   if (path === "/tutor" && method === "POST") {
     const body = await readJson(req);
+    if (user.isGuest) {
+      if (Array.isArray(body?.attachments) && body.attachments.length) return json(403, { error: "account_required" });
+      if (!(await ctx.db.rpc<boolean>("guest_allow", {}))) return json(429, { error: "guest_capacity", upgrade_to: "free" });
+    }
     const r = await handleTutor({ repo: ctx.repo, providers: ctx.providers, log: ctx.log }, user.id, body);
+    if (user.isGuest && r.body.error === "guest_limit") await ctx.db.rpc("guest_mark_limit", { p_guest: user.id });
     return json(r.status, r.body);
+  }
+
+  // A guest about to sign up gets a one-time ticket, which later proves the new session was this guest.
+  if (path === "/guest/claim-ticket" && method === "POST") {
+    if (!user.isGuest) return json(400, { error: "not_a_guest" });
+    const ticket = randomToken();
+    await ctx.db.rpc("guest_start_signup", { p_guest: user.id, p_hash: await sha256Hex(ticket) });
+    return json(200, { ticket });
+  }
+  if (path === "/guest/claim" && method === "POST") {
+    const b = await readJson(req);
+    if (typeof b?.ticket !== "string" || b.ticket.length < 20 || b.ticket.length > 100) return json(400, { error: "invalid_ticket" });
+    try {
+      return json(200, await ctx.db.rpc("claim_guest", { p_hash: await sha256Hex(b.ticket), p_user: user.id, p_consent: b.consent === true }));
+    } catch (err) { const r = dbErrorResponse(err); if (r) return r; throw err; }
   }
 
   // Bad / Fair / Good on a tutor reply. Only the learner's own replies can be rated.
@@ -337,6 +362,12 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
           }));
         return json(200, { provider: ctx.billing?.name ?? null, mode: ctx.billing?.mode ?? null,
           problems: ctx.billingProblems ?? [], rows });
+      }
+      case "GET /admin/auth": {
+        const to = url.searchParams.get("to") ?? new Date().toISOString().slice(0, 10);
+        const from = url.searchParams.get("from") ?? new Date(Date.now() - 29 * 864e5).toISOString().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to || Date.parse(to) - Date.parse(from) > 366 * 864e5) return json(400, { error: "invalid_range" });
+        return json(200, await ctx.db.rpc("admin_auth_json", { p_actor: user.id, p_from: from, p_to: to }));
       }
       case "GET /admin/revenue":
         return json(200, await ctx.db.rpc("admin_revenue_json", { p_actor: user.id }));

@@ -3,7 +3,8 @@ import AITutor from "../App.jsx";
 import { BarChart3, History as HistoryIcon, Menu } from "lucide-react";
 import { supabase, api, getAccount, backendTutorClient, store, loadSession } from "../lib/backend.js";
 import { historyToMessages } from "../lib/chat.js";
-import AuthScreen from "./AuthScreen.jsx";
+import AuthScreen, { guestTicket } from "./AuthScreen.jsx";
+import Onboarding from "./Onboarding.jsx";
 import PricingPage from "./PricingPage.jsx";
 import AccountPage from "./AccountPage.jsx";
 import OrgPage from "./OrgPage.jsx";
@@ -36,6 +37,8 @@ export default function CommercialApp() {
   const [listKey, setListKey] = useState(0);          // bump to reload the conversation list
   const [reviewRequest, setReviewRequest] = useState(null); // { objective } | { text } | { draft }, plus key: work started from another page
   const [noteDismissed, setNoteDismissed] = useState(false);
+  const [mergeAsk, setMergeAsk] = useState(null);     // { ticket, conversations }: an existing account is asked first
+  const [onboarded, setOnboarded] = useState(() => { try { return Boolean(localStorage.getItem("menya_onboarded")); } catch { return true; } });
   const [examFor, setExamFor] = useState(null);             // { id, count } when a practice exam is opened for an exam
   const [newChatKey, setNewChatKey] = useState(0);    // bump to start a new conversation
   // The open conversation is remembered for this tab, so a page refresh reopens it.
@@ -57,7 +60,12 @@ export default function CommercialApp() {
     const checkout = params.get("checkout");
     if (checkout === "done") setBanner({ kind: "info", key: "banner.checkoutDone" });
     if (checkout === "cancelled") setBanner({ kind: "warn", key: "banner.checkoutCancelled" });
-    if (params.has("invite") || params.has("checkout")) window.history.replaceState({}, "", window.location.pathname);
+    // Coming back from Google without signing in: the student just carries on as they were.
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (params.get("error") === "access_denied" || hash.get("error") === "access_denied") setBanner({ kind: "info", key: "auth.cancelled" });
+    const claim = params.get("claim");
+    if (claim) guestTicket.set(claim);
+    if (params.has("invite") || params.has("checkout") || params.has("claim") || params.has("error") || hash.has("error")) window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
   // If the owner hasn't configured the AI provider key yet, say so plainly.
@@ -79,6 +87,25 @@ export default function CommercialApp() {
     try { setAccount(await getAccount()); }
     catch { setBanner({ kind: "error", key: "banner.accountError" }); }
   }, []);
+
+  // Signed in with a guest's ticket waiting: bring their conversation across (it's asked first if the account has its own).
+  const claimGuest = useCallback(async (ticket, consent = false) => {
+    const r = await api("/guest/claim", { method: "POST", body: { ticket, consent } });
+    if (!r.ok) { if (r.status !== 0) guestTicket.clear(); return; }
+    if (r.data.status === "needs_consent") { setMergeAsk({ ticket, conversations: r.data.conversations }); return; }
+    guestTicket.clear(); setMergeAsk(null);
+    setBanner(r.data.status === "claimed" ? { kind: "ok", key: "guest.saved" } : r.data.status === "expired" ? { kind: "info", key: "guest.expired" } : null);
+    setListKey(k => k + 1);
+    refresh();
+  }, [refresh]);
+  const isGuest = session?.user?.is_anonymous === true;
+  useEffect(() => {
+    if (!session || isGuest) return;
+    const ticket = guestTicket.get();
+    if (ticket) claimGuest(ticket);
+  }, [session?.user?.id, isGuest, claimGuest]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Guests see what they have; a plan or sign-in link from anywhere leads to creating an account.
+  const navigate = useCallback((p) => setPage(isGuest && p === "pricing" ? "signup" : p), [isGuest]);
 
   useEffect(() => {
     if (!session) return;
@@ -140,7 +167,16 @@ export default function CommercialApp() {
     onOpen: openSession, opening, currentId, refreshKey: listKey,
     onDeleted: (id) => { if (id === currentId) setNewChatKey(k => k + 1); },
   };
-  const links = [
+  const leaveGuest = async () => {
+    if (!confirm(t("guest.leaveConfirm"))) return;
+    await api("/account", { method: "DELETE" });
+    guestTicket.clear();
+    await supabase.auth.signOut({ scope: "local" });
+  };
+  const links = isGuest ? [
+    [t("guest.createAccount"), () => setPage("signup")],
+    [t("guest.leave"), leaveGuest],
+  ] : [
     [t("menu.study"), () => setPage("study")],
     [t("menu.exam"), () => { setExamFor(null); setPage("exam"); }],
     [t("menu.notes"), () => setPage("notes")],
@@ -151,11 +187,12 @@ export default function CommercialApp() {
     [t("menu.signOut"), () => supabase.auth.signOut()],
   ];
   const planName = account ? t(`plan.${account.plan}`) : "";
+  const guestLeft = account ? Math.max(Math.min(account.limits.daily - account.used.daily, account.limits.monthly - account.used.monthly), 0) : 0;
   // One calm line, not a pop-up: daily messages nearly used, or a paid period about to end (nothing renews by itself).
   const NEXT = { free: "pro", pro: "professional", exam: "professional" };
   const nearLimit = account && account.limits.daily > 0 && account.used.daily >= Math.ceil(account.limits.daily * 0.9);
   const endsInDays = account?.period_end && account.source === "subscription" ? Math.ceil((Date.parse(account.period_end) - Date.now()) / 864e5) : null;
-  const gentleNote = !account || noteDismissed ? null
+  const gentleNote = !account || noteDismissed || isGuest ? null
     : nearLimit ? `${t("limit.near", { used: account.used.daily, limit: account.limits.daily })}${account.source !== "organization" && NEXT[account.plan] ? ` ${t("limit.upgrade", { plan: t(`plan.${NEXT[account.plan]}`) })}` : ""}`
     : endsInDays != null && endsInDays <= 3 && endsInDays >= 0 ? t("limit.ending", { plan: planName, n: endsInDays }) : null;
   const daysLeft = account ? Math.max(account.limits.daily - account.used.daily, 0) : null;
@@ -164,10 +201,12 @@ export default function CommercialApp() {
       <button className="mn-btn mn-hide-lg" onClick={() => setShowHistory(true)} aria-label={t("header.history")} title={t("header.historyTitle")}>
         <HistoryIcon size={16} /><span className="mn-hide-md">{t("header.history")}</span>
       </button>
-      <button className="mn-btn" onClick={() => setPage("progress")} aria-label={t("header.progress")} title={t("header.progress")}>
-        <BarChart3 size={16} /><span className="mn-hide-md">{t("header.progress")}</span>
-      </button>
-      {account && (
+      {!isGuest && (
+        <button className="mn-btn" onClick={() => setPage("progress")} aria-label={t("header.progress")} title={t("header.progress")}>
+          <BarChart3 size={16} /><span className="mn-hide-md">{t("header.progress")}</span>
+        </button>
+      )}
+      {account && !isGuest && (
         <button onClick={() => setPage("account")} className="mn-pill mn-hide-sm" title={t("header.planPillTitle")}>
           {t("header.planPill", { plan: planName, n: daysLeft })}
         </button>
@@ -178,7 +217,7 @@ export default function CommercialApp() {
           <>
             <div className="mn-menu-scrim" onClick={() => setMenuOpen(false)} />
             <div role="menu" className="mn-menu-list">
-              {account && <div className="mn-menu-note">{t("menu.note", { plan: planName, n: daysLeft })}</div>}
+              {account && !isGuest && <div className="mn-menu-note">{t("menu.note", { plan: planName, n: daysLeft })}</div>}
               {links.map(([label, act]) => (
                 <button key={label} role="menuitem" onClick={() => { setMenuOpen(false); act(); }}>{label}</button>
               ))}
@@ -198,6 +237,24 @@ export default function CommercialApp() {
           </Notice>
         </div>
       )}
+      {isGuest && account && page === "tutor" && (
+        <div className="mn-guest-bar" role="status">
+          <span>{guestLeft === 1 ? t("guest.remainingOne") : t("guest.remaining", { n: guestLeft })}</span>
+          <button className="mn-link" onClick={() => setPage("signup")}>{t("guest.createAccount")}</button>
+        </div>
+      )}
+      {mergeAsk && (
+        <div className="mn-banner">
+          <Notice kind="info">
+            {t("guest.mergeAsk", { n: mergeAsk.conversations })}{" "}
+            <button className="mn-link" onClick={() => claimGuest(mergeAsk.ticket, true)}>{t("guest.mergeYes")}</button>
+            {" · "}<button className="mn-link" onClick={() => { guestTicket.clear(); setMergeAsk(null); }}>{t("guest.mergeNo")}</button>
+          </Notice>
+        </div>
+      )}
+      {!isGuest && account && account.has_profile === false && !onboarded && page === "tutor" && (
+        <Onboarding onDone={() => { try { localStorage.setItem("menya_onboarded", "1"); } catch { /* shows again next time */ } setOnboarded(true); refresh(); }} />
+      )}
       {gentleNote && (
         <div className="mn-banner">
           <Notice kind="info">
@@ -208,13 +265,14 @@ export default function CommercialApp() {
       )}
       {/* The tutor stays mounted so a conversation survives visiting other pages. */}
       <div style={{ display: page === "tutor" ? "block" : "none" }}>
-        <AITutor client={client} headerExtras={nav} onUsage={onUsage} account={account} onNavigate={setPage} resume={resume}
+        <AITutor client={client} guest={isGuest} headerExtras={nav} onUsage={onUsage} account={account} onNavigate={navigate} resume={resume}
           onSessionChange={onSessionChange} newChatKey={newChatKey} reviewRequest={reviewRequest} userName={firstName(session.user)}
           sidebar={<HistorySidebar {...historyProps} onNew={() => setNewChatKey(k => k + 1)} />} />
       </div>
       {showHistory && <HistoryDrawer onClose={() => setShowHistory(false)} {...historyProps} />}
       {page !== "tutor" && (
         <ErrorBoundary key={page} onReset={back}>
+          {page === "signup" && <AuthScreen upgrade onBack={back} />}
           {page === "pricing" && <PricingPage account={account} onBack={back} refresh={refresh} />}
           {page === "progress" && <ProgressPage onBack={back} onReview={objective => { setReviewRequest({ objective, key: Date.now() }); back(); }} />}
           {page === "study" && <StudyPage onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }}

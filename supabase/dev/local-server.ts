@@ -12,6 +12,7 @@
 // ============================================================
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { freshDb, asUser, rpc } from "../tests/db.ts";
 import { pgRepo } from "../tests/pgRepo.ts";
 import { handleApi, DbError, type ApiContext } from "../functions/_shared/api.ts";
@@ -81,7 +82,16 @@ createServer(async (req, res) => {
       res.writeHead(r.status, Object.fromEntries(r.headers));
       return res.end(Buffer.from(await r.arrayBuffer()));
     }
-    if (url.pathname === "/auth/v1/user") return user ? send(res, 200, { id: user.id, email: user.email, aud: "authenticated" }) : send(res, 401, { msg: "invalid" });
+    if (url.pathname === "/auth/v1/settings") return send(res, 200, { external: { google: true, email: true, anonymous_users: true } });
+    if (url.pathname === "/auth/v1/signup" && req.method === "POST") {
+      const id = randomUUID();
+      await db.query("insert into auth.users (id, email, is_anonymous) values ($1, null, true)", [id]);
+      const guestUser = { id, email: null, isGuest: true };
+      tokens.set(`local_${id}`, guestUser as any);
+      return send(res, 200, { access_token: `local_${id}`, refresh_token: "local", token_type: "bearer", expires_in: 86400, expires_at: Math.floor(Date.now() / 1000) + 86400,
+        user: { id, aud: "authenticated", role: "authenticated", is_anonymous: true, app_metadata: {}, user_metadata: {} } });
+    }
+    if (url.pathname === "/auth/v1/user") return user ? send(res, 200, { id: user.id, email: user.email, aud: "authenticated", is_anonymous: Boolean((user as any).isGuest) }) : send(res, 401, { msg: "invalid" });
     if (url.pathname === "/auth/v1/logout") return send(res, 204, undefined);
     if (url.pathname === "/rest/v1/rpc/my_account" && user) {
       return send(res, 200, await asUser(db, user.id, async () => (await db.query<any>("select public.my_account() as a")).rows[0].a));

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/backend.js";
+import { api, supabase } from "../lib/backend.js";
 import { C, Button, Field, inputStyle, Notice } from "./ui.jsx";
 import { BrandLockup } from "../Brand.jsx";
 import { Globe } from "lucide-react";
@@ -15,8 +15,9 @@ const DEMO_USERS = [
   { label: "Demo admin (platform + university)", id: "00000000-0000-4000-8000-000000000002", email: "admin@menya.local" },
 ];
 
-function LocalDemoLogin() {
-  const signIn = (u) => {
+function LocalDemoLogin({ prepare }) {
+  const signIn = async (u) => {
+    await prepare?.();
     const session = { access_token: `local_${u.id}`, refresh_token: "local", token_type: "bearer", expires_in: 86400,
       expires_at: Math.floor(Date.now() / 1000) + 86400,
       user: { id: u.id, email: u.email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {} } };
@@ -42,9 +43,18 @@ const GOOGLE_ICON = (
   </svg>
 );
 
-// Sign-in: Google (primary) or a one-time email link. No passwords and no
+// A guest about to sign up keeps a one-time ticket here, through the redirect to Google or the email link.
+const TICKET_KEY = "menya_guest_ticket";
+export const guestTicket = {
+  get() { try { return localStorage.getItem(TICKET_KEY); } catch { return null; } },
+  set(v) { try { localStorage.setItem(TICKET_KEY, v); } catch { /* storage blocked: the email link still carries it */ } },
+  clear() { try { localStorage.removeItem(TICKET_KEY); } catch { /* nothing to clear */ } },
+};
+
+// Three ways in: Google, a one-time email link, or straight to the tutor as a guest. No passwords and no
 // API keys: the AI provider key is configured once by the owner, on the server.
-export default function AuthScreen({ inviteToken }) {
+// upgrade: a guest creating an account, who keeps what they've done so far.
+export default function AuthScreen({ inviteToken, upgrade = false, onBack = null }) {
   const { t } = useT();
   const [settings, update] = useSettings();
   const [email, setEmail] = useState("");
@@ -52,6 +62,8 @@ export default function AuthScreen({ inviteToken }) {
   const [error, setError] = useState(""); // a translation key
   const [showEmail, setShowEmail] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(true);
+  const [guestEnabled, setGuestEnabled] = useState(true);
+  const [guestBusy, setGuestBusy] = useState(false);
 
   // Sign-in shows straight away and never waits for the network: on a slow connection this check can
   // take a long time. Only a clear "Google is off" from the server removes the button.
@@ -60,15 +72,32 @@ export default function AuthScreen({ inviteToken }) {
     const stop = new AbortController();
     const timer = setTimeout(() => stop.abort(), 8000);
     fetch(`${url}/auth/v1/settings`, { headers: { apikey: key }, signal: stop.signal })
-      .then(r => (r.ok ? r.json() : null)).then(d => { if (d?.external && d.external.google === false) setGoogleEnabled(false); })
+      .then(r => (r.ok ? r.json() : null)).then(d => { if (d?.external?.google === false) setGoogleEnabled(false); if (d?.external?.anonymous_users === false) setGuestEnabled(false); })
       .catch(() => {})
       .finally(() => clearTimeout(timer));
     return () => { clearTimeout(timer); stop.abort(); };
   }, []);
   const emailOpen = showEmail || googleEnabled === false;
 
+  // Straight into the real tutor: a session issued by the server, with nothing asked of the student.
+  const tryAsGuest = async () => {
+    setGuestBusy(true); setError("");
+    const { error: err } = await supabase.auth.signInAnonymously();
+    setGuestBusy(false);
+    if (err) setError("auth.guestFailed");
+  };
+
+  // Before leaving the guest session, get the ticket that proves the next session was this guest.
+  const prepareClaim = async () => {
+    if (!upgrade) return null;
+    const r = await api("/guest/claim-ticket", { method: "POST", body: {} });
+    if (r.ok && r.data.ticket) { guestTicket.set(r.data.ticket); return r.data.ticket; }
+    return null;
+  };
+
   const google = async () => {
     setError("");
+    await prepareClaim();
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin + window.location.pathname },
@@ -80,9 +109,11 @@ export default function AuthScreen({ inviteToken }) {
     e.preventDefault();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { setError("auth.invalidEmail"); return; }
     setState("sending"); setError("");
+    // The link may be opened in another browser, so it carries the ticket too.
+    const ticket = await prepareClaim();
     const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin + window.location.pathname },
+      options: { emailRedirectTo: window.location.origin + window.location.pathname + (ticket ? `?claim=${encodeURIComponent(ticket)}` : "") },
     });
     if (err) { setState("error"); setError("auth.sendFailed"); }
     else setState("sent");
@@ -92,6 +123,7 @@ export default function AuthScreen({ inviteToken }) {
   return (
     <div className="mn-gate">
       <main className="mn-card">
+        {onBack && <button onClick={onBack} className="mn-back">{t("page.back")}</button>}
         <label className="mn-auth-lang">
           <Globe size={14} aria-hidden="true" />
           <span className="mn-sr">{t("auth.language")}</span>
@@ -100,22 +132,26 @@ export default function AuthScreen({ inviteToken }) {
           </select>
         </label>
         <BrandLockup tagline={false} />
-        <h1 className="mn-auth-title">{t("auth.title")}</h1>
-        <p className="sub">{t("auth.sub")}</p>
+        <h1 className="mn-auth-title">{t(upgrade ? "auth.signupTitle" : "auth.title")}</h1>
+        <p className="sub">{t(upgrade ? "auth.signupSub" : "auth.sub")}</p>
+        {!upgrade && guestEnabled && (
+          <div className="mn-guest-entry">
+            <Button onClick={tryAsGuest} disabled={guestBusy} style={{ width: "100%", height: "46px", fontSize: "15px" }}>
+              {guestBusy ? t("auth.guestStarting") : t("auth.guest")}
+            </Button>
+            <p className="mn-fine">{t("auth.guestNote")}</p>
+          </div>
+        )}
         {inviteToken && <Notice kind="info">{t("auth.invite")}</Notice>}
         {googleEnabled && <Button onClick={google} variant="ghost" style={{ width: "100%", height: "46px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", fontSize: "14.5px", background: "#fff", color: "#1f1f1f", border: "1px solid #dadce0" }}>
           {GOOGLE_ICON} {t("auth.google")}
         </Button>}
         {error && !emailOpen && <div style={{ marginTop: "12px" }}><Notice kind="error">{t(error)}</Notice></div>}
-        {googleEnabled && (
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "18px 0 14px", color: C.faint, fontSize: "12px" }}>
-            <span style={{ flex: 1, height: "1px", background: C.border }} />{t("auth.or")}<span style={{ flex: 1, height: "1px", background: C.border }} />
-          </div>
-        )}
+        {googleEnabled && <div style={{ height: "10px" }} />}
         {!emailOpen ? (
-          <button onClick={() => setShowEmail(true)} style={{ display: "block", margin: "0 auto", background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: "13.5px" }}>
+          <Button variant="ghost" onClick={() => setShowEmail(true)} style={{ width: "100%", height: "46px", fontSize: "14.5px" }}>
             {t("auth.emailInstead")}
-          </button>
+          </Button>
         ) : state === "sent" ? (
           <Notice kind="ok">{sentBefore}<strong>{email}</strong>{sentAfter}</Notice>
         ) : (
@@ -133,7 +169,7 @@ export default function AuthScreen({ inviteToken }) {
           {t("auth.fine")}{" "}
           <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">{t("privacy")}</a>
         </p>
-        {LOCAL_DEMO && <LocalDemoLogin />}
+        {LOCAL_DEMO && <LocalDemoLogin prepare={prepareClaim} />}
       </main>
     </div>
   );

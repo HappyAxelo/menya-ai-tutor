@@ -68,7 +68,7 @@ const ctx: ApiContext = {
   async getUser(jwt) {
     const { data, error } = await sb.auth.getUser(jwt);
     if (error || !data?.user) return null;
-    return { id: data.user.id, email: data.user.email ?? null };
+    return { id: data.user.id, email: data.user.email ?? null, isGuest: data.user.is_anonymous === true };
   },
   async deleteUser(userId) {
     const { error } = await sb.auth.admin.deleteUser(userId);

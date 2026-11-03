@@ -303,6 +303,6 @@ describe("migrations", () => {
     assert.equal(left.rows[0].n, 0);
     for (const f of readdirSync(join(root, "migrations")).filter(f => f.endsWith(".sql")).sort()) await scratch.exec(migrationSql(f));
     const plans = await scratch.query<any>("select count(*)::int as n from public.plans");
-    assert.equal(plans.rows[0].n, 4, "free, pro, exam, professional");
+    assert.equal(plans.rows[0].n, 5, "free, pro, exam, professional and the unlisted guest plan");
   });
 });

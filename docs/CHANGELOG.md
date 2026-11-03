@@ -1,5 +1,12 @@
 # Change log
 
+## Guest access and new entry screen (November 2026, branch `claude/guest-access`)
+
+Details and setup: `docs/GUEST_ACCESS.md`. "Try Menya without an account": a real server-issued session on a `guest` plan (5 messages), same tutor,
+default-deny for everything else. A guest who signs up with Google or email keeps their conversation and progress through a one-time ticket;
+existing accounts are asked first and never overwritten. New entry screen and headline, optional three-question onboarding after sign-up, and
+an admin Sign-ups and guests card with real numbers. Guests are left out of learner counts. Needs anonymous sign-in turned on in Supabase.
+
 ## Pro, Exam Pass and Max (November 2026, branch `claude/plans-pro-exam-max`)
 
 Details and deployment: `docs/SUBSCRIPTIONS.md`. Pro $5 / month, Exam Pass $5 / 14 days, Max $8 / month (id stays
