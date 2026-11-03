@@ -4,7 +4,8 @@
 export type ResearchTier = "none" | "auto" | "deep";
 export type ResearchSubject = "biomedical" | "computing" | "physical_sciences" | "education" | "social_sciences" | "general";
 
-export interface ResearchDecision { tier: ResearchTier; subject: ResearchSubject; recent: boolean; connectors: string[]; reason: string }
+// connectors: the services that suit this subject; count: how many of them to search.
+export interface ResearchDecision { tier: ResearchTier; subject: ResearchSubject; recent: boolean; connectors: string[]; count?: number; reason: string }
 
 const DEEP = /\b(literature review|systematic review|meta-?analys[ie]s|research gaps?|state of the art|find (me )?(some |recent |relevant |academic )?(papers|articles|studies|sources|references)|compare (the |these |two )?(studies|papers|theories|findings)|revue de (la )?litt[ée]rature|isuzuma ry'ubushakashatsi)\b/i;
 const ASKS_RESEARCH = /\b(what (does|do) (the )?(research|studies|evidence|literature) (say|show|suggest)|according to (the )?(research|studies|literature)|research (on|into|about|shows?|says?)|recent (research|studies|findings|developments|advances|work|papers)|latest (research|studies|findings|developments|advances|papers)|peer[- ]reviewed|academic (sources?|papers?|research|evidence)|evidence (for|on|that|about|of)|cite (sources|references|papers)|with (references|citations|sources)|effectiveness of|efficacy of|impact of .{3,60} on|que dit la recherche|articles? scientifiques?|[ée]tudes? r[ée]centes?|utafiti unasema|utafiti (kuhusu|juu ya)|ubushakashatsi)\b/i;
@@ -18,7 +19,7 @@ const SUBJECTS: [ResearchSubject, RegExp][] = [
   ["education", /\b(education\w*|teaching|learning outcomes?|pedagog\w+|spaced (practice|repetition)|retention|students?|tutoring|classroom|curricul\w+|ai in education|uburezi|elimu)\b/i],
   ["social_sciences", /\b(econom\w+|poverty|policy|gender|psycholog\w+|sociolog\w+|agricultur\w+|development studies)\b/i],
 ];
-// Best first for each subject. An administrator's priority order breaks ties within a list.
+// Which services suit each subject. The order to try them in is the administrator's priority (pipeline.ts).
 const SOURCES: Record<ResearchSubject, string[]> = {
   biomedical: ["europe_pmc", "pubmed", "openalex", "semantic_scholar", "crossref", "doaj", "core"],
   computing: ["openalex", "arxiv", "semantic_scholar", "crossref", "doaj", "core"],
@@ -31,7 +32,7 @@ const NUMBER_OF_SOURCES: Record<Exclude<ResearchTier, "none">, number> = { auto:
 
 export const subjectOf = (text: string): ResearchSubject => (SUBJECTS.find(([, re]) => re.test(text))?.[0] ?? "general");
 
-export function decideResearch(text: string, opts: { explicit?: boolean; isProblem?: boolean; enabled?: string[] } = {}): ResearchDecision {
+export function decideResearch(text: string, opts: { explicit?: boolean; isProblem?: boolean } = {}): ResearchDecision {
   const none = (reason: string): ResearchDecision => ({ tier: "none", subject: "general", recent: false, connectors: [], reason });
   const t = (text ?? "").trim();
   if (!t) return none("no text");
@@ -41,9 +42,7 @@ export function decideResearch(text: string, opts: { explicit?: boolean; isProbl
   if (!opts.explicit && opts.isProblem) return none("a problem to work through, not a question about evidence");
   const tier: ResearchTier = deep || opts.explicit ? "deep" : "auto";
   const subject = subjectOf(t);
-  const enabled = opts.enabled;
-  const connectors = SOURCES[subject].filter(c => !enabled || enabled.includes(c)).slice(0, NUMBER_OF_SOURCES[tier]);
-  return { tier, subject, recent: RECENT.test(t), connectors, reason: opts.explicit ? "the student asked for research" : deep ? "asks for a review of the literature" : "the question depends on published evidence" };
+  return { tier, subject, recent: RECENT.test(t), connectors: SOURCES[subject], count: NUMBER_OF_SOURCES[tier], reason: opts.explicit ? "the student asked for research" : deep ? "asks for a review of the literature" : "the question depends on published evidence" };
 }
 
 const STOP = new Set(("a an and are as at be been but by can could did do does explain for from give had has have help how i in into is it its me my of on or our please research say says show shows should so "

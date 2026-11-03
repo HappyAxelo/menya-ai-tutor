@@ -170,7 +170,12 @@ export async function runResearch(query: string, decision: ResearchDecision, sto
   const deep = decision.tier === "deep";
   const overall = started + (deep ? config.deep_timeout_ms : config.timeout_ms);
   const settings = new Map(config.connectors.map(c => [c.id, c]));
-  const chosen = decision.connectors.filter(id => settings.get(id)?.enabled);
+  // Of the services that suit this subject: switched on and usable, in the administrator's order. One that
+  // has just refused us gives its place to the next, so a limit elsewhere doesn't cost the student a source.
+  const usable = decision.connectors.filter(id => settings.get(id)?.enabled && (!CONNECTORS[id]?.needs || deps.keys[CONNECTORS[id].needs!]))
+    .sort((a, b) => settings.get(a)!.priority - settings.get(b)!.priority);
+  const ready = usable.filter(id => (cooldownUntil.get(id) ?? 0) <= now());
+  const chosen = (ready.length ? ready : usable).slice(0, decision.count ?? usable.length);
   const limit = deep ? 8 : 5;
 
   const outcomes = await Promise.all(chosen.map(id => callConnector(id, query, decision, limit, settings.get(id)!, store, deps, config.cache_hours, overall)));

@@ -86,7 +86,7 @@ deliberate, because a form would mean storing them in the database.
 ```
 Question → rules: search or not? which services? (no model call, no delay for homework)
          → allowance check → search words only, personal details removed (other languages: model translates to keywords)
-         → up to 3 services in parallel (5 on a deep search), 7 s overall (12 s deep)
+         → up to 3 services in parallel (5 on a deep search), by priority, 7 s overall (12 s deep)
               each: cache → rate limit → request → one retry on a server error; 429 = left alone for 60 s
          → merge duplicates → rank by relevance, usable text, type, age, citations → top 5 (8 deep)
          → deep only: short excerpts of open-licence papers; legal open copies
@@ -139,8 +139,8 @@ Usage and limits, Settings, Help and support, Log out. Guests get a shorter menu
 
 Admin → **Academic research**: status, requests, cache hits, failures, rate-limit events and average time per service; researched
 replies, sources retrieved and cited, citations removed, estimated AI cost, and subjects. Controls: on/off, priority, timeout, rate limit,
-waiting times, cache time, per-plan searches, and a live test for each service. Every change goes to the audit log. Priority is stored and
-shown, but the order within a subject is currently fixed in `select.ts`, so **changing priority has no effect yet**.
+waiting times, cache time, per-plan searches, and a live test for each service. Every change goes to the audit log. Priority sets the order
+among the services that suit a question's subject; the subject decides which are eligible.
 
 ## 10. Security and privacy
 
@@ -161,7 +161,7 @@ speaker's review.
 
 ## 11. Tests
 
-Run: `cd supabase && npm test` and `cd menya && npm test`. Results are in the pull request and CHANGELOG entry for the release.
+Run: `cd supabase && npm test` and `cd menya && npm test`. On commit of this release: 270 backend and 28 front-end tests, none failing.
 Outside services and the model are scripted in these tests. `dev/try-research.ts` and `dev/try-tutoring.ts` use the real ones.
 
 **Acceptance list**

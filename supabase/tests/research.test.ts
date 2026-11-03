@@ -60,10 +60,11 @@ describe("source selection", () => {
     if (subject) assert.equal(d.subject, subject);
   });
   test("not every service is searched: three for an ordinary question, five at most for a deep one", () => {
-    assert.equal(decideResearch("What does research say about malaria?").connectors.length, 3);
-    assert.deepEqual(decideResearch("What does research say about malaria?").connectors.slice(0, 2), ["europe_pmc", "pubmed"]);
+    assert.equal(decideResearch("What does research say about malaria?").count, 3);
+    assert.ok(decideResearch("What does research say about malaria?").connectors.includes("pubmed"));
+    assert.ok(!decideResearch("What does research say about malaria?").connectors.includes("arxiv"));
     assert.ok(decideResearch("What does research say about computer vision?").connectors.includes("arxiv"));
-    assert.ok(decideResearch("literature review of malaria").connectors.length <= 5);
+    assert.equal(decideResearch("literature review of malaria").count, 5);
   });
   test("a student can ask for a search on anything", () => assert.equal(decideResearch("Newton's second law", { explicit: true }).tier, "deep"));
   test("search words: question words go, personal details never leave", () => {
@@ -271,6 +272,24 @@ describe("the pipeline's failure handling", () => {
     const limited = await runResearch("malaria", decision(["openalex"]), repo, { keys: {}, fetch: f.fetch });
     assert.equal(limited.calls[0].status, "rate_limited");
     await db.query("update public.research_connectors set rate_per_min = 60 where id = 'openalex'");
+  });
+  test("priority decides the order; a service switched off or refusing gives its place to the next", async () => {
+    const only = (id: string) => ({ ...decision(["openalex", "europe_pmc", "pubmed"]), count: 1, connectors: ["openalex", "europe_pmc", "pubmed"], _id: id });
+    const f = fakeFetch({ "api.openalex.org": () => ({ status: 429 }), "europepmc": () => ({ body: "{}" }), "eutils": () => ({ body: "{}" }) });
+    assert.equal((await runResearch("malaria", only("a"), repo, { keys: {}, fetch: f.fetch })).calls[0].connector, "openalex");
+    assert.equal((await runResearch("malaria two", only("b"), repo, { keys: {}, fetch: f.fetch })).calls[0].connector, "europe_pmc", "next in line while openalex is refusing");
+    resetCooldowns();
+    await db.query("update public.research_connectors set priority = 1 where id = 'pubmed'");
+    assert.equal((await runResearch("malaria three", only("c"), repo, { keys: {}, fetch: f.fetch })).calls[0].connector, "pubmed");
+    await db.query("update public.research_connectors set priority = 30 where id = 'pubmed'");
+    await db.query("update public.research_connectors set enabled = false where id = 'openalex'");
+    assert.equal((await runResearch("malaria four", only("d"), repo, { keys: {}, fetch: f.fetch })).calls[0].connector, "europe_pmc");
+    await db.query("update public.research_connectors set enabled = true where id = 'openalex'");
+  });
+  test("a service without its required key is skipped, not counted", async () => {
+    const f = fakeFetch({ "api.openalex.org": () => ({ body: openalexBody([OA_WORK]) }) });
+    const r = await runResearch("malaria outbreaks prediction machine learning", { ...decision(["core", "openalex"]), count: 1 }, repo, { keys: {}, fetch: f.fetch });
+    assert.deepEqual(r.calls.map(c => c.connector), ["openalex"]);
   });
   test("open-access excerpts are read only under an open licence; unpaywall only with a contact email", async () => {
     const epmc = (license: string) => JSON.stringify({ resultList: { result: [{ id: "1", source: "MED", title: "Malaria outbreaks prediction", pubYear: "2021", abstractText: "Malaria outbreaks prediction.", isOpenAccess: "Y", pmcid: "PMC1", license, pubTypeList: { pubType: ["journal article"] }, journalInfo: { journal: { title: "J" } } }] } });
