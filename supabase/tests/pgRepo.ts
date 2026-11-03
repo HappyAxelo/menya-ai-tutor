@@ -10,6 +10,35 @@ export function pgRepo(db: PGlite): Repo {
     async getLearnerProfile(userId) {
       return (await one("select education_level, year_of_study, institution, programme, curriculum, goals, country, explanation_style from public.learner_profiles where user_id = $1", [userId])) ?? null;
     },
+    async researchAllowance(userId, planId) {
+      return (await one("select public.research_allowance($1, $2) as a", [userId, planId])).a;
+    },
+    async useResearch(userId, cap) {
+      return (await one("select public.media_allow($1, 'research', $2) as ok", [userId, cap])).ok;
+    },
+    async researchConfig() {
+      const c = (await one("select public.research_config() as c", [])).c;
+      return { ...c, timeout_ms: Number(c.timeout_ms), deep_timeout_ms: Number(c.deep_timeout_ms), cache_hours: Number(c.cache_hours) };
+    },
+    async researchCacheGet(key) {
+      return (await db.query<any>("select results from public.research_cache where cache_key = $1 and expires_at > now()", [key])).rows[0]?.results ?? null;
+    },
+    async researchCachePut(key, connector, papers, hours) {
+      if (hours > 0) await db.query("insert into public.research_cache (cache_key, connector, results, expires_at) values ($1, $2, $3, now() + make_interval(hours => $4)) on conflict (cache_key) do update set results = excluded.results, expires_at = excluded.expires_at", [key, connector, JSON.stringify(papers), hours]);
+    },
+    async researchRateAllow(connector, perMinute) {
+      return (await one("select public.research_rate_allow($1, $2) as ok", [connector, perMinute])).ok;
+    },
+    async recordResearchCalls(calls) {
+      for (const c of calls) if (c.status !== "skipped") await db.query("insert into public.research_calls (connector, status, latency_ms, results, http_status) values ($1, $2, $3, $4, $5)", [c.connector, c.status, c.latency_ms, c.results, c.http_status]);
+    },
+    async recordResearchQuery(r) {
+      await db.query("insert into public.research_queries (subject, tier, status, sources_found, sources_cited, citation_failures, degraded, duration_ms, est_cost_usd) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        [r.subject, r.tier, r.status, r.sources_found, r.sources_cited, r.citation_failures, r.degraded, r.duration_ms, r.est_cost_usd]);
+    },
+    async learnerMemory(userId) {
+      return (await one("select public.learner_memory($1) as m", [userId])).m;
+    },
     async searchMaterials(userId, query, limit) {
       return (await db.query<any>("select title, kind, page, content from public.search_materials($1, $2, $3)", [userId, query, limit])).rows;
     },

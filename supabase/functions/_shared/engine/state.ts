@@ -40,7 +40,10 @@ export interface TurnContext {
   hintsUsed: number;                 // hint-button presses on the current problem
   verdict: CheckedVerdict;           // what the SERVER verified about this attempt
   misconception: string | null;      // diagnosed by the server (bank item) or the previous turn's validated assessment
-  previous: { state: EngineState | null; hintLevel: number | null; misconception: string | null; sameMisconceptionCount: number };
+  previous: { state: EngineState | null; hintLevel: number | null; misconception: string | null; sameMisconceptionCount: number;
+              struggleCount?: number; questionStreak?: number };
+  requestKind?: RequestKind;         // what the learner's message is asking for
+  struggling?: boolean;              // "I don't know": not an attempt, and not a reason to ask again
   askedForAnswer: boolean;           // "just tell me the answer"
   unexplained: boolean;              // a bare answer with no working
   itemKind: "practice" | "verify" | "review" | null;  // a bank item is being answered
@@ -55,6 +58,8 @@ export interface TurnPlan {
   presentItem: "practice" | "verify" | "review" | null;  // serve a bank problem instead of model-written content
   rationale: string;                 // why (for logs, tests and the demonstration)
 }
+
+export type RequestKind = "concept" | "problem" | "research" | "other";
 
 const plan = (state: EngineState, hintLevel: number | null, rationale: string, extra: Partial<TurnPlan> = {}): TurnPlan =>
   ({ state, hintLevel, revealAllowed: false, presentItem: null, rationale, ...extra });
@@ -106,6 +111,16 @@ export function decideTurn(ctx: TurnContext): TurnPlan {
 
   if (ctx.action === "hint") return plan("HINT", selectHintLevel(ctx), "hint requested");
 
+  // "I don't know" gets help at once, then a different approach. Never the same question again.
+  if (ctx.struggling) {
+    const times = (ctx.previous.struggleCount ?? 0) + 1;
+    const prev = ctx.previous.hintLevel ?? 0;
+    if (times === 1) return plan("HINT", Math.max(prev + 1, 2), "the learner doesn't know how to go on: give a hint now rather than asking again");
+    if (times === 2) return plan("EXPLAIN", Math.max(prev, 3), "still unsure after a hint: explain it another way and carry out one step");
+    if (times === 3) return plan("MODEL", 4, "still unsure after an explanation: work a similar problem in full");
+    return plan("EXPLAIN", 5, "help at every level hasn't landed: show the full solution with reasons, then offer a new problem", { revealAllowed: true });
+  }
+
   if (ctx.verdict === "incorrect") {
     if (ctx.misconception && ctx.previous.sameMisconceptionCount >= 1) {
       return plan("MODEL", 4, "the same misconception again: change approach and work an analogous example");
@@ -118,8 +133,13 @@ export function decideTurn(ctx: TurnContext): TurnPlan {
     return plan("GUIDE", selectHintLevel(ctx), "wrong answer, cause unknown: ask a diagnostic question about one step");
   }
 
-  if (ctx.newProblem) return plan("DIAGNOSE", 0, "new problem: diagnose prior knowledge before teaching");
+  // A question about an idea or the evidence is answered, not turned into a guessing game.
+  if (ctx.requestKind === "research") return plan("EXPLAIN", 2, "a question about published evidence: teach from what was found, then check understanding");
+  if (ctx.requestKind === "concept") return plan("EXPLAIN", 2, "the learner asked to understand an idea: explain it with an example, then check understanding");
+  if (ctx.newProblem) return plan("DIAGNOSE", 0, "new problem: orient the learner and ask about the first concrete step");
   if (ctx.verdict === "unreadable") return plan("GUIDE", 0, "the answer couldn't be read: ask for it in a checkable form");
+  // Several questions in a row without progress: stop asking and teach.
+  if ((ctx.previous.questionStreak ?? 0) >= 2) return plan("EXPLAIN", Math.max(ctx.previous.hintLevel ?? 0, 3), "several questions in a row without progress: explain and carry out one step");
   return plan("GUIDE", ctx.previous.hintLevel, "continue: one focused question on the next step");
 }
 
@@ -178,6 +198,20 @@ export function reconcile(checked: CheckedVerdict, serverMisconception: string |
 // "Just give me the answer" in the languages Menya supports.
 export function asksForAnswer(text: string): boolean {
   return /\b(just|only)?\s*(give|tell|show|send) me the (final )?(answer|solution)\b|\bwhat('s| is) the answer\b|\banswer key\b|\bdonne(z)?[- ]moi (la )?(réponse|solution)\b|\bnipe jibu\b|\bmpa (igisubizo|ibisubizo)\b|\bmbwira igisubizo\b/i.test(text);
+}
+
+// "I don't know", in a short message on its own. "I don't understand how loops work" is a question, not this.
+export function isStruggling(text: string): boolean {
+  return /^\W*(i\s*(really\s*)?(don'?t|do not|dont)\s*(know|understand|get( it)?)|idk|no idea|not sure|no clue|i'?m (lost|stuck|confused)|i have no idea|help( me)?|je ne sais pas|je sais pas|aucune id[ée]e|je ne comprends pas|sijui|sielewi|simbizi|sinzi|ntabwo (mbizi|nzi|numva)|ntacyo nzi|sinumva)\W*(\w+\W*){0,2}$/i.test(text.trim());
+}
+
+// What the message is asking for. Values to work with make it a problem, however it's worded.
+export function classifyRequest(text: string): RequestKind {
+  const t = text.trim();
+  if (!t) return "other";
+  if (/\d\s*[-+*/=^×÷]|[-+*/=^×÷]\s*\d|\b\d+(\.\d+)?\s*(v|a|w|hz|kg|g|m|s|km|cm|mm|n|j|mol|ohms?|Ω|m\/s)\b|```|\b(solve|calculate|compute|evaluate|simplify|factori[sz]e|differentiate|integrate|prove|balance|find the (value|derivative|integral|area|sum|roots?)|write (a|the|me a) (program|function|code|script)|r[ée]soudre|calculer|hesabu|kokotoa|bara)\b/i.test(t)) return "problem";
+  if (/^(what(?:'s| is| are| does| do)\b|who (is|was)\b|why\b|how (does|do|did|is|are|can)\b(?! i (solve|calculate|find|compute))|explain\b|describe\b|define\b|tell me (about|how|why|what)\b|i (don'?t|do not|dont) (understand|get)\b.+|help me understand\b|can you explain\b|could you explain\b|(the )?(difference|relationship) between\b|meaning of\b|qu'est[- ]ce\b|c'est quoi\b|pourquoi\b|comment fonctionne\b|explique[zr]?\b|ni nini\b|nini\b|eleza\b|kwa nini\b|sobanur\w*\b|ni iki\b|kuki\b)/i.test(t)) return "concept";
+  return "other";
 }
 
 // A bare result ("42", "x = 5", "O(n)") with no reasoning around it.

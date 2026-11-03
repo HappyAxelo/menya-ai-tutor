@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AITutor from "../App.jsx";
-import { BarChart3, History as HistoryIcon, Menu } from "lucide-react";
+import { BarChart3, History as HistoryIcon } from "lucide-react";
 import { supabase, api, getAccount, backendTutorClient, store, loadSession } from "../lib/backend.js";
 import { historyToMessages } from "../lib/chat.js";
 import AuthScreen, { guestTicket } from "./AuthScreen.jsx";
@@ -14,12 +14,16 @@ import ProgressPage from "./ProgressPage.jsx";
 import StudyPage from "./StudyPage.jsx";
 import ExamPage from "./ExamPage.jsx";
 import MaterialsPage from "./MaterialsPage.jsx";
+import ProfilePage, { Avatar, displayName } from "./ProfilePage.jsx";
+import CoursesPage from "./CoursesPage.jsx";
+import HelpPage from "./HelpPage.jsx";
+import { endSession } from "../lib/signout.js";
 import { Notice, ErrorBoundary } from "./ui.jsx";
 import { useT } from "../i18n.js";
 
 // First name for the greeting, from the Google profile (or nothing).
 function firstName(user) {
-  const full = user?.user_metadata?.given_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "";
+  const full = user?.user_metadata?.display_name || user?.user_metadata?.given_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "";
   return String(full).trim().split(/\s+/)[0] || null;
 }
 
@@ -79,8 +83,15 @@ export default function CommercialApp() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => sub.subscription.unsubscribe();
+    // Signed out, here or in another tab: reload, so nothing of that account stays in memory for the next person.
+    const { data: sub } = supabase.auth.onAuthStateChange((e, s) => {
+      if (e === "SIGNED_OUT") { window.location.replace(window.location.pathname); return; }
+      setSession(s);
+    });
+    // Pressing Back after signing out mustn't show a stored copy of the last page.
+    const onShow = (e) => { if (e.persisted) window.location.reload(); };
+    window.addEventListener("pageshow", onShow);
+    return () => { sub.subscription.unsubscribe(); window.removeEventListener("pageshow", onShow); };
   }, []);
 
   const refresh = useCallback(async () => {
@@ -129,9 +140,10 @@ export default function CommercialApp() {
   }, []);
 
   // Keep the usage badge current after each tutor reply.
-  const onUsage = useCallback((quota) => {
+  const onUsage = useCallback((quota, research) => {
     if (!quota) return;
     setAccount(a => a && ({ ...a, used: { ...a.used,
+      research: (a.used.research ?? 0) + (research?.searched ? 1 : 0),
       daily: a.limits.daily - (quota.daily_remaining ?? a.limits.daily - a.used.daily),
       monthly: a.limits.monthly - (quota.monthly_remaining ?? a.limits.monthly - a.used.monthly),
       premium: a.limits.premium - (quota.premium_remaining ?? a.limits.premium - a.used.premium) } }));
@@ -167,24 +179,36 @@ export default function CommercialApp() {
     onOpen: openSession, opening, currentId, refreshKey: listKey,
     onDeleted: (id) => { if (id === currentId) setNewChatKey(k => k + 1); },
   };
+  const signOut = async ({ everywhere = false } = {}) => {
+    const reached = await endSession(supabase.auth, [localStorage, sessionStorage], { everywhere });
+    if (!reached) alert(t("menu.signOutOffline"));
+    window.location.replace(window.location.pathname);
+  };
   const leaveGuest = async () => {
     if (!confirm(t("guest.leaveConfirm"))) return;
     await api("/account", { method: "DELETE" });
-    guestTicket.clear();
-    await supabase.auth.signOut({ scope: "local" });
+    await signOut();
   };
+  const openSettings = () => { setPage("tutor"); window.dispatchEvent(new Event("menya:settings")); };
   const links = isGuest ? [
     [t("guest.createAccount"), () => setPage("signup")],
+    [t("menu.settings"), openSettings],
+    [t("menu.help"), () => setPage("help")],
     [t("guest.leave"), leaveGuest],
   ] : [
+    [t("menu.profile"), () => setPage("profile")],
+    [t("menu.progress"), () => setPage("progress")],
+    [t("menu.courses"), () => setPage("courses")],
+    [t("menu.savedNotes"), () => setPage("notes")],
     [t("menu.study"), () => setPage("study")],
     [t("menu.exam"), () => { setExamFor(null); setPage("exam"); }],
-    [t("menu.notes"), () => setPage("notes")],
-    [t("menu.account"), () => setPage("account")],
-    [t("menu.plans"), () => setPage("pricing")],
+    [t("menu.subscription"), () => setPage("pricing")],
+    [t("menu.usage"), () => setPage("account")],
     ...(account?.org_admin_of?.length > 0 ? [[t("menu.institution"), () => setPage("org")]] : []),
     ...(account?.is_admin ? [[t("menu.admin"), () => setPage("admin")]] : []),
-    [t("menu.signOut"), () => supabase.auth.signOut()],
+    [t("menu.settings"), openSettings],
+    [t("menu.help"), () => setPage("help")],
+    [t("menu.signOut"), () => signOut(), "danger"],
   ];
   const planName = account ? t(`plan.${account.plan}`) : "";
   const guestLeft = account ? Math.max(Math.min(account.limits.daily - account.used.daily, account.limits.monthly - account.used.monthly), 0) : 0;
@@ -211,15 +235,17 @@ export default function CommercialApp() {
           {t("header.planPill", { plan: planName, n: daysLeft })}
         </button>
       )}
-      <span className="mn-menu">
-        <button className="mn-btn icon" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label={t("header.menu")}><Menu size={17} /></button>
+      <span className="mn-account-menu">
+        <button className="mn-avatar-btn" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label={t("menu.open")} title={t("menu.open")}><Avatar user={session.user} /></button>
         {menuOpen && (
           <>
             <div className="mn-menu-scrim" onClick={() => setMenuOpen(false)} />
             <div role="menu" className="mn-menu-list">
+              {!isGuest && <div className="mn-menu-who"><b>{displayName(session.user) || session.user.email}</b>{displayName(session.user) && session.user.email && <span>{session.user.email}</span>}</div>}
+              {isGuest && <div className="mn-menu-who"><b>{t("menu.guest")}</b>{account && <span>{guestLeft === 1 ? t("guest.remainingOne") : t("guest.remaining", { n: guestLeft })}</span>}</div>}
               {account && !isGuest && <div className="mn-menu-note">{t("menu.note", { plan: planName, n: daysLeft })}</div>}
-              {links.map(([label, act]) => (
-                <button key={label} role="menuitem" onClick={() => { setMenuOpen(false); act(); }}>{label}</button>
+              {links.map(([label, act, tone]) => (
+                <button key={label} role="menuitem" className={tone ?? undefined} onClick={() => { setMenuOpen(false); act(); }}>{label}</button>
               ))}
             </div>
           </>
@@ -281,6 +307,9 @@ export default function CommercialApp() {
           {page === "exam" && <ExamPage key={examFor?.key ?? "new"} examId={examFor?.id ?? null} count={examFor?.count ?? 10} review={Boolean(examFor?.review)} onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }} />}
           {page === "notes" && <MaterialsPage onBack={back} onAsk={draft => { setReviewRequest({ draft, key: Date.now() }); back(); }} />}
           {page === "account" && <AccountPage account={account} email={session.user.email} onBack={back} onPricing={() => setPage("pricing")} refresh={refresh} />}
+          {page === "profile" && <ProfilePage user={session.user} account={account} onBack={back} onSubscription={() => setPage("account")} onSignOutEverywhere={() => signOut({ everywhere: true })} />}
+          {page === "courses" && <CoursesPage onBack={back} onStudy={() => setPage("study")} onNotes={() => setPage("notes")} />}
+          {page === "help" && <HelpPage onBack={back} />}
           {page === "org" && <OrgPage orgs={account?.org_admin_of ?? []} onBack={back} />}
           {page === "admin" && <AdminPage onBack={back} />}
         </ErrorBoundary>

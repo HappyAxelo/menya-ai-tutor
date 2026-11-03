@@ -414,7 +414,7 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .mn-banner { position: fixed; bottom: 16px; left: 16px; right: 16px; max-width: 640px; margin: 0 auto; z-index: 300; }
 .mn-link { background: none; border: none; color: inherit; cursor: pointer; text-decoration: underline; font-size: inherit; padding: 0; margin-left: 6px; }
 .mn-link.danger { color: var(--danger); margin: 0; }
-.mn-menu { position: relative; display: inline-flex; }
+.mn-account-menu { position: relative; display: inline-flex; }
 .mn-menu-scrim { position: fixed; inset: 0; z-index: 199; }
 .mn-menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 200; min-width: 200px; padding: 6px; border-radius: 12px;
   background: var(--bg-elev); border: 1px solid var(--border); box-shadow: var(--shadow-md); }
@@ -675,3 +675,41 @@ button.mn-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .mn-trend-key { display: flex; gap: 16px; margin-top: 6px; font-size: 12px; color: var(--muted); }
 .mn-trend-key span { display: inline-flex; align-items: center; gap: 5px; }
 .mn-trend-key i, .mn-trend-key b { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+
+/* Profile button and menu */
+.mn-avatar-btn { display: inline-flex; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+.mn-avatar-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mn-avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; object-fit: cover; flex: none; }
+.mn-avatar.letters { background: var(--accent); color: var(--bg); font-size: 12.5px; font-weight: 600; }
+.mn-menu-list { max-height: calc(100vh - 80px); overflow-y: auto; min-width: 230px; }
+.mn-menu-who { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; font-size: 13.5px; overflow-wrap: anywhere; }
+.mn-menu-who span { font-size: 12.5px; color: var(--muted); }
+.mn-menu-list button.danger { color: var(--danger, #b42318); border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; margin-top: 4px; }
+.mn-profile-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.mn-profile-head .name { font-size: 18px; font-weight: 600; }
+.mn-profile-head .sub { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.mn-profile-head .mn-avatar.letters { font-size: 20px; }
+.mn-facts { display: grid; gap: 8px; margin: 0; }
+.mn-facts > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; font-size: 14px; }
+.mn-facts dt { color: var(--muted); }
+.mn-facts dd { margin: 0; }
+.mn-plain-list { margin: 0 0 12px; padding-left: 18px; font-size: 14px; line-height: 1.7; }
+.mn-help-item { border-bottom: 1px solid var(--border); padding: 10px 0; font-size: 14px; }
+.mn-help-item:last-child { border-bottom: 0; }
+.mn-help-item summary { cursor: pointer; font-weight: 500; }
+.mn-help-item p { margin: 8px 0 0; line-height: 1.6; color: var(--muted); }
+.mn-admin-sub { margin: 18px 0 8px; font-size: 13.5px; }
+
+/* Research: the button, and the references under a reply */
+.mn-research-btn.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.mn-research { margin-top: 14px; font-size: 13.5px; }
+.mn-research h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.mn-sources { margin: 0; padding-left: 20px; display: grid; gap: 10px; line-height: 1.5; }
+.mn-sources a { overflow-wrap: anywhere; }
+.mn-source-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mn-source-tag { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
+.mn-source-tag.warn { color: var(--warn, #b54708); border-color: currentColor; }
+a.mn-source-tag.link { color: var(--accent); }
+.mn-source-note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+.mn-further { margin-top: 10px; }
+.mn-further summary { cursor: pointer; font-size: 13px; margin-bottom: 8px; }

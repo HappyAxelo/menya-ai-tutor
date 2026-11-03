@@ -55,6 +55,7 @@ export default function AccountPage({ account, email, onBack, onPricing, refresh
         <Meter label={t("account.today")} used={used.daily} limit={limits.daily} />
         <Meter label={t("account.month")} used={used.monthly} limit={limits.monthly} />
         {limits.images != null && <Meter label={t("account.pictures")} used={used.images ?? 0} limit={limits.images} />}
+        {limits.research > 0 && <Meter label={t("account.research")} used={used.research ?? 0} limit={limits.research} />}
         {limits.notes != null && <Meter label={t("account.notes")} used={used.notes ?? 0} limit={limits.notes} />}
         {limits.premium > 0 && <Meter label={t("account.premium")} used={used.premium} limit={limits.premium} />}
         <p className="mn-panel-text small">{t("account.resetNote", { n: limits.session_turns })}</p>

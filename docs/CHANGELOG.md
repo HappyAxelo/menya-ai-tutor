@@ -1,5 +1,14 @@
 # Change log
 
+## 2026-11-03: Research connectors, natural tutoring, profile menu
+
+- **Research:** academic search inside the tutor, with citations built from retrieved records. See `docs/RESEARCH.md`.
+- **Tutoring:** concept questions are explained rather than diagnosed; "I don't know" gets a hint, then another approach, then a worked example; three questions in a row without progress stop the questioning. Machine-sounding openers and closers removed. The tutor uses what the server has marked about the learner.
+- **Profile:** profile button and menu, profile page, My courses, Help and support, secure logout, logout on all devices.
+- **Admin:** Academic research section: service status, usage, switches, limits and live tests.
+- **Fixed, both already live:** code blocks in tutor replies lost their fences, so they never rendered as code. The header menu shared a CSS class with the "I'm stuck" menu, so it floated over the page and could cover "Skip for now".
+- New per-plan limit `daily_research_limit` (Free 3, Pro 15, Exam Pass 15, Max 30, Guest 0). Prices and message limits unchanged.
+
 ## Guest access and new entry screen (November 2026, branch `claude/guest-access`)
 
 Details and setup: `docs/GUEST_ACCESS.md`. "Try Menya without an account": a real server-issued session on a `guest` plan (5 messages), same tutor,

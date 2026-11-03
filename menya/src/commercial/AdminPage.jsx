@@ -116,6 +116,10 @@ export default function AdminPage({ onBack }) {
         <SignupsView />
       </Card>
 
+      <Card title="Academic research">
+        <ResearchView />
+      </Card>
+
       <Card title="Subscribers and revenue">
         {!revenue ? <Loading /> : <RevenueView r={revenue} />}
       </Card>
@@ -265,6 +269,77 @@ function RevenueView({ r }) {
 }
 
 // Real records only. A guest session isn't a person: one student on two phones is two sessions.
+// Status and usage of the research services. Whether a key is set is yes or no: keys are Supabase secrets,
+// set there and never shown or stored here.
+function ResearchView() {
+  const [days, setDays] = useState(30);
+  const [d, setD] = useState(null);
+  const [tested, setTested] = useState({});
+  const [note, setNote] = useState(null);
+  const load = useCallback(() => api(`/admin/research?days=${days}`).then(r => setD(r.ok ? r.data : { failed: true })), [days]);
+  useEffect(() => { setD(null); load(); }, [load]);
+  const save = async (changes) => {
+    const r = await api("/admin/research", { method: "POST", body: changes });
+    setNote(r.ok ? { kind: "ok", text: "Saved." } : { kind: "error", text: `Not saved: ${r.data.error ?? "error"}` });
+    load();
+  };
+  const test = async (id) => {
+    setTested(x => ({ ...x, [id]: "testing…" }));
+    const r = await api("/admin/research/test", { method: "POST", body: { id } });
+    setTested(x => ({ ...x, [id]: r.ok ? `${r.data.status}${r.data.ms ? `, ${r.data.ms} ms` : ""}${r.data.http_status ? ` (HTTP ${r.data.http_status})` : ""}` : "failed" }));
+  };
+  if (!d) return <Loading />;
+  if (d.failed) return <Notice kind="error">Couldn't load these numbers.</Notice>;
+  const keyNeeded = { core: "CORE_API_KEY (required)", openalex: "OPENALEX_API_KEY (recommended)", semantic_scholar: "SEMANTIC_SCHOLAR_API_KEY (recommended)", pubmed: "NCBI_API_KEY (optional)", unpaywall: "RESEARCH_CONTACT_EMAIL (required)" };
+  const hasKey = { core: d.secrets.core, openalex: d.secrets.openalex, semantic_scholar: d.secrets.semantic_scholar, pubmed: d.secrets.pubmed, unpaywall: d.secrets.contact_email };
+  const num = (v, fallback) => { const n = Number(v); return Number.isInteger(n) ? n : fallback; };
+  return (
+    <>
+      <div className="mn-row wrap" role="group" aria-label="Period">
+        {[7, 30, 90].map(n => <Button key={n} variant={n === days ? undefined : "ghost"} onClick={() => setDays(n)}>{n} days</Button>)}
+      </div>
+      {!d.offered && <Notice kind="warn">Research isn't connected on this server.</Notice>}
+      {note && <Notice kind={note.kind}>{note.text}</Notice>}
+      <Table rows={[
+        { label: "Researched replies", value: d.queries, note: `${d.found_nothing} found nothing or couldn't search` },
+        { label: "Sources retrieved / cited", value: `${d.sources_retrieved} / ${d.sources_cited}`, note: "cited = a reply used it" },
+        { label: "Citations removed", value: d.citation_failures, note: "written by the model but matching no retrieved record; students never saw them" },
+        { label: "Average search time", value: d.avg_seconds != null ? `${d.avg_seconds} s` : "—", note: "before the model starts" },
+        { label: "AI cost of researched replies", value: `$${d.ai_cost_usd}`, note: "estimated from model prices; the research services themselves charge nothing" },
+        { label: "Subjects", value: Object.entries(d.by_subject).map(([s, n]) => `${s}: ${n}`).join(", ") || "—", note: "no question text is kept" },
+      ]} columns={[{ key: "label", label: "Measure" }, { key: "value", label: "Value", align: "right", wrap: true }, { key: "note", label: "Meaning", wrap: true }]} />
+      <h4 className="mn-admin-sub">Services</h4>
+      <Table rows={d.connectors} columns={[
+        { key: "name", label: "Service" },
+        { key: "enabled", label: "On", render: c => <input type="checkbox" checked={c.enabled} aria-label={`${c.name} on`} onChange={e => save({ connector: { id: c.id, enabled: e.target.checked } })} /> },
+        { key: "requests", label: "Requests", align: "right" },
+        { key: "cached", label: "From cache", align: "right" },
+        { key: "failed", label: "Failed", align: "right" },
+        { key: "rate_limited", label: "Rate limited", align: "right" },
+        { key: "avg_ms", label: "Avg ms", align: "right", render: c => c.avg_ms ?? "—" },
+        { key: "priority", label: "Priority", render: c => <input style={{ ...inputStyle, width: 64 }} type="number" min="1" max="999" defaultValue={c.priority} aria-label={`${c.name} priority`} onBlur={e => num(e.target.value) !== c.priority && save({ connector: { id: c.id, priority: num(e.target.value, c.priority) } })} /> },
+        { key: "timeout_ms", label: "Timeout ms", render: c => <input style={{ ...inputStyle, width: 80 }} type="number" min="500" max="30000" step="500" defaultValue={c.timeout_ms} aria-label={`${c.name} timeout`} onBlur={e => num(e.target.value) !== c.timeout_ms && save({ connector: { id: c.id, timeout_ms: num(e.target.value, c.timeout_ms) } })} /> },
+        { key: "rate_per_min", label: "Per minute", render: c => <input style={{ ...inputStyle, width: 72 }} type="number" min="1" max="600" defaultValue={c.rate_per_min} aria-label={`${c.name} rate limit`} onBlur={e => num(e.target.value) !== c.rate_per_min && save({ connector: { id: c.id, rate_per_min: num(e.target.value, c.rate_per_min) } })} /> },
+        { key: "key", label: "Secret", wrap: true, render: c => (keyNeeded[c.id] ? `${hasKey[c.id] ? "set" : "not set"}: ${keyNeeded[c.id]}` : "none needed") },
+        { key: "test", label: "Live test", wrap: true, render: c => (c.id === "unpaywall" ? "—" : tested[c.id] ?? <button className="mn-link" onClick={() => test(c.id)}>Test now</button>) },
+      ]} />
+      <p className="mn-panel-text small">Secrets are set in Supabase → Edge Functions → Secrets (docs/RESEARCH.md). This page only shows whether each is set.</p>
+      <h4 className="mn-admin-sub">Waiting time and limits</h4>
+      <form className="mn-row wrap" onSubmit={e => { e.preventDefault(); const f = new FormData(e.target);
+        save({ settings: { research_timeout_ms: Number(f.get("t")), research_deep_timeout_ms: Number(f.get("d")), research_cache_hours: Number(f.get("c")) } }); }}>
+        <Field label="Ordinary search, ms"><input name="t" style={inputStyle} type="number" min="1000" max="20000" defaultValue={d.settings.timeout_ms} /></Field>
+        <Field label="Deeper search, ms"><input name="d" style={inputStyle} type="number" min="1000" max="30000" defaultValue={d.settings.deep_timeout_ms} /></Field>
+        <Field label="Reuse results, hours"><input name="c" style={inputStyle} type="number" min="0" max="2160" defaultValue={d.settings.cache_hours} /></Field>
+        <Button type="submit" variant="ghost">Save</Button>
+      </form>
+      <Table rows={d.plan_limits} columns={[{ key: "name", label: "Plan" },
+        { key: "limit", label: "Research searches a day", render: p => <input style={{ ...inputStyle, width: 80 }} type="number" min="0" defaultValue={p.limit ?? 0} aria-label={`${p.name} research searches a day`} onBlur={e => num(e.target.value) !== p.limit && save({ plan: { plan: p.plan, limit: num(e.target.value, p.limit ?? 0) } })} /> }]} />
+      <h4 className="mn-admin-sub">Not connected</h4>
+      <Table rows={d.not_integrated} columns={[{ key: "name", label: "Service" }, { key: "reason", label: "Why", wrap: true }]} />
+    </>
+  );
+}
+
 function SignupsView() {
   const [days, setDays] = useState(30);
   const [d, setD] = useState(null);

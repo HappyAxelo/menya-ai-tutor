@@ -79,6 +79,9 @@ const ctx: ApiContext = {
   appUrl: (env("APP_URL") ?? "https://menyaneza.com").replace(/\/$/, ""),
   media: env("GROQ_API_KEY") ? { apiKey: env("GROQ_API_KEY")! } : undefined,
   hpcSecret: env("HPC_REGISTER_SECRET"),
+  // Academic search works without any of these; each adds limits or a service. See docs/RESEARCH.md.
+  research: { keys: { contactEmail: env("RESEARCH_CONTACT_EMAIL"), openalex: env("OPENALEX_API_KEY"), semanticScholar: env("SEMANTIC_SCHOLAR_API_KEY"),
+                      ncbi: env("NCBI_API_KEY"), core: env("CORE_API_KEY") } },
   allowedOrigins: (env("ALLOWED_ORIGINS") ?? "https://menyaneza.com,https://www.menyaneza.com,https://happyaxelo.github.io,http://localhost:5173")
     .split(",").map(s => s.trim()).filter(Boolean),
   // Structured logs (visible in the Supabase dashboard). Never log message content or keys.

@@ -42,6 +42,8 @@ const tokens = new Map(Object.values(USERS).map(u => [`local_${u.id}`, u]));
 
 const providers = buildProviders({ GROQ_API_KEY: process.env.GROQ_API_KEY, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY });
 const ctx: ApiContext = {
+  research: { keys: { contactEmail: process.env.RESEARCH_CONTACT_EMAIL, openalex: process.env.OPENALEX_API_KEY, semanticScholar: process.env.SEMANTIC_SCHOLAR_API_KEY,
+                      ncbi: process.env.NCBI_API_KEY, core: process.env.CORE_API_KEY } },
   repo: pgRepo(db),
   db: { async rpc(fn, args) { try { return await rpc(db, fn, args); } catch (e: any) { throw new DbError(e.message, e.code); } } },
   providers,

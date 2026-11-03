@@ -2,8 +2,7 @@ import { useState, useRef, useEffect, useCallback, useLayoutEffect, lazy, Suspen
 import {
   ArrowUp, Meh, ThumbsDown, ThumbsUp, BookOpen, CircleHelp, NotebookPen, RefreshCw, Target, Mic, Square, Paperclip, X, FileText, Image as ImageIcon, LoaderCircle, Check, CheckCircle2, ChevronDown, ClipboardCheck, Copy, Flag, Globe, GraduationCap,
   CalendarCheck, HelpCircle, Lightbulb, Moon, RotateCcw, Sparkles, SquarePen, Sun, TriangleAlert, WifiOff,
-  Settings as SettingsIcon, Crown,
-} from "lucide-react";
+  Settings as SettingsIcon, Crown, Library } from "lucide-react";
 import { useSettings, effectiveTheme } from "./settings.js";
 import SettingsPanel from "./SettingsPanel.jsx";
 import PlansView from "./PlansView.jsx";
@@ -181,6 +180,43 @@ function Feedback({ onRate }) {
   );
 }
 
+// What a researched reply rests on: only records the server retrieved, each with its real status.
+function ResearchSources({ research, onPlans }) {
+  const { t } = useT();
+  const { status, sources = [], further = [], partial } = research;
+  const Item = ({ s }) => (
+    <li>
+      <a href={s.url} target="_blank" rel="noopener noreferrer">{s.apa}</a>
+      <div className="mn-source-tags">
+        <span className={`mn-source-tag ${s.kind === "preprint" ? "warn" : ""}`}>{t(`research.kind.${s.kind}`)}</span>
+        {s.doajListed && <span className="mn-source-tag">{t("research.doaj")}</span>}
+        <span className="mn-source-tag">{t(`research.evidence.${s.evidence}`)}</span>
+        {s.openAccessUrl && s.openAccessUrl !== s.url && <a className="mn-source-tag link" href={s.openAccessUrl} target="_blank" rel="noopener noreferrer">{t("research.openCopy")}</a>}
+      </div>
+    </li>
+  );
+  return (
+    <div className="mn-research">
+      {status === "limit" && <div className="mn-callout warn"><Library size={16} aria-hidden="true" /><div>{t("research.limit")} <button className="mn-link" onClick={onPlans}>{t("msg.comparePlans")}</button></div></div>}
+      {status === "unavailable" && <div className="mn-callout warn"><Library size={16} aria-hidden="true" /><div>{t("research.unavailable")}</div></div>}
+      {status === "empty" && <div className="mn-callout warn"><Library size={16} aria-hidden="true" /><div>{t("research.empty")}</div></div>}
+      {sources.length > 0 && (
+        <section aria-label={t("research.references")}>
+          <h4><Library size={14} aria-hidden="true" />{t("research.references")}</h4>
+          <ol className="mn-sources">{sources.map(s => <Item key={s.url} s={s} />)}</ol>
+          {partial && <p className="mn-source-note">{t("research.partial")}</p>}
+        </section>
+      )}
+      {further.length > 0 && (
+        <details className="mn-further">
+          <summary>{t("research.further", { n: further.length })}</summary>
+          <ol className="mn-sources">{further.map(s => <Item key={s.url} s={s} />)}</ol>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisabled, onFeedback }) {
   const { t } = useT();
   const shown = useReveal(msg.content, animate);
@@ -216,6 +252,7 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
                 <figcaption>{t("picture.caption")}</figcaption>
               </figure>
             )}
+            {msg.research && <ResearchSources research={msg.research} onPlans={onPlans} />}
             {msg.pictureNote && (
               <div className="mn-callout warn">
                 <ImageIcon size={16} aria-hidden="true" />
@@ -400,6 +437,12 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
   const [animateIndex, setAnimateIndex] = useState(-1);
   const [settings, updateSettings, resetSettings] = useSettings();
   const [showSettings, setShowSettings] = useState(false);
+  const [researchNext, setResearchNext] = useState(false); // search academic sources for the next question
+  useEffect(() => {
+    const open = () => setShowSettings(true);
+    window.addEventListener("menya:settings", open);
+    return () => window.removeEventListener("menya:settings", open);
+  }, []);
   const [showPlans, setShowPlans] = useState(false);
   const [introOpen, setIntroOpen] = useState(() => !readFlag(INTRO_KEY));
   const online = useOnline();
@@ -455,7 +498,8 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
     if (loading || !online) return;
     if ((action === "message" || action === "check") && !text.trim() && !attachments?.length) return;
     loadMarkdown();
-    setLoading(true); setLoadingKind(action);
+    const research = action === "message" && (retry ? retry === "research" : researchNext);
+    setLoading(true); setLoadingKind(research ? "research" : action);
     const userMsg = action === "message" ? { role: "user", content: text, attachments: attachments?.map(a => ({ name: a.name, kind: a.kind })) }
       : { role: "user", control: action, content: action === "check" ? text : action === "stuck" ? t(`stuck.${stuck}`) : ACTION_LABELS[action] };
     setMessages(prev => {
@@ -463,22 +507,23 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
       return retry ? base : [...base, userMsg];
     });
     if (action === "message" || action === "check") { setInput(""); if (attachments) setFiles([]); }
+    if (action === "message") setResearchNext(false);
     const prefs = { learnerLevel: settings.level, style: settings.style };
     const lang = language !== "auto" ? language : lastLanguage;
     try {
-      let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null;
+      let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null, researchView = null;
       if (client) {
-        const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined,
+        const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined, research,
           attachments: attachments?.map(({ name, kind, text: body }) => ({ name, kind, text: body })) });
         if (!r.ok) {
           const message = errorText(t, r.error, r.message, { seconds: r.retryAfter ?? 30 });
           throw Object.assign(new Error(message), { limit: r.isLimit ? r : null, retryable: r.retryable });
         }
-        parsed = r.reply; advanced = r.advanced; engineView = r.engine; diagram = r.diagram; pictureNote = r.pictureNote;
+        parsed = r.reply; advanced = r.advanced; engineView = r.engine; diagram = r.diagram; pictureNote = r.pictureNote; researchView = r.research;
         setHintsUsed(r.hintsUsed ?? 0);
         setProblem(r.problem);
         setEngine(r.engine);
-        onUsage?.(r.quota);
+        onUsage?.(r.quota, r.research);
         onSessionChange?.(client.currentSession());
       } else {
         const content = action === "message" ? text
@@ -496,18 +541,18 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
         content: parsed.message, type: action === "hint" ? "hint" : parsed.type, hintLevel: parsed.hintLevel,
         conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected,
         progressSummary: parsed.progressSummary, solved: parsed.solved === true, advanced, messageId: parsed.messageId ?? null,
-        engine: client ? engineView : null, diagram, pictureNote,
+        engine: client ? engineView : null, diagram, pictureNote, research: researchView,
       });
     } catch (err) {
       if (err.limit) pushAssistant({ content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo });
       else pushAssistant({ content: err.message || t("err.generic"), type: "error",
-                           retry: client ? (err.retryable ? { action, text, stuck, objective, attachments } : null) : { action, text } });
+                           retry: client ? (err.retryable ? { action, text, stuck, objective, attachments, research } : null) : { action, text } });
     }
     setLoading(false);
     if (action === "message" || action === "check") inputRef.current?.focus();
-  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, mode, onUsage, onSessionChange, pushAssistant, t]);
+  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, mode, researchNext, onUsage, onSessionChange, pushAssistant, t]);
 
-  const retry = useCallback(({ action, text, stuck, objective, attachments }) => runAction(action, text, { retry: true, stuck, objective, attachments }), [runAction]);
+  const retry = useCallback(({ action, text, stuck, objective, attachments, research }) => runAction(action, text, { retry: research ? "research" : true, stuck, objective, attachments }), [runAction]);
 
   // ---------------- attachments ----------------
   const addFiles = useCallback((list) => {
@@ -692,6 +737,12 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
         )}
         {!empty && <span id="mn-check-help" className="mn-sr">{t("composer.checkHelp")}</span>}
         {modeSwitch}
+        {client && !guest && (
+          <button type="button" className={`mn-btn mn-research-btn${researchNext ? " on" : ""}`} aria-pressed={researchNext} onClick={() => setResearchNext(r => !r)}
+            title={t("research.buttonHelp", { n: account?.limits?.research != null ? Math.max(account.limits.research - (account.used?.research ?? 0), 0) : "" })} aria-label={t("research.buttonHelp", { n: account?.limits?.research != null ? Math.max(account.limits.research - (account.used?.research ?? 0), 0) : "" })}>
+            <Library size={15} aria-hidden="true" /><span className="mn-hide-sm">{t("research.button")}</span>
+          </button>
+        )}
         {client && (
           <button type="button" className="mn-btn icon" aria-pressed={scratchOpen} onClick={() => setScratchOpen(o => !o)} title={t("scratch.open")} aria-label={t("scratch.open")}>
             <NotebookPen size={15} />

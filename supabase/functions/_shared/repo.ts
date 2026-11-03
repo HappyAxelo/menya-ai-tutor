@@ -8,6 +8,8 @@ import type { LearnerContext, MaterialPassage } from "./policy.ts";
 import type { Difficulty } from "./policy.ts";
 import type { Item } from "./engine/bank.ts";
 import type { ObjectiveRecord } from "./engine/mastery.ts";
+import { DEFAULT_RESEARCH_CONFIG, type ResearchCall, type ResearchConfig, type ResearchStore } from "./research/pipeline.ts";
+import type { Paper } from "./research/connectors.ts";
 
 export interface Entitlement {
   plan_id: string;
@@ -80,7 +82,12 @@ export interface UsageRecord {
   fallback_used: boolean; answer_rewrite: boolean; error_code: string | null;
 }
 
-export interface Repo {
+export interface ResearchQueryRecord {
+  subject: string; tier: "auto" | "deep"; status: "ok" | "empty" | "unavailable"; sources_found: number; sources_cited: number;
+  citation_failures: number; degraded: boolean; duration_ms: number | null; est_cost_usd: number | null;
+}
+
+export interface Repo extends ResearchStore {
   resolveEntitlement(userId: string): Promise<Entitlement>;
   getModelConfigs(): Promise<Record<string, ModelConfig>>;
   getSettingNumber(key: string, fallback: number): Promise<number>;
@@ -110,6 +117,12 @@ export interface Repo {
   // Pictures in replies: today's allowance (limit null = none), and recording one (false = limit just reached).
   diagramAllowance(userId: string, planId: string): Promise<{ limit: number | null; used: number }>;
   useDiagram(userId: string, cap: number): Promise<boolean>;
+  // Academic research: today's allowance, recording a search, and numbers for administrators (no question text, no user).
+  researchAllowance(userId: string, planId: string): Promise<{ limit: number; used: number }>;
+  useResearch(userId: string, cap: number): Promise<boolean>;
+  recordResearchCalls(calls: ResearchCall[]): Promise<void>;
+  recordResearchQuery(record: ResearchQueryRecord): Promise<void>;
+  learnerMemory(userId: string): Promise<any[]>;
   recordLearningEvent(event: LearningEvent): Promise<void>;
   processPaymentEvent(provider: string, event: unknown, raw: unknown): Promise<string>;
   audit(entry: { actor_id: string | null; action: string; target_type?: string; target_id?: string; org_id?: string | null; details?: Record<string, unknown> }): Promise<void>;
@@ -129,6 +142,7 @@ function check<T>(res: { data: T; error: { message: string } | null }, what: str
 
 export function supabaseRepo(sb: SupabaseClient): Repo {
   let configCache: { at: number; value: Record<string, ModelConfig> } | null = null;
+  let researchConfigCache: { at: number; value: ResearchConfig } | null = null;
   return {
     async resolveEntitlement(userId) {
       const rows = check(await sb.rpc("resolve_entitlement", { p_user: userId }), "resolve_entitlement");
@@ -229,6 +243,39 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
     },
     async useDiagram(userId, cap) {
       return check(await sb.rpc("media_allow", { p_user: userId, p_kind: "diagram", p_cap: cap }), "use_diagram") as boolean;
+    },
+    async researchAllowance(userId, planId) {
+      return check(await sb.rpc("research_allowance", { p_user: userId, p_plan: planId }), "research_allowance") as { limit: number; used: number };
+    },
+    async useResearch(userId, cap) {
+      return check(await sb.rpc("media_allow", { p_user: userId, p_kind: "research", p_cap: cap }), "use_research") as boolean;
+    },
+    async researchConfig() {
+      if (researchConfigCache && Date.now() - researchConfigCache.at < 60_000) return researchConfigCache.value;
+      const value = (check(await sb.rpc("research_config"), "research_config") ?? DEFAULT_RESEARCH_CONFIG) as ResearchConfig;
+      researchConfigCache = { at: Date.now(), value };
+      return value;
+    },
+    async researchCacheGet(key) {
+      const rows = check(await sb.from("research_cache").select("results").eq("cache_key", key).gt("expires_at", new Date().toISOString()), "research_cache_get") as any[];
+      return rows[0]?.results ?? null;
+    },
+    async researchCachePut(key, connector, papers: Paper[], hours) {
+      if (hours <= 0) return;
+      check(await sb.from("research_cache").upsert({ cache_key: key, connector, results: papers, created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + hours * 3600_000).toISOString() }), "research_cache_put");
+    },
+    async researchRateAllow(connector, perMinute) {
+      return check(await sb.rpc("research_rate_allow", { p_connector: connector, p_limit: perMinute }), "research_rate_allow") as boolean;
+    },
+    async recordResearchCalls(calls) {
+      if (calls.length) check(await sb.from("research_calls").insert(calls.filter(c => c.status !== "skipped")), "research_calls");
+    },
+    async recordResearchQuery(record) {
+      check(await sb.from("research_queries").insert(record), "research_queries");
+    },
+    async learnerMemory(userId) {
+      return check(await sb.rpc("learner_memory", { p_user: userId }), "learner_memory") as any[];
     },
     async recordLearningEvent(event) {
       check(await sb.from("learning_events").insert(event), "record_learning_event");

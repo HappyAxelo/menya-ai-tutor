@@ -4,6 +4,8 @@
 // roles in the database. Responses never include secrets or stack traces.
 // ============================================================
 import { handleTutor } from "./tutorService.ts";
+import { CONNECTORS, ConnectorError, NOT_INTEGRATED } from "./research/connectors.ts";
+import type { ResearchDeps } from "./research/pipeline.ts";
 import { BILLING_INTERVALS, PRICE_COLUMN, periodEnd, WebhookSignatureError, type BillingInterval, type BillingProvider } from "./billing.ts";
 import type { ModelProvider } from "./providers.ts";
 import { toRecord, type Repo } from "./repo.ts";
@@ -38,6 +40,7 @@ export interface ApiContext {
   log(event: Record<string, unknown>): void;
   media?: MediaOptions;      // voice transcription and image reading (Groq); absent = not offered
   hpcSecret?: string;        // HPC_REGISTER_SECRET: lets the Slurm job register its model server
+  research?: ResearchDeps;   // academic search; absent = not offered
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -158,7 +161,7 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
       if (Array.isArray(body?.attachments) && body.attachments.length) return json(403, { error: "account_required" });
       if (!(await ctx.db.rpc<boolean>("guest_allow", {}))) return json(429, { error: "guest_capacity", upgrade_to: "free" });
     }
-    const r = await handleTutor({ repo: ctx.repo, providers: ctx.providers, log: ctx.log }, user.id, body);
+    const r = await handleTutor({ repo: ctx.repo, providers: ctx.providers, log: ctx.log, research: ctx.research }, user.id, body);
     if (user.isGuest && r.body.error === "guest_limit") await ctx.db.rpc("guest_mark_limit", { p_guest: user.id });
     return json(r.status, r.body);
   }
@@ -368,6 +371,36 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
         const from = url.searchParams.get("from") ?? new Date(Date.now() - 29 * 864e5).toISOString().slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to || Date.parse(to) - Date.parse(from) > 366 * 864e5) return json(400, { error: "invalid_range" });
         return json(200, await ctx.db.rpc("admin_auth_json", { p_actor: user.id, p_from: from, p_to: to }));
+      }
+      // Connector status and usage. Whether a key is set is shown as yes or no; a key is never returned.
+      case "GET /admin/research": {
+        const days = Number(url.searchParams.get("days") ?? 30);
+        if (!Number.isInteger(days) || days < 1 || days > 180) return json(400, { error: "invalid_range" });
+        const data = await ctx.db.rpc<any>("admin_research_json", { p_actor: user.id, p_days: days });
+        const keys = ctx.research?.keys ?? {};
+        return json(200, { ...data, offered: Boolean(ctx.research), not_integrated: NOT_INTEGRATED,
+          secrets: { contact_email: Boolean(keys.contactEmail), openalex: Boolean(keys.openalex), semantic_scholar: Boolean(keys.semanticScholar), pubmed: Boolean(keys.ncbi), core: Boolean(keys.core) } });
+      }
+      case "POST /admin/research":
+        if (!b || typeof b !== "object") return json(400, { error: "invalid_research_update" });
+        await ctx.db.rpc("admin_update_research", { p_actor: user.id, p_changes: b });
+        return json(200, { ok: true });
+      // A live test of one connector with a harmless fixed search, so the admin page can check health on demand.
+      case "POST /admin/research/test": {
+        const c = CONNECTORS[String(b?.id)];
+        if (!c || !ctx.research) return json(400, { error: "unknown_connector" });
+        if (c.needs && !ctx.research.keys[c.needs]) return json(200, { status: "not_configured", needs: c.needs });
+        const started = Date.now();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15_000);
+        const doFetch = ctx.research.fetch ?? fetch;
+        try {
+          const papers = await c.search("spaced practice retention", { limit: 1, recent: false, keys: ctx.research.keys,
+            http: async (u, init) => { const res = await doFetch(u, { headers: init?.headers, signal: controller.signal }); return { status: res.status, text: await res.text() }; } });
+          return json(200, { status: papers.length ? "ok" : "empty", ms: Date.now() - started });
+        } catch (err) {
+          return json(200, { status: controller.signal.aborted ? "timeout" : err instanceof ConnectorError ? err.kind : "error", http_status: err instanceof ConnectorError ? err.status ?? null : null, ms: Date.now() - started });
+        } finally { clearTimeout(timer); }
       }
       case "GET /admin/revenue":
         return json(200, await ctx.db.rpc("admin_revenue_json", { p_actor: user.id }));

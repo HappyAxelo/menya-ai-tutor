@@ -55,7 +55,7 @@ export function historyToMessages(rows) {
       role: "assistant", messageId: r.id ?? null, content: r.content, type: r.meta?.type ?? "question", hintLevel: r.meta?.hintLevel ?? null,
       conceptsDetected: Array.isArray(r.meta?.concepts) ? r.meta.concepts : [],
       misconceptionDetected: r.meta?.misconception ?? null, progressSummary: r.meta?.summary ?? null,
-      solved: r.meta?.solved === true, diagram: r.meta?.diagram ?? null,
+      solved: r.meta?.solved === true, diagram: r.meta?.diagram ?? null, research: r.meta?.research ?? null,
     };
   });
 }

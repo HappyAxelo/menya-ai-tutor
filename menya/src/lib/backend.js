@@ -101,8 +101,8 @@ export async function deleteSession(id) {
 export function backendTutorClient() {
   let sessionId = null;
   const call = async (body) => {
-    // The server answers within ~55 s (MODEL_BUDGET_MS); wait a little longer than that.
-    const r = await api("/tutor", { method: "POST", timeoutMs: 75000, body: { requestId: crypto.randomUUID(), sessionId, ...body } });
+    // The server answers within ~55 s (MODEL_BUDGET_MS), plus up to ~20 s when it searches research; wait a little longer than that.
+    const r = await api("/tutor", { method: "POST", timeoutMs: body.research ? 95000 : 75000, body: { requestId: crypto.randomUUID(), sessionId, ...body } });
     if (!r.ok) {
       // Plan limits (quota, session length, hints) get a plan button; temporary failures get Retry.
       // The error code lets the app show the message in the learner's language.
@@ -115,13 +115,13 @@ export function backendTutorClient() {
     sessionId = r.data.sessionId;
     return { ok: true, reply: r.data.reply, quota: r.data.quota, advanced: r.data.advancedReasoning,
              hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null, engine: r.data.engine ?? null,
-             diagram: r.data.diagram ?? null, pictureNote: r.data.pictureNote ?? null };
+             diagram: r.data.diagram ?? null, pictureNote: r.data.pictureNote ?? null, research: r.data.research ?? null };
   };
   return {
     // action: message | hint | simpler | diagram | example | check | practice | summary | verify | review | stuck
     // mode: learn | explain; stuck: start | step | mistake | concept; objective: for review
-    act: (action, { text, language, learnerLevel, style, mode, stuck, objective, attachments }) =>
-      call({ action, message: text, language, learnerLevel, style, mode, stuck, objective, attachments }),
+    act: (action, { text, language, learnerLevel, style, mode, stuck, objective, attachments, research }) =>
+      call({ action, message: text, language, learnerLevel, style, mode, stuck, objective, attachments, research: research || undefined }),
     // Voice note -> text (Whisper). language: the learner's chosen reply language, if any.
     transcribe: async (blob, language) => {
       const form = new FormData();
