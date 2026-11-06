@@ -6,6 +6,7 @@
 import { handleTutor } from "./tutorService.ts";
 import { CONNECTORS, ConnectorError, NOT_INTEGRATED } from "./research/connectors.ts";
 import type { ResearchDeps } from "./research/pipeline.ts";
+import { researchWorkspace } from "./research/workspace.ts";
 import { BILLING_INTERVALS, PRICE_COLUMN, periodEnd, WebhookSignatureError, type BillingInterval, type BillingProvider } from "./billing.ts";
 import type { ModelProvider } from "./providers.ts";
 import { toRecord, type Repo } from "./repo.ts";
@@ -247,6 +248,10 @@ async function route(req: Request, ctx: ApiContext): Promise<Response> {
   if (path.startsWith("/learn/") || path.startsWith("/exam/") || path.startsWith("/review/") || path === "/materials") return learningRoutes(path, req, ctx, user, url);
   if (path.startsWith("/org/")) return orgRoutes(path, req, ctx, user);
   if (path.startsWith("/admin/")) return adminRoutes(path, req, ctx, user, url);
+  if (path.startsWith("/research/")) {
+    const r = await researchWorkspace(path, req, ctx, user.id, url);
+    return r.text != null ? new Response(r.text, { status: r.status, headers: r.headers }) : json(r.status, r.body);
+  }
 
   return json(404, { error: "not_found" });
 }
@@ -377,6 +382,7 @@ async function adminRoutes(path: string, req: Request, ctx: ApiContext, user: Au
         const days = Number(url.searchParams.get("days") ?? 30);
         if (!Number.isInteger(days) || days < 1 || days > 180) return json(400, { error: "invalid_range" });
         const data = await ctx.db.rpc<any>("admin_research_json", { p_actor: user.id, p_days: days });
+        data.workspace = await ctx.db.rpc<any>("admin_research_workspace_json", { p_actor: user.id, p_days: days });
         const keys = ctx.research?.keys ?? {};
         return json(200, { ...data, offered: Boolean(ctx.research), not_integrated: NOT_INTEGRATED,
           secrets: { contact_email: Boolean(keys.contactEmail), openalex: Boolean(keys.openalex), semantic_scholar: Boolean(keys.semanticScholar), pubmed: Boolean(keys.ncbi), core: Boolean(keys.core) } });

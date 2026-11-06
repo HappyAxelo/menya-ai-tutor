@@ -1,0 +1,158 @@
+{
+  "run": "2026-11-06T07:56:18.272Z",
+  "papers": 20,
+  "missing_abstracts": [],
+  "accuracy": 0.85,
+  "macro_f1": 0.8672463768115941,
+  "false_support_rate": 0.05555555555555555,
+  "false_contradiction_rate": 0,
+  "per_category": [
+    {
+      "category": "supports",
+      "gold": 2,
+      "predicted": 3,
+      "precision": 0.6666666666666666,
+      "recall": 1,
+      "f1": 0.8
+    },
+    {
+      "category": "contradicts",
+      "gold": 2,
+      "predicted": 2,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    {
+      "category": "mixed",
+      "gold": 1,
+      "predicted": 1,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    {
+      "category": "insufficient",
+      "gold": 3,
+      "predicted": 3,
+      "precision": 0.6666666666666666,
+      "recall": 0.6666666666666666,
+      "f1": 0.6666666666666666
+    },
+    {
+      "category": "not_relevant",
+      "gold": 12,
+      "predicted": 11,
+      "precision": 0.9090909090909091,
+      "recall": 0.8333333333333334,
+      "f1": 0.8695652173913043
+    }
+  ],
+  "quotations": {
+    "kept": 19,
+    "rejected_not_in_text": 4,
+    "judgements_downgraded": 0
+  },
+  "confusion": [
+    {
+      "doi": "10.7759/cureus.117233",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.7759/cureus.110492",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.3389/fpsyg.2024.1428732",
+      "gold": "mixed",
+      "got": "mixed"
+    },
+    {
+      "doi": "10.3389/fpsyg.2020.00164",
+      "gold": "contradicts",
+      "got": "contradicts"
+    },
+    {
+      "doi": "10.3389/fpsyg.2018.01538",
+      "gold": "contradicts",
+      "got": "contradicts"
+    },
+    {
+      "doi": "10.1002/hsr2.73001",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.1186/s12936-026-05881-5",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.1186/s40794-026-00318-y",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.1136/bmjpo-2025-003415",
+      "gold": "not_relevant",
+      "got": "supports"
+    },
+    {
+      "doi": "10.3390/bs16071124",
+      "gold": "supports",
+      "got": "supports"
+    },
+    {
+      "doi": "10.3390/bs16081438",
+      "gold": "insufficient",
+      "got": "insufficient"
+    },
+    {
+      "doi": "10.1016/j.acpath.2026.100251",
+      "gold": "insufficient",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.7759/cureus.114362",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.3390/ijms27125545",
+      "gold": "insufficient",
+      "got": "insufficient"
+    },
+    {
+      "doi": "10.1016/j.jtumed.2026.09.014",
+      "gold": "not_relevant",
+      "got": "insufficient"
+    },
+    {
+      "doi": "10.3390/nu18152483",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.3390/nu18142276",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.3390/biom16101532",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.3390/ijms27177893",
+      "gold": "not_relevant",
+      "got": "not_relevant"
+    },
+    {
+      "doi": "10.1097/hc9.0000000000000929",
+      "gold": "supports",
+      "got": "supports"
+    }
+  ]
+}

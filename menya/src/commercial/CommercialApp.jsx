@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AITutor from "../App.jsx";
-import { BarChart3, History as HistoryIcon } from "lucide-react";
+import { BarChart3, History as HistoryIcon, Library } from "lucide-react";
 import { supabase, api, getAccount, backendTutorClient, store, loadSession } from "../lib/backend.js";
 import { historyToMessages } from "../lib/chat.js";
 import AuthScreen, { guestTicket } from "./AuthScreen.jsx";
@@ -17,6 +17,7 @@ import MaterialsPage from "./MaterialsPage.jsx";
 import ProfilePage, { Avatar, displayName } from "./ProfilePage.jsx";
 import CoursesPage from "./CoursesPage.jsx";
 import HelpPage from "./HelpPage.jsx";
+import ResearchPage from "./ResearchPage.jsx";
 import { endSession } from "../lib/signout.js";
 import { Notice, ErrorBoundary } from "./ui.jsx";
 import { useT } from "../i18n.js";
@@ -197,6 +198,7 @@ export default function CommercialApp() {
     [t("guest.leave"), leaveGuest],
   ] : [
     [t("menu.profile"), () => setPage("profile")],
+    [t("menu.research"), () => setPage("research")],
     [t("menu.progress"), () => setPage("progress")],
     [t("menu.courses"), () => setPage("courses")],
     [t("menu.savedNotes"), () => setPage("notes")],
@@ -225,6 +227,11 @@ export default function CommercialApp() {
       <button className="mn-btn mn-hide-lg" onClick={() => setShowHistory(true)} aria-label={t("header.history")} title={t("header.historyTitle")}>
         <HistoryIcon size={16} /><span className="mn-hide-md">{t("header.history")}</span>
       </button>
+      {!isGuest && (
+        <button className="mn-btn" onClick={() => setPage("research")} aria-label={t("menu.research")} title={t("menu.research")}>
+          <Library size={16} /><span className="mn-hide-md">{t("menu.research")}</span>
+        </button>
+      )}
       {!isGuest && (
         <button className="mn-btn" onClick={() => setPage("progress")} aria-label={t("header.progress")} title={t("header.progress")}>
           <BarChart3 size={16} /><span className="mn-hide-md">{t("header.progress")}</span>
@@ -310,6 +317,7 @@ export default function CommercialApp() {
           {page === "profile" && <ProfilePage user={session.user} account={account} onBack={back} onSubscription={() => setPage("account")} onSignOutEverywhere={() => signOut({ everywhere: true })} />}
           {page === "courses" && <CoursesPage onBack={back} onStudy={() => setPage("study")} onNotes={() => setPage("notes")} />}
           {page === "help" && <HelpPage onBack={back} />}
+          {page === "research" && <ResearchPage onBack={back} />}
           {page === "org" && <OrgPage orgs={account?.org_admin_of ?? []} onBack={back} />}
           {page === "admin" && <AdminPage onBack={back} />}
         </ErrorBoundary>

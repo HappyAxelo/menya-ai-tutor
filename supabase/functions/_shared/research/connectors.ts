@@ -1,6 +1,8 @@
 // One adapter per academic service. Each turns the service's own response into a Paper and
 // nothing else; timeouts, retries, caching and rate limits are in pipeline.ts. Every field comes
 // from the service's response: an adapter never fills in a value it didn't receive.
+import { arxivString, booleanString, type ParsedQuery } from "./query.ts";
+
 export type PaperKind = "journal_article" | "review" | "preprint" | "conference" | "book" | "report" | "other";
 
 export interface Paper {
@@ -19,6 +21,8 @@ export interface Paper {
   pmcid?: string | null;    // Europe PMC: lets the pipeline fetch open-access full text
   doajListed?: boolean;
   excerpt?: string | null;  // passages of open-access full text, when read
+  ids?: Record<string, string>;  // the service's own identifiers (OpenAlex W…, Semantic Scholar id, PMID, arXiv id)
+  foundIn?: string[];       // every service that returned it, after merging duplicates
 }
 
 export interface ConnectorKeys {
@@ -31,7 +35,12 @@ export interface ConnectorKeys {
 
 export type Http = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ status: number; text: string }>;
 
-export interface SearchOptions { limit: number; recent: boolean; keys: ConnectorKeys; http: Http }
+export interface SearchOptions {
+  limit: number; recent: boolean; keys: ConnectorKeys; http: Http;
+  page?: number;                         // 1 = first page
+  fromYear?: number | null; toYear?: number | null;
+  bool?: ParsedQuery | null;             // a boolean query, when the person wrote one
+}
 
 export class ConnectorError extends Error {
   kind: "rate_limited" | "http" | "parse" | "not_configured";
@@ -80,6 +89,11 @@ async function getText(o: SearchOptions, url: string): Promise<string> {
   return res.text;
 }
 const recentFrom = () => new Date().getFullYear() - 5;
+const years = (o: SearchOptions) => ({ from: o.fromYear ?? (o.recent ? recentFrom() : null), to: o.toYear ?? null });
+const page = (o: SearchOptions) => Math.max(1, o.page ?? 1);
+const skip = (o: SearchOptions) => (page(o) - 1) * o.limit;
+// The service's own boolean syntax when it has one, else plain words.
+const booleanOr = (query: string, o: SearchOptions) => (o.bool?.boolean ? booleanString(o.bool) : words(query));
 
 // ---------- OpenAlex: https://docs.openalex.org ----------
 function openAlexAbstract(index: unknown): string | null {
@@ -92,9 +106,11 @@ function openAlexAbstract(index: unknown): string | null {
 const openalex: Connector = {
   id: "openalex", name: "OpenAlex",
   async search(query, o) {
-    const filters = [`title_and_abstract.search:${encodeURIComponent(words(query))}`, "is_retracted:false"];
-    if (o.recent) filters.push(`from_publication_date:${recentFrom()}-01-01`);
-    const params = [`filter=${filters.join(",")}`, `per-page=${o.limit}`, "select=id,doi,title,publication_year,type,authorships,primary_location,best_oa_location,cited_by_count,abstract_inverted_index",
+    const filters = [`title_and_abstract.search:${encodeURIComponent(booleanOr(query, o).replace(/,/g, " "))}`, "is_retracted:false"];
+    const y = years(o);
+    if (y.from) filters.push(`from_publication_date:${y.from}-01-01`);
+    if (y.to) filters.push(`to_publication_date:${y.to}-12-31`);
+    const params = [`filter=${filters.join(",")}`, `per-page=${o.limit}`, `page=${page(o)}`, "select=id,doi,title,publication_year,type,authorships,primary_location,best_oa_location,cited_by_count,abstract_inverted_index",
       ...(o.keys.openalex ? [`api_key=${encodeURIComponent(o.keys.openalex)}`] : []), ...(o.keys.contactEmail ? [`mailto=${encodeURIComponent(o.keys.contactEmail)}`] : [])];
     const data = await getJson(o, `https://api.openalex.org/works?${params.join("&")}`);
     return (data.results ?? []).filter((w: any) => w.title).map((w: any): Paper => {
@@ -107,7 +123,8 @@ const openalex: Connector = {
       return { connector: "openalex", title: plainText(w.title), authors: (w.authorships ?? []).map((a: any) => a.author?.display_name).filter(Boolean),
         year: yearOf(w.publication_year), venue: source?.display_name ?? null, doi, url: doi ? doiUrl(doi) : httpsUrl(w.primary_location?.landing_page_url) ?? String(w.id),
         abstract: openAlexAbstract(w.abstract_inverted_index), kind, openAccessUrl: httpsUrl(w.best_oa_location?.landing_page_url),
-        license: w.best_oa_location?.license ?? null, citedBy: Number.isInteger(w.cited_by_count) ? w.cited_by_count : null, doajListed: source?.is_in_doaj === true };
+        license: w.best_oa_location?.license ?? null, citedBy: Number.isInteger(w.cited_by_count) ? w.cited_by_count : null, doajListed: source?.is_in_doaj === true,
+        ids: { openalex: String(w.id ?? "").replace("https://openalex.org/", "") } };
     });
   },
 };
@@ -116,7 +133,9 @@ const openalex: Connector = {
 const semanticScholar: Connector = {
   id: "semantic_scholar", name: "Semantic Scholar",
   async search(query, o) {
-    const params = `query=${encodeURIComponent(words(query))}&limit=${o.limit}&fields=title,year,authors,venue,externalIds,abstract,openAccessPdf,publicationTypes,citationCount,url${o.recent ? `&year=${recentFrom()}-` : ""}`;
+    const y = years(o);
+    const span = y.from || y.to ? `&year=${y.from ?? ""}-${y.to ?? ""}` : "";
+    const params = `query=${encodeURIComponent(o.bool?.boolean ? o.bool.keywords : words(query))}&limit=${o.limit}&offset=${skip(o)}&fields=title,year,authors,venue,externalIds,abstract,openAccessPdf,publicationTypes,citationCount,url${span}`;
     const data = await getJson(o, `https://api.semanticscholar.org/graph/v1/paper/search?${params}`, o.keys.semanticScholar ? { "x-api-key": o.keys.semanticScholar } : undefined);
     return (data.data ?? []).filter((p: any) => p.title).map((p: any): Paper => {
       const doi = cleanDoi(p.externalIds?.DOI);
@@ -127,7 +146,8 @@ const semanticScholar: Connector = {
         : types.includes("JournalArticle") ? "journal_article" : "other";
       return { connector: "semantic_scholar", title: plainText(p.title), authors: (p.authors ?? []).map((a: any) => a.name).filter(Boolean), year: yearOf(p.year),
         venue: p.venue || null, doi, url: doi ? doiUrl(doi) : httpsUrl(p.url) ?? `https://www.semanticscholar.org/paper/${p.paperId}`, abstract: plainText(p.abstract) || null,
-        kind, openAccessUrl: httpsUrl(p.openAccessPdf?.url), license: p.openAccessPdf?.license ?? null, citedBy: Number.isInteger(p.citationCount) ? p.citationCount : null };
+        kind, openAccessUrl: httpsUrl(p.openAccessPdf?.url), license: p.openAccessPdf?.license ?? null, citedBy: Number.isInteger(p.citationCount) ? p.citationCount : null,
+        ids: { semantic_scholar: String(p.paperId ?? "") } };
     });
   },
 };
@@ -136,9 +156,11 @@ const semanticScholar: Connector = {
 const crossref: Connector = {
   id: "crossref", name: "Crossref",
   async search(query, o) {
-    const filter = o.recent ? `&filter=from-pub-date:${recentFrom()}` : "";
+    const y = years(o);
+    const parts = [y.from && `from-pub-date:${y.from}`, y.to && `until-pub-date:${y.to}`].filter(Boolean);
+    const filter = parts.length ? `&filter=${parts.join(",")}` : "";
     const mail = o.keys.contactEmail ? `&mailto=${encodeURIComponent(o.keys.contactEmail)}` : "";
-    const data = await getJson(o, `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(words(query))}&rows=${o.limit}&select=DOI,title,author,issued,container-title,type,URL,abstract,is-referenced-by-count,update-to${filter}${mail}`);
+    const data = await getJson(o, `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(o.bool?.boolean ? o.bool.keywords : words(query))}&rows=${o.limit}&offset=${skip(o)}&select=DOI,title,author,issued,container-title,type,URL,abstract,is-referenced-by-count,update-to${filter}${mail}`);
     return (data.message?.items ?? []).filter((w: any) => w.title?.[0] && !w["update-to"]?.some?.((u: any) => /retract/i.test(u.type ?? ""))).map((w: any): Paper => {
       const doi = cleanDoi(w.DOI);
       const kind: PaperKind = w.type === "posted-content" ? "preprint" : w.type === "journal-article" ? "journal_article"
@@ -154,7 +176,10 @@ const crossref: Connector = {
 const europePmc: Connector = {
   id: "europe_pmc", name: "Europe PMC",
   async search(query, o) {
-    const q = `${words(query)}${o.recent ? ` AND FIRST_PDATE:[${recentFrom()}-01-01 TO 3000-12-31]` : ""}`;
+    // Europe PMC pages by cursor, not by number: only the first page is fetched here.
+    if (page(o) > 1) return [];
+    const y = years(o);
+    const q = `${booleanOr(query, o)}${y.from || y.to ? ` AND PUB_YEAR:[${y.from ?? 1900} TO ${y.to ?? 3000}]` : ""}`;
     const data = await getJson(o, `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(q)}&format=json&pageSize=${o.limit}&resultType=core`);
     return (data.resultList?.result ?? []).filter((r: any) => r.title && !(r.pubTypeList?.pubType ?? []).some((t: string) => /retract/i.test(t))).map((r: any): Paper => {
       const doi = cleanDoi(r.doi);
@@ -165,7 +190,8 @@ const europePmc: Connector = {
       return { connector: "europe_pmc", title: plainText(r.title), authors: (r.authorList?.author ?? []).map((a: any) => a.lastName ? (a.firstName ? `${a.lastName}, ${a.firstName}` : a.lastName) : a.fullName || a.collectiveName).filter(Boolean),
         year: yearOf(r.pubYear), venue: r.journalInfo?.journal?.title ?? r.bookOrReportDetails?.publisher ?? null, doi, url: doi ? doiUrl(doi) : `https://europepmc.org/article/${r.source}/${r.id}`,
         abstract: plainText(r.abstractText) || null, kind, openAccessUrl: open && r.pmcid ? `https://europepmc.org/article/PMC/${r.pmcid}` : null, license: r.license ?? null,
-        citedBy: Number.isInteger(r.citedByCount) ? r.citedByCount : null, pmcid: open ? r.pmcid ?? null : null };
+        citedBy: Number.isInteger(r.citedByCount) ? r.citedByCount : null, pmcid: open ? r.pmcid ?? null : null,
+        ids: { europe_pmc: `${r.source}/${r.id}`, ...(r.pmid ? { pmid: String(r.pmid) } : {}) } };
     });
   },
 };
@@ -191,15 +217,16 @@ export function parsePubmed(xml: string): Paper[] {
       venue: plainText(xmlOne(xmlOne(a, "Journal") ?? "", "Title")) || null, doi, url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
       abstract: xmlAll(a, "AbstractText").map(plainText).join(" ") || null,
       kind: types.some(t => /review|meta-analysis/.test(t)) ? "review" : types.includes("preprint") ? "preprint" : "journal_article",
-      openAccessUrl: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}/` : null, license: null, citedBy: null };
+      openAccessUrl: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}/` : null, license: null, citedBy: null, ids: { pmid } };
   }).filter((p): p is Paper => Boolean(p));
 }
 const pubmed: Connector = {
   id: "pubmed", name: "PubMed",
   async search(query, o) {
     const who = `&tool=menya${o.keys.contactEmail ? `&email=${encodeURIComponent(o.keys.contactEmail)}` : ""}${o.keys.ncbi ? `&api_key=${encodeURIComponent(o.keys.ncbi)}` : ""}`;
-    const dates = o.recent ? `&datetype=pdat&mindate=${recentFrom()}&maxdate=3000` : "";
-    const found = await getJson(o, `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&sort=relevance&retmax=${o.limit}&term=${encodeURIComponent(words(query))}${dates}${who}`);
+    const y = years(o);
+    const dates = y.from || y.to ? `&datetype=pdat&mindate=${y.from ?? 1900}&maxdate=${y.to ?? 3000}` : "";
+    const found = await getJson(o, `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&sort=relevance&retmax=${o.limit}&retstart=${skip(o)}&term=${encodeURIComponent(booleanOr(query, o))}${dates}${who}`);
     const ids: string[] = found.esearchresult?.idlist ?? [];
     if (!ids.length) return [];
     return parsePubmed(await getText(o, `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=${ids.join(",")}${who}`));
@@ -215,14 +242,15 @@ export function parseArxiv(xml: string): Paper[] {
     const url = id.replace(/^http:/, "https:");
     return { connector: "arxiv", title, authors: xmlAll(e, "name").map(plainText).filter(Boolean), year: yearOf(plainText(xmlOne(e, "published"))),
       venue: "arXiv", doi: cleanDoi(xmlOne(e, "arxiv:doi")), url, abstract: plainText(xmlOne(e, "summary")) || null,
-      kind: "preprint", openAccessUrl: url, license: null, citedBy: null };
+      kind: "preprint", openAccessUrl: url, license: null, citedBy: null, ids: { arxiv: url.replace(/^.*\/abs\//, "") } };
   }).filter((p): p is Paper => Boolean(p));
 }
 const arxiv: Connector = {
   id: "arxiv", name: "arXiv",
   async search(query, o) {
-    const terms = words(query).split(" ").slice(0, 8).map(t => `all:${encodeURIComponent(t)}`).join("+AND+");
-    return parseArxiv(await getText(o, `https://export.arxiv.org/api/query?search_query=${terms}&start=0&max_results=${o.limit}${o.recent ? "&sortBy=submittedDate&sortOrder=descending" : ""}`));
+    const terms = o.bool?.boolean ? encodeURIComponent(arxivString(o.bool)) : words(query).split(" ").slice(0, 8).map(t => `all:${encodeURIComponent(t)}`).join("+AND+");
+    // arXiv has no year filter: the caller filters years after retrieval.
+    return parseArxiv(await getText(o, `https://export.arxiv.org/api/query?search_query=${terms}&start=${skip(o)}&max_results=${o.limit}${o.recent ? "&sortBy=submittedDate&sortOrder=descending" : ""}`));
   },
 };
 
@@ -230,7 +258,7 @@ const arxiv: Connector = {
 const doaj: Connector = {
   id: "doaj", name: "DOAJ",
   async search(query, o) {
-    const data = await getJson(o, `https://doaj.org/api/search/articles/${encodeURIComponent(words(query))}?pageSize=${o.limit}`);
+    const data = await getJson(o, `https://doaj.org/api/search/articles/${encodeURIComponent(booleanOr(query, o))}?pageSize=${o.limit}&page=${page(o)}`);
     return (data.results ?? []).filter((r: any) => r.bibjson?.title).map((r: any): Paper | null => {
       const b = r.bibjson;
       const doi = cleanDoi((b.identifier ?? []).find((i: any) => /doi/i.test(i.type ?? ""))?.id);
@@ -247,7 +275,7 @@ const doaj: Connector = {
 const core: Connector = {
   id: "core", name: "CORE", needs: "core",
   async search(query, o) {
-    const data = await getJson(o, `https://api.core.ac.uk/v3/search/works?q=${encodeURIComponent(words(query))}&limit=${o.limit}`, { Authorization: `Bearer ${o.keys.core}` });
+    const data = await getJson(o, `https://api.core.ac.uk/v3/search/works?q=${encodeURIComponent(booleanOr(query, o))}&limit=${o.limit}&offset=${skip(o)}`, { Authorization: `Bearer ${o.keys.core}` });
     return (data.results ?? []).filter((w: any) => w.title).map((w: any): Paper | null => {
       const doi = cleanDoi(w.doi);
       const link = httpsUrl(w.downloadUrl) ?? httpsUrl(w.links?.find?.((l: any) => l.type === "display")?.url);

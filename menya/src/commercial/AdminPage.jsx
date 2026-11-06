@@ -334,8 +334,38 @@ function ResearchView() {
       </form>
       <Table rows={d.plan_limits} columns={[{ key: "name", label: "Plan" },
         { key: "limit", label: "Research searches a day", render: p => <input style={{ ...inputStyle, width: 80 }} type="number" min="0" defaultValue={p.limit ?? 0} aria-label={`${p.name} research searches a day`} onBlur={e => num(e.target.value) !== p.limit && save({ plan: { plan: p.plan, limit: num(e.target.value, p.limit ?? 0) } })} /> }]} />
+      {d.workspace && <WorkspaceStats w={d.workspace} save={save} />}
       <h4 className="mn-admin-sub">Not connected</h4>
       <Table rows={d.not_integrated} columns={[{ key: "name", label: "Service" }, { key: "reason", label: "Why", wrap: true }]} />
+    </>
+  );
+}
+
+// Menya Research use and limits. Totals only: no one's questions or notes.
+function WorkspaceStats({ w, save }) {
+  const fields = [["searches_per_month", "Searches / month"], ["papers_per_search", "Papers / search"], ["assessments_per_search", "AI assessments / search"], ["syntheses_per_month", "Syntheses / month"]];
+  const num = (v, fb) => { const n = Number(v); return Number.isInteger(n) && n >= 0 ? n : fb; };
+  return (
+    <>
+      <h4 className="mn-admin-sub">Research workspace</h4>
+      <Table rows={[
+        { label: "Searches", value: w.searches, note: `${w.active_users} people` },
+        { label: "Average search time", value: w.avg_search_ms != null ? `${(w.avg_search_ms / 1000).toFixed(1)} s` : "—", note: "all databases in parallel" },
+        { label: "Average assessment batch", value: w.avg_assess_batch_ms != null ? `${(w.avg_assess_batch_ms / 1000).toFixed(1)} s` : "—", note: "up to 3 papers per batch" },
+        { label: "Papers assessed", value: w.papers_assessed, note: Object.entries(w.categories).map(([k, n]) => `${k}: ${n}`).join(", ") || "—" },
+        { label: "Quotations rejected / judgements downgraded", value: `${w.passages_rejected} / ${w.downgraded}`, note: "quotes not found word for word; support or contradiction without one becomes insufficient" },
+        { label: "Syntheses", value: w.syntheses, note: "" },
+        { label: "AI tokens (in / out)", value: `${w.tokens_in} / ${w.tokens_out}`, note: "" },
+        { label: "AI cost", value: `$${w.cost_usd}`, note: `about $${w.cost_per_search_usd ?? 0} per search, estimated from model prices` },
+        { label: "Subjects", value: Object.entries(w.by_subject).map(([k, n]) => `${k}: ${n}`).join(", ") || "—", note: "questions themselves are not shown" },
+        { label: "Exports", value: Object.entries(w.exports).map(([k, n]) => `${k}: ${n}`).join(", ") || "—", note: "" },
+      ]} columns={[{ key: "label", label: "Measure" }, { key: "value", label: "Value", align: "right", wrap: true }, { key: "note", label: "Meaning", wrap: true }]} />
+      {w.top_saved.length > 0 && <Table rows={w.top_saved.map((p, i) => ({ ...p, id: i }))} columns={[{ key: "title", label: "Most saved papers", wrap: true }, { key: "saves", label: "Saves", align: "right" }]} />}
+      <Table rows={w.limits.map(p => ({ ...p, id: p.plan }))} columns={[{ key: "name", label: "Plan" },
+        ...fields.map(([k, label]) => ({ key: k, label, render: p => <input style={{ ...inputStyle, width: 72 }} type="number" min="0" defaultValue={p.limits[k] ?? 0} aria-label={`${p.name} ${label}`}
+          onBlur={e => num(e.target.value, p.limits[k]) !== p.limits[k] && save({ workspace: { plan: p.plan, limits: { [k]: num(e.target.value, p.limits[k] ?? 0) } } })} /> })),
+        ...[["full_text", "Full text"], ["export", "Export"]].map(([k, label]) => ({ key: k, label, render: p => <input type="checkbox" defaultChecked={Boolean(p.limits[k])} aria-label={`${p.name} ${label}`}
+          onChange={e => save({ workspace: { plan: p.plan, limits: { [k]: e.target.checked } } })} /> }))]} />
     </>
   );
 }

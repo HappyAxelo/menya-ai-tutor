@@ -3,6 +3,7 @@
 // back, or with nothing and says so. Outside services get search words only.
 import { CONNECTORS, ConnectorError, europePmcParagraphs, unpaywallLookup, type ConnectorKeys, type Http, type Paper } from "./connectors.ts";
 import type { ResearchDecision } from "./select.ts";
+import type { ParsedQuery } from "./query.ts";
 
 export type CallStatus = "ok" | "empty" | "cached" | "error" | "timeout" | "rate_limited" | "skipped";
 export interface ResearchCall { connector: string; status: CallStatus; latency_ms: number; results: number; http_status: number | null }
@@ -62,15 +63,18 @@ function timedHttp(deps: ResearchDeps, deadline: () => number): Http {
   };
 }
 
+export interface CallOptions { limit: number; recent: boolean; page?: number; fromYear?: number | null; toYear?: number | null; bool?: ParsedQuery | null }
+
 // One service: rate limit → cache → request with one retry on a passing failure. Never throws.
-async function callConnector(id: string, query: string, decision: ResearchDecision, limit: number, setting: ConnectorSetting, store: ResearchStore, deps: ResearchDeps, cacheHours: number, overall: number): Promise<{ papers: Paper[]; call: ResearchCall }> {
+export async function callConnector(id: string, query: string, opts: CallOptions, setting: ConnectorSetting, store: ResearchStore, deps: ResearchDeps, cacheHours: number, overall: number): Promise<{ papers: Paper[]; call: ResearchCall }> {
   const now = deps.now ?? Date.now;
   const started = now();
   const done = (status: CallStatus, papers: Paper[] = [], http_status: number | null = null) =>
     ({ papers, call: { connector: id, status, latency_ms: now() - started, results: papers.length, http_status } });
   const connector = CONNECTORS[id];
   if (!connector || (connector.needs && !deps.keys[connector.needs])) return done("skipped");
-  const key = await sha256(`${id}|${decision.recent ? "recent" : "any"}|${limit}|${query.toLowerCase()}`);
+  const shape = `${opts.recent ? "recent" : "any"}|${opts.limit}|${opts.page ?? 1}|${opts.fromYear ?? ""}-${opts.toYear ?? ""}|${opts.bool?.boolean ? JSON.stringify([opts.bool.groups, opts.bool.not]) : ""}`;
+  const key = await sha256(`${id}|${shape}|${query.toLowerCase()}`);
   try {
     const hit = await store.researchCacheGet(key);
     if (hit) return done("cached", hit);
@@ -82,7 +86,7 @@ async function callConnector(id: string, query: string, decision: ResearchDecisi
   const http = timedHttp(deps, () => until - now());
   for (let attempt = 0; ; attempt++) {
     try {
-      const papers = await connector.search(query, { limit, recent: decision.recent, keys: deps.keys, http });
+      const papers = await connector.search(query, { ...opts, keys: deps.keys, http });
       if (papers.length) store.researchCachePut(key, id, papers, cacheHours).catch(() => {});
       return done(papers.length ? "ok" : "empty", papers, 200);
     } catch (err) {
@@ -120,6 +124,7 @@ export function dedupe(papers: Paper[]): Paper[] {
       doi: existing.doi ?? p.doi, abstract: (p.abstract?.length ?? 0) > (existing.abstract?.length ?? 0) ? p.abstract : existing.abstract,
       authors: existing.authors.length ? existing.authors : p.authors, openAccessUrl: existing.openAccessUrl ?? p.openAccessUrl,
       license: existing.license ?? p.license, pmcid: existing.pmcid ?? p.pmcid, doajListed: existing.doajListed || p.doajListed,
+      ids: { ...(p.ids ?? {}), ...(existing.ids ?? {}) }, foundIn: [...new Set([...(existing.foundIn ?? [existing.connector]), ...(p.foundIn ?? [p.connector])])],
       citedBy: Math.max(existing.citedBy ?? -1, p.citedBy ?? -1) < 0 ? null : Math.max(existing.citedBy ?? 0, p.citedBy ?? 0) };
     Object.assign(existing, merged);
     if (existing.doi) byKey.set(`d:${existing.doi}`, existing);
@@ -178,7 +183,7 @@ export async function runResearch(query: string, decision: ResearchDecision, sto
   const chosen = (ready.length ? ready : usable).slice(0, decision.count ?? usable.length);
   const limit = deep ? 8 : 5;
 
-  const outcomes = await Promise.all(chosen.map(id => callConnector(id, query, decision, limit, settings.get(id)!, store, deps, config.cache_hours, overall)));
+  const outcomes = await Promise.all(chosen.map(id => callConnector(id, query, { limit, recent: decision.recent }, settings.get(id)!, store, deps, config.cache_hours, overall)));
   const calls = outcomes.map(o => o.call);
   let papers = rank(dedupe(outcomes.flatMap(o => o.papers)), query, decision.recent).slice(0, deep ? 8 : 5);
 

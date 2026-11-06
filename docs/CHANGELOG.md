@@ -1,5 +1,13 @@
 # Change log
 
+## 2026-11-06: Research workspace (branch `claude/menya-research`)
+
+Details: `docs/RESEARCH_WORKSPACE.md`. New Research page: search across academic services with phrases and AND / OR / NOT, filters and
+"Find more"; an Evidence Meter per claim (supports, contradicts, mixed, insufficient) where every judgement must quote the paper word for
+word or is downgraded; a referenced synthesis; APA, IEEE, Harvard and Vancouver references; RIS, BibTeX, CSV and report export;
+projects, saved papers with notes and comparison. Per-plan limits in `plans.research_limits`, enforced on the server and editable in
+Admin. Migration 21 only adds. Benchmark on 20 AI-labelled papers: 85% accuracy, 1 false "supports" (not expert-validated).
+
 ## 2026-11-03: Research connectors, natural tutoring, profile menu
 
 - **Research:** academic search inside the tutor, with citations built from retrieved records. See `docs/RESEARCH.md`.

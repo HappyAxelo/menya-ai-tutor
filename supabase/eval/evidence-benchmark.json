@@ -1,0 +1,31 @@
+{
+  "about": "Real papers (by DOI) and the evidence category each should receive against a claim, judged from the paper's abstract as retrieved from Europe PMC on 6 November 2026. Labelled by Claude (an AI), not by a subject expert: treat as a first check, to be reviewed by a researcher. Abstracts are fetched at run time and not stored here. Papers whose label was not clear-cut from the abstract were left out.",
+  "claims": {
+    "learning_styles": "Matching instruction to students' learning styles improves learning outcomes.",
+    "bednets": "Insecticide-treated nets reduce malaria in children.",
+    "retrieval": "Retrieval practice improves long-term retention compared with restudying.",
+    "vitd_cancer": "Vitamin D supplementation reduces cancer incidence."
+  },
+  "items": [
+    { "claim": "learning_styles", "doi": "10.7759/cureus.117233", "gold": "not_relevant", "why": "Describes VARK preferences; no test of matched instruction." },
+    { "claim": "learning_styles", "doi": "10.7759/cureus.110492", "gold": "not_relevant", "why": "Learning styles and reaction time; no learning outcome of matching." },
+    { "claim": "learning_styles", "doi": "10.3389/fpsyg.2024.1428732", "gold": "mixed", "why": "Meta-analysis: small overall benefit (g = 0.31) but only 26% of outcomes show the crossover the hypothesis needs, low study quality." },
+    { "claim": "learning_styles", "doi": "10.3389/fpsyg.2020.00164", "gold": "contradicts", "why": "Experiment: instruction matched to style preference did not improve learning." },
+    { "claim": "learning_styles", "doi": "10.3389/fpsyg.2018.01538", "gold": "contradicts", "why": "Review of rigorous studies: effect sizes very low and non-significant; no replicable evidence." },
+    { "claim": "bednets", "doi": "10.1002/hsr2.73001", "gold": "not_relevant", "why": "Effect of malaria infection on anaemia; nets not the exposure." },
+    { "claim": "bednets", "doi": "10.1186/s12936-026-05881-5", "gold": "not_relevant", "why": "Modelling of the RTS,S vaccine." },
+    { "claim": "bednets", "doi": "10.1186/s40794-026-00318-y", "gold": "not_relevant", "why": "Vaccine introduction; net coverage is only a baseline characteristic." },
+    { "claim": "bednets", "doi": "10.1136/bmjpo-2025-003415", "gold": "not_relevant", "why": "Climate-change interventions for child health in general." },
+    { "claim": "retrieval", "doi": "10.3390/bs16071124", "gold": "supports", "why": "Retrieval practice beat repeated studying on 30- and 50-day recognition tests." },
+    { "claim": "retrieval", "doi": "10.3390/bs16081438", "gold": "insufficient", "why": "Testing effect shown, but only 15 minutes later: no long-term measure." },
+    { "claim": "retrieval", "doi": "10.1016/j.acpath.2026.100251", "gold": "insufficient", "why": "Retrieval scores correlate with exam scores; no comparison with restudying." },
+    { "claim": "retrieval", "doi": "10.7759/cureus.114362", "gold": "not_relevant", "why": "AI-assisted versus traditional learning, not retrieval practice versus restudying." },
+    { "claim": "vitd_cancer", "doi": "10.3390/ijms27125545", "gold": "insufficient", "why": "Narrative review: whether vitamin D affects cancer risk in BRCA1 carriers remains unclear." },
+    { "claim": "vitd_cancer", "doi": "10.1016/j.jtumed.2026.09.014", "gold": "not_relevant", "why": "Vitamin D and oral health." },
+    { "claim": "vitd_cancer", "doi": "10.3390/nu18152483", "gold": "not_relevant", "why": "Omega-3 during chemotherapy; treatment outcomes, not cancer incidence." },
+    { "claim": "vitd_cancer", "doi": "10.3390/nu18142276", "gold": "not_relevant", "why": "Infection-related hospitalisations." },
+    { "claim": "vitd_cancer", "doi": "10.3390/biom16101532", "gold": "not_relevant", "why": "Thyroid disorders." },
+    { "claim": "vitd_cancer", "doi": "10.3390/ijms27177893", "gold": "not_relevant", "why": "NK-cell biology in pancreatic cancer; no supplementation and incidence." },
+    { "claim": "vitd_cancer", "doi": "10.1097/hc9.0000000000000929", "gold": "supports", "why": "Observational: supplementation associated with lower hepatobiliary malignancy risk in PSC patients." }
+  ]
+}

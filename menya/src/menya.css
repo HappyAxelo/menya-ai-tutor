@@ -713,3 +713,44 @@ a.mn-source-tag.link { color: var(--accent); }
 .mn-source-note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
 .mn-further { margin-top: 10px; }
 .mn-further summary { cursor: pointer; font-size: 13px; margin-bottom: 8px; }
+
+/* Menya Research */
+.mn-rs .mn-rs-q { font-size: 22px; line-height: 1.3; overflow-wrap: anywhere; }
+.mn-rs-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0 12px; }
+.mn-rs-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.mn-rs-suggest .mn-tag-chip { cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); text-align: left; }
+.mn-rs-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 12px; font-size: 14px; line-height: 1.5; }
+.mn-rs-list li { overflow-wrap: anywhere; }
+.mn-rs-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; border-bottom: 1px solid var(--border); margin: 12px 0 16px; }
+.mn-rs-tabs button[role=tab] { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.mn-rs-tabs button[role=tab].on { color: var(--text); border-bottom-color: var(--brand, #251F8C); font-weight: 600; }
+.mn-rs-tabs .spacer { flex: 1; }
+.mn-rs-export { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 6px 0; flex-wrap: wrap; }
+.mn-rs-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.mn-rs-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2, var(--text)); }
+.mn-rs-paper { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin: 10px 0; background: var(--surface); }
+.mn-rs-paper h3 { font-size: 15.5px; line-height: 1.4; margin: 0 0 4px; overflow-wrap: anywhere; }
+.mn-rs-paper h3 a { color: var(--text); text-decoration: none; }
+.mn-rs-paper h3 a:hover { text-decoration: underline; }
+.mn-rs-abs { font-size: 13.5px; line-height: 1.6; color: var(--text-2, var(--text)); margin: 8px 0; }
+.mn-rs-cat { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid currentColor; background: none; cursor: default; }
+button.mn-rs-cat { cursor: pointer; }
+.mn-rs-cat.supports { color: var(--success); } .mn-rs-cat.contradicts { color: var(--danger); } .mn-rs-cat.mixed { color: var(--warn); }
+.mn-rs-cat.insufficient, .mn-rs-cat.not_relevant, .mn-rs-cat.no_text { color: var(--muted); }
+.mn-rs-meter { display: flex; height: 34px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); margin: 6px 0 8px; }
+.mn-rs-meter .seg { border: 0; color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; min-width: 34px; }
+.mn-rs-meter .seg.supports { background: var(--success); } .mn-rs-meter .seg.contradicts { background: var(--danger); }
+.mn-rs-meter .seg.mixed { background: var(--warn); } .mn-rs-meter .seg.insufficient { background: var(--muted); }
+.mn-rs-meter .seg.picked { outline: 3px solid var(--text); outline-offset: -3px; }
+.mn-rs-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.mn-rs-claimhead { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.mn-rs-quote { margin: 6px 0 0; padding: 6px 12px; border-left: 3px solid var(--border-strong, var(--border)); font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.mn-rs-refs { white-space: nowrap; }
+.mn-rs-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(15, 23, 42, 0.35); }
+.mn-rs-overlay .mn-drawer { position: absolute; display: flex; flex-direction: column; width: min(600px, 100%); }
+.mn-rs-detail .mn-rs-dtitle { font-size: 17px; line-height: 1.4; margin: 0 0 12px; overflow-wrap: anywhere; }
+.mn-rs-detail h3 { font-size: 14px; margin: 18px 0 6px; }
+.mn-rs-assess { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 4px; font-size: 13.5px; line-height: 1.55; }
+.mn-rs-cite { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; font-size: 13px; }
+.mn-rs-cite p { margin: 4px 0 8px; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .mn-rs-tabs button[role=tab] { padding: 8px 8px; font-size: 13px; } .mn-rs .mn-rs-q { font-size: 19px; } }
