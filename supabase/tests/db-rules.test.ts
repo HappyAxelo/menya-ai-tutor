@@ -306,3 +306,33 @@ describe("migrations", () => {
     assert.equal(plans.rows[0].n, 5, "free, pro, exam, professional and the unlisted guest plan");
   });
 });
+
+describe("browser roles keep only what row-level security governs", () => {
+  const extra = ["TRUNCATE", "TRIGGER", "REFERENCES"];
+  const leftovers = async () => (await db.query<{ t: string; r: string; p: string }>(
+    `select c.relname t, g.r, p.p from pg_class c join pg_namespace n on n.oid = c.relnamespace,
+       unnest(array['anon', 'authenticated']) g(r), unnest(array['${extra.join("','")}']) p(p)
+     where n.nspname = 'public' and c.relkind = 'r' and has_table_privilege(g.r, c.oid, p.p)`)).rows;
+
+  test("no public table gives anon or authenticated TRUNCATE, TRIGGER or REFERENCES", async () => {
+    assert.deepEqual(await leftovers(), []);
+  });
+
+  test("the migration removes them again from a table that had them, and keeps reading", async () => {
+    await db.exec("grant all on public.payments to authenticated; grant all on public.plans to anon;");
+    await db.exec(migrationSql("20261106000022_menya_tighten_table_privileges.sql"));
+    assert.deepEqual(await leftovers(), []);
+    const keep = (await db.query<{ ok: boolean }>("select has_table_privilege('authenticated', 'public.payments', 'SELECT') ok")).rows[0];
+    assert.equal(keep.ok, true);
+  });
+
+  test("tables created later do not get them by default", async () => {
+    await db.exec("alter default privileges for role postgres in schema public grant all on tables to anon, authenticated;");
+    await db.exec(migrationSql("20261106000022_menya_tighten_table_privileges.sql"));
+    await db.exec("create table public.zz_later (id int);");
+    const r = (await db.query<{ n: number }>(`select count(*)::int n from unnest(array['anon','authenticated']) g(r), unnest(array['${extra.join("','")}']) p(p)
+      where has_table_privilege(g.r, 'public.zz_later', p.p)`)).rows[0];
+    await db.exec("drop table public.zz_later;");
+    assert.equal(r.n, 0);
+  });
+});
