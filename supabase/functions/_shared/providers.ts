@@ -44,12 +44,14 @@ export class ProviderError extends Error {
   provider: string;
   status?: number;
   retryAfterMs?: number;
-  constructor(kind: ProviderErrorKind, provider: string, status?: number, retryAfterMs?: number) {
+  code?: string;   // the provider's short error code, such as json_validate_failed
+  constructor(kind: ProviderErrorKind, provider: string, status?: number, retryAfterMs?: number, code?: string) {
     super(`${provider}: ${kind}${status ? ` (${status})` : ""}`);
     this.kind = kind;
     this.provider = provider;
     this.status = status;
     this.retryAfterMs = retryAfterMs;
+    this.code = code;
   }
   get retryable() { return this.kind === "timeout" || this.kind === "rate_limited" || this.kind === "unavailable"; }
 }
@@ -131,8 +133,12 @@ export function openAICompatibleProvider(o: OpenAICompatibleOptions): ModelProvi
       t.done();
       if (!res.ok) {
         const retryAfter = Number(res.headers.get("retry-after"));
-        await res.body?.cancel();
-        throw new ProviderError(kindForStatus(res.status), o.name, res.status, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined);
+        // Only the short code is kept from a rejected request: the body can quote the model's output.
+        let code: string | undefined;
+        if (res.status === 400) {
+          try { const c = (await res.json())?.error?.code; if (typeof c === "string" && /^[a-z_]{1,40}$/.test(c)) code = c; } catch { /* no code */ }
+        } else await res.body?.cancel();
+        throw new ProviderError(kindForStatus(res.status), o.name, res.status, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined, code);
       }
       const data = await res.json();
       return {

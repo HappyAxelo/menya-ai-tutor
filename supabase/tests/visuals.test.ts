@@ -100,6 +100,16 @@ describe("computed, not guessed", () => {
   });
 });
 
+describe("graphs as models really describe them", () => {
+  test("e is the constant", () => assert.ok(draw("graph", [it("curve", "y = e^x", "e^x")])));
+  test("a slider named e still controls e", () => {
+    const d = draw("graph", [it("curve", "", "e*x"), it("slider", "e", "1,3")])!;
+    assert.equal(d.frames?.length, 5);
+  });
+  test("the equation can be read from the label", () => assert.ok(draw("graph", [it("curve", "y = x^2 - 4", "")])));
+  test("a letter with no value is still refused", () => assert.equal(draw("graph", [it("curve", "y = mx + c", "m*x+c")]), null));
+});
+
 describe("labelled illustrations", () => {
   test("the model can only choose a template: an unknown name is refused", () => {
     for (const t of LABELLED_TEMPLATES) assert.ok(draw("labelled", [it("template", "", t)]), t);

@@ -25,11 +25,14 @@ const sweepOf = (items: DiagramItem[]): Record<string, number>[] => {
   const s = sliderOf(items);
   return s ? Array.from({ length: 5 }, (_, i) => ({ [s.name]: Math.round((s.min + (s.max - s.min) * i / 4) * 100) / 100 })) : [{}];
 };
+const curveExpression = (s: string) => parseExpression(s.replace(/[−–]/g, "-").replace(/^\s*[a-z](?:\(x\))?\s*=\s*/i, ""));
 function drawGraph(items: DiagramItem[], sweep: Record<string, number>[] = [{}], at: Record<string, number> = sweep[0]): string | null {
+  // Models sometimes write the equation only in the label, so it is read from there when the value is unusable.
   const curves = items.filter(i => i.role === "curve").slice(0, 3)
-    .map(i => ({ label: i.label, node: parseExpression(i.value.replace(/[−–]/g, "-").replace(/^\s*[a-z](?:\(x\))?\s*=\s*/i, "")) }));
+    .map(i => ({ label: i.label, node: curveExpression(i.value) ?? curveExpression(i.label) }));
   if (!curves.length || curves.some(c => !c.node)) return null;
-  const f = (c: typeof curves[number], x: number, vars: Record<string, number> = at) => { try { return evaluate(c.node!, { ...vars, x }); } catch { return NaN; } };
+  // e is the constant unless a slider has claimed the letter.
+  const f = (c: typeof curves[number], x: number, vars: Record<string, number> = at) => { try { return evaluate(c.node!, { e: Math.E, ...vars, x }); } catch { return NaN; } };
   const r = nums(items.find(i => i.role === "range")?.value ?? "");
   const [x0, x1] = r.length >= 2 && r[1] > r[0] ? [r[0], r[1]] : [-5, 5];
   const steps = sweep.length > 1 ? 100 : 240;

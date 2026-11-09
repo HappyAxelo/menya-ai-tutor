@@ -71,6 +71,8 @@ export interface TutorDeps {
 // that has already consumed the student's quota.
 export const MODEL_BUDGET_MS = 50_000;
 const MIN_CALL_MS = 5_000; // don't start a call with less time than this
+// A lesson with a visual is the longest reply there is, and the diagram field comes last, so it is what a low cap loses.
+const VISUAL_MIN_OUTPUT_TOKENS = 3_500;
 
 export interface ServiceResponse { status: number; body: Record<string, unknown> }
 
@@ -461,7 +463,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const deadline = now() + (deps.budgetMs ?? MODEL_BUDGET_MS);
   const remaining = () => deadline - now();
   // The model config with its timeout capped to the time left in this request.
-  const withinBudget = (config: RouteCandidate["config"]) => ({ ...config, timeout_ms: Math.min(config.timeout_ms, remaining()) });
+  const withinBudget = (config: RouteCandidate["config"]) => ({ ...config, timeout_ms: Math.min(config.timeout_ms, remaining()),
+    max_output_tokens: offerDiagram || tablesOnly ? Math.max(config.max_output_tokens, VISUAL_MIN_OUTPUT_TOKENS) : config.max_output_tokens });
   let answerMayShow = false;
   for (const candidate of route) {
     const provider = providers[candidate.config.provider];
@@ -566,7 +569,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         }
       } catch (err) {
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);
-        log({ event: "provider_error", provider: provider.name, role: candidate.role, kind: lastError.kind, status: lastError.status });
+        log({ event: "provider_error", provider: provider.name, role: candidate.role, kind: lastError.kind, status: lastError.status, code: lastError.code });
         if (!lastError.retryable || lastError.kind === "cancelled") break;
         // A rate-limited model won't recover in a few seconds: go straight to the next model,
         // which has its own allowance.
@@ -682,7 +685,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     const leaks = drawn && !answerMayShow && revealsAnswer(drawn.text, reply.finalAnswer, studentTexts);
     // Tables aren't pictures: they don't use the daily picture allowance.
     if (drawn && !leaks && (drawn.svg === null || await repo.useDiagram(userId, allowance.limit ?? 1_000_000))) diagram = drawn;
-    log({ event: "diagram", kind: reply.diagram?.kind ?? suggestion?.template ?? null, shown: Boolean(diagram), drawable: Boolean(drawn), leak: Boolean(leaks) });
+    log({ event: "diagram", kind: reply.diagram?.kind ?? suggestion?.template ?? null, shown: Boolean(diagram), drawable: Boolean(drawn), leak: Boolean(leaks), roles: [...new Set((reply.diagram?.items ?? []).map(i => i.role.slice(0, 20)))].slice(0, 8), outputTokens: served.outputTokens });
   }
   const visualView = diagram ? { svg: diagram.svg, alt: diagram.alt, kind: diagram.kind ?? null, title: diagram.title ?? "", table: diagram.table ?? null, ...(diagram.frames ? { frames: diagram.frames } : {}) } : null;
   // How the student's answer reads, from the server's facts first and the model's reading second.
