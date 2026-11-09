@@ -73,6 +73,9 @@ export const MODEL_BUDGET_MS = 50_000;
 const MIN_CALL_MS = 5_000; // don't start a call with less time than this
 // A lesson with a visual is the longest reply there is, and the diagram field comes last, so it is what a low cap loses.
 const VISUAL_MIN_OUTPUT_TOKENS = 3_500;
+// When every model is rate limited, wait this long at most for one to free up before telling the student it's busy.
+const RATE_LIMIT_WAIT_MS = 15_000;
+const RATE_LIMIT_DEFAULT_WAIT_MS = 5_000;   // a provider that doesn't say how long
 
 export interface ServiceResponse { status: number; body: Record<string, unknown> }
 
@@ -466,7 +469,10 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const withinBudget = (config: RouteCandidate["config"]) => ({ ...config, timeout_ms: Math.min(config.timeout_ms, remaining()),
     max_output_tokens: offerDiagram || tablesOnly ? Math.max(config.max_output_tokens, VISUAL_MIN_OUTPUT_TOKENS) : config.max_output_tokens });
   let answerMayShow = false;
-  for (const candidate of route) {
+  const queue = [...route];
+  const rateLimited = new Map<RouteCandidate, number>();   // model -> how long it asked us to wait
+  for (let position = 0; position < queue.length; position++) {
+    const candidate = queue[position];
     const provider = providers[candidate.config.provider];
     for (let tryNo = 0; tryNo < 2 && !served; tryNo++) {
       if (remaining() < MIN_CALL_MS) { lastError ??= new ProviderError("timeout", provider.name); break; }
@@ -570,6 +576,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       } catch (err) {
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);
         log({ event: "provider_error", provider: provider.name, role: candidate.role, kind: lastError.kind, status: lastError.status, code: lastError.code });
+        if (lastError.kind === "rate_limited") rateLimited.set(candidate, lastError.retryAfterMs ?? RATE_LIMIT_DEFAULT_WAIT_MS);
         if (!lastError.retryable || lastError.kind === "cancelled") break;
         // A rate-limited model won't recover in a few seconds: go straight to the next model,
         // which has its own allowance.
@@ -579,6 +586,14 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       }
     }
     if (served) break;
+    // Every model has had its turn. If the soonest rate limit ends shortly, wait for it and try those models once more.
+    if (position === queue.length - 1 && queue.length === route.length && rateLimited.size && lastError?.kind !== "cancelled") {
+      const wait = Math.min(...rateLimited.values());
+      if (wait <= RATE_LIMIT_WAIT_MS && remaining() - wait >= MIN_CALL_MS) {
+        await sleep(wait);
+        queue.push(...rateLimited.keys());
+      }
+    }
   }
 
   if (!served) {

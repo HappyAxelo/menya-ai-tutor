@@ -530,6 +530,54 @@ describe("tutor pipeline", () => {
     assert.deepEqual(seen.slice(0, 3), ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]);
   });
 
+  test("free capacity: when every model is busy for a few seconds, wait once and the student gets a reply", async () => {
+    const u = await createUser(db);
+    const seen: string[] = [];
+    const groq = fakeProvider("groq", config => {
+      seen.push(config.model);
+      return seen.length <= 4 ? new ProviderError("rate_limited", "groq", 429, 6_000) : reply();
+    });
+    const waits: number[] = [];
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: async (ms: number) => { waits.push(ms); } }, u, ask("What is 2 + 2?"));
+    assert.equal(res.status, 200);
+    assert.ok(waits.includes(6_000), "waited for as long as the provider asked");
+    assert.equal(seen[4], "openai/gpt-oss-120b", "the first model gets the first new try");
+  });
+
+  test("free capacity: a long rate limit is not waited for", async () => {
+    const u = await createUser(db);
+    const waits: number[] = [];
+    const groq = fakeProvider("groq", () => new ProviderError("rate_limited", "groq", 429, 16_000));
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: async (ms: number) => { waits.push(ms); } }, u, ask("What is 2 + 2?"));
+    assert.equal(res.body.error, "tutor_busy");
+    assert.ok(!waits.includes(16_000));
+    assert.equal(groq.calls.length, 4, "no extra round of calls");
+  });
+
+  test("a reply that fails the format check is tried again on the same model", async () => {
+    const u = await createUser(db);
+    const seen: string[] = [];
+    const groq = fakeProvider("groq", config => {
+      seen.push(config.model);
+      return seen.length === 1 ? new ProviderError("bad_request", "groq", 400, undefined, "json_validate_failed") : reply();
+    });
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep }, u, ask("What is 2 + 2?"));
+    assert.equal(res.status, 200);
+    assert.equal(seen[0], seen[1]);
+  });
+
+  test("any other rejected request still moves straight to the next model", async () => {
+    const u = await createUser(db);
+    const seen: string[] = [];
+    const groq = fakeProvider("groq", config => {
+      seen.push(config.model);
+      return seen.length === 1 ? new ProviderError("bad_request", "groq", 400) : reply();
+    });
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep }, u, ask("What is 2 + 2?"));
+    assert.equal(res.status, 200);
+    assert.notEqual(seen[0], seen[1]);
+  });
+
   test("provider rate limit: the student is told how long to wait, and the message is not counted", async () => {
     const u = await createUser(db);
     const groq = fakeProvider("groq", () => new ProviderError("rate_limited", "groq", 429, 42_000));

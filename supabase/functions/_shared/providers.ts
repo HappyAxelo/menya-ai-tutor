@@ -53,7 +53,8 @@ export class ProviderError extends Error {
     this.retryAfterMs = retryAfterMs;
     this.code = code;
   }
-  get retryable() { return this.kind === "timeout" || this.kind === "rate_limited" || this.kind === "unavailable"; }
+  // json_validate_failed means this one reply missed the format, so another attempt can succeed.
+  get retryable() { return this.kind === "timeout" || this.kind === "rate_limited" || this.kind === "unavailable" || this.code === "json_validate_failed"; }
 }
 
 export interface ModelProvider {
