@@ -1,7 +1,7 @@
 // What the visual engine guarantees: computed correctness, refusal of what can't be drawn, and that nothing unsafe gets out.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { parseDiagramSpec, renderDiagram, type DiagramSpec } from "../functions/_shared/diagram.ts";
+import { asksForPicture, parseDiagramSpec, renderDiagram, type DiagramSpec } from "../functions/_shared/diagram.ts";
 import { isSafeSvg } from "../functions/_shared/svgKit.ts";
 import { GALLERY } from "../dev/visual-gallery.ts";
 import { LABELLED_TEMPLATES, VISUAL_CATALOGUE, DIAGRAM_KINDS } from "../functions/_shared/diagramSpec.ts";
@@ -98,6 +98,13 @@ describe("computed, not guessed", () => {
     const zero = d.frames!.map(f => /<line x1="60" y1="([\d.]+)"/.exec(f.svg)![1]);
     assert.equal(new Set(zero).size, 1, "the axis stays where it is");
   });
+});
+
+describe("asking for a picture", () => {
+  for (const s of ["visual explanation", "explain it visually", "give me a visual", "visualize this", "une explication visuelle", "draw it"])
+    test(`"${s}" asks for one`, () => assert.equal(asksForPicture(s), true));
+  for (const s of ["how do I open Visual Studio?", "what is Visual Basic", "explain fractions"])
+    test(`"${s}" does not`, () => assert.equal(asksForPicture(s), false));
 });
 
 describe("graphs as models really describe them", () => {

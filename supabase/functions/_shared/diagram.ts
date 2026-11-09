@@ -339,5 +339,5 @@ export function renderDiagram(spec: DiagramSpec | null, options: RenderOptions =
 }
 
 // The learner asked for a picture in their own words (four interface languages).
-const PICTURE_WORDS = /\b(draw|sketch|diagram|picture|image|illustrat\w*|visuali[sz]e|plot|graph|dessine\w*|sch[ée]ma\w*|trace[rz]?|shushanya|nshushanyiriza|igishushanyo|ibishushanyo|ifoto|chora|mchoro|michoro|picha)\b/i;
+const PICTURE_WORDS = /\b(draw|sketch|diagram|picture|image|illustrat\w*|visual(?!\s+(?:basic|studio))\w*|visuel\w*|plot|graph|dessine\w*|sch[ée]ma\w*|trace[rz]?|shushanya|nshushanyiriza|igishushanyo|ibishushanyo|ifoto|chora|mchoro|michoro|picha)\b/i;
 export const asksForPicture = (s: string | null | undefined) => PICTURE_WORDS.test(s ?? "");
