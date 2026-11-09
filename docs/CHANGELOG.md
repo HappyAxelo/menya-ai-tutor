@@ -1,5 +1,18 @@
 # Change log
 
+## 9 November 2026: visual-first, adaptive and multilingual teaching
+
+Not yet deployed. Full account in `VISUAL_TUTOR_UPGRADE.md`.
+
+- New problems are taught first: idea, picture, worked example, then one question. A reply that asks before teaching gets one rewrite.
+- 16 new visual kinds drawn by code, including fractions, truth tables, flowcharts and six checked science illustrations.
+- Lesson cards, step-by-step examples, larger view for pictures, more help actions.
+- Français facile, accessible English, Kinyarwanda rules; four levels, and no default of "university".
+- `teaching_events` table (kinds of event only).
+- Free plan: 3 pictures or diagrams a day (was 1). No other limit or payment change.
+- Fixed: the leak guard missed an answer followed by a full stop (`x = 4.`).
+- Tests: backend 347 passed, web 31 passed. No live-model run and no human review yet.
+
 ## 2026-11-06: Research workspace (branch `claude/menya-research`)
 
 Details: `docs/RESEARCH_WORKSPACE.md`. New Research page: search across academic services with phrases and AND / OR / NOT, filters and

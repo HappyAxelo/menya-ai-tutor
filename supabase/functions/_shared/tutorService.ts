@@ -6,13 +6,17 @@
 //   usage/cost record (+ learning event) → response
 // ============================================================
 import {
-  actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, diagramNote, hintRequest, NO_PICTURE_NOTE, languageNote, learnerContextNote, learnerMemoryNote, materialsNote, polishReply, problemNote, parseTutorJson, publicReply,
+  actionRequest, buildResponseSchema, buildSystemPrompt, chosenLanguageNote, detectLanguage, diagramNote, FIX_DIAGRAM_REQUEST, hintRequest, languageSwitchNote, NO_PICTURE_NOTE, languageNote, learnerContextNote, learnerMemoryNote, materialsNote, polishReply, problemNote, parseTutorJson, publicReply,
   REWRITE_REQUEST, recheckRequest, unbalancedRequest, engineNote, presentRequest, STUCK_REASONS, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
 import { matchesAnswer, revealsAnswer, statesAnswer } from "./answerGuard.ts";
 import { checkEquation } from "./chemistry.ts";
 import { asksForPicture, renderDiagram, type Diagram } from "./diagram.ts";
+import { DIAGRAM_KINDS, TABLE_KINDS, type DiagramKind, type DiagramSpec } from "./diagramSpec.ts";
+import { templateAlt } from "./visualTemplates.ts";
+import { densityProblems, inferLevelFromText, levelFromProfile, normalizeLevel, wantsSimpleLanguage } from "./language.ts";
+import { ADAPT_NOTE, checkTeachingOrder, classifyEvidence, detectIntent, EVIDENCE_NOTE, isBriefFact, lessonShape, shapeNote, signalsNote, suggestVisual, teachFirstRequest, teachingEvents, type LessonShape } from "./engine/pedagogy.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
@@ -233,7 +237,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const isAttempt = input.action === "check" || (input.action === "message" && Boolean(input.sessionId) && !struggling && requestKind !== "concept");
   if (input.action === "message" || input.action === "check") studentTexts.push(input.message!);
   const studentEquation = isAttempt ? checkEquation(input.message ?? "") : null;
-  const newProblem = input.action === "practice" || input.action === "verify" || input.action === "review";
+  const newProblem = input.action === "practice" || input.action === "verify" || input.action === "review" || input.action === "test";
   const attemptsNow = newProblem ? 0 : session.attempts + (isAttempt ? 1 : 0);
 
   // ---------------- Tutoring engine: decide this turn's teaching move ----------------
@@ -275,17 +279,21 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     kind: evidenceKind(sessionItem?.kind ?? null), verdict: checked as "correct" | "incorrect", hintsUsed: session.hints_used,
     unexplained, misconception: marking?.misconception ?? null, at: now() }) : null;
 
+  const wrongStreakBefore = Number(prevMeta.wrongStreak ?? 0) + (checked === "incorrect" ? 1 : 0);
+  const prerequisiteVisited = prevMeta.prerequisiteVisited === true;
+  const guidedSuccessBefore = Number(prevRecord?.guided_correct ?? 0) > 0;
   const plan = decideTurn({
     mode, action: input.action as EngineAction, stuck: input.stuck ?? null, newProblem: !input.sessionId,
     attempts: attemptsNow, hintsUsed: session.hints_used, verdict: checked, misconception: serverMisconception,
     previous: { state: prevMeta.state ?? null, hintLevel: Number.isInteger(prevMeta.engineHint) ? prevMeta.engineHint : null,
                 misconception: prevMis, sameMisconceptionCount: repeats,
-                struggleCount: Number(prevMeta.struggleCount ?? 0), questionStreak: Number(prevMeta.questionStreak ?? 0) },
+                struggleCount: Number(prevMeta.struggleCount ?? 0), questionStreak: Number(prevMeta.questionStreak ?? 0), wrongStreak: wrongStreakBefore, prerequisiteVisited },
     requestKind: researchDecision.tier !== "none" && researchLeft ? "research" : requestKind, struggling,
     askedForAnswer: input.action === "message" && asksForAnswer(input.message ?? ""), unexplained,
     itemKind: sessionItem?.kind ?? null,
     masteredNow: Boolean(newRecord && newRecord.status === "mastered" && prevRecord!.status !== "mastered"),
     objectiveKnown: Boolean(objectiveId && generateItem(objectiveId, 1)),
+    attempted: isAttempt, guidedSuccessBefore,
   });
 
   log({ event: "engine_turn", state: plan.state, hintLevel: plan.hintLevel, verdict: checked, rationale: plan.rationale,
@@ -302,6 +310,23 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     if (presented) await repo.setSessionItem(session.id, userId, presented);
   }
 
+  // What this reply should look like, and the visual that would help most.
+  const researching = researchDecision.tier !== "none" && researchLeft;
+  const brief = input.action === "message" && !isAttempt && !input.attachments?.length && isBriefFact(input.message ?? "");
+  const shape: LessonShape = lessonShape({ plan, action: input.action as EngineAction, requestKind, brief, researching, presenting: Boolean(presented), attempted: isAttempt });
+  const topicText = input.message && input.action === "message" ? input.message : `${studentTexts.at(-1) ?? ""} ${session.title ?? ""}`;
+  const suggestion = suggestVisual(topicText) ?? suggestVisual(`${session.title ?? ""} ${studentTexts.join(" ")}`);
+  const intent = input.action === "message" ? detectIntent(input.message ?? "", requestKind) : null;
+  // Tables cost nothing to make and aren't pictures, so they stay available when today's pictures are used up.
+  const offerDiagram = canDraw && !presented && (asksDiagram || shape.visual !== "none");
+  const tableKinds = (suggestion?.kinds ?? []).filter(k => TABLE_KINDS.includes(k));
+  const tablesOnly = !canDraw && !asksDiagram && !presented && shape.visual !== "none" && tableKinds.length > 0;
+  const visualKinds: DiagramKind[] = tablesOnly ? tableKinds
+    : asksDiagram && !suggestion ? [...DIAGRAM_KINDS]
+    : [...new Set<DiagramKind>([...(suggestion?.kinds ?? ["graph", "flowchart", "bars", "array"]), "flow", "compare"])];
+  const adapts = isAttempt && checked === "unknown" && !plan.presentItem;
+  const assessmentBefore = prevMeta.lastEvidence as string | undefined;
+
   const userContent = presented ? presentRequest(presented.item, presented.kind, lang)
     : input.action === "message" ? composeWithAttachments(input.message!, input.attachments ?? [])
     : input.action === "hint" ? hintRequest(session.hints_used + 1, lang)
@@ -309,6 +334,13 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const engineMessage = presented ? null : engineNote(plan, {
     mode, modeChanged, verified: checked, verificationNote, unexplained,
     misconception: serverMisconception, objectiveTitle: objectiveId ? objectiveInfo(objectiveId)?.title ?? null : null,
+    shape: [shapeNote(shape, { offered: offerDiagram || tablesOnly, tablesOnly }),
+            intent === "exam" ? "The student is preparing for an exam: finish with the kind of question an exam would ask." : ""].filter(Boolean).join("\n"),
+    adapt: adapts ? ADAPT_NOTE : null,
+    evidence: EVIDENCE_NOTE[classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: sessionItem?.kind ?? null, guidedSuccessBefore,
+      assessment: null })] ?? (assessmentBefore ? EVIDENCE_NOTE[assessmentBefore as keyof typeof EVIDENCE_NOTE] ?? null : null),
+    prerequisite: plan.state === "PREREQ" ? (typeof prevMeta.prerequisiteGap === "string" ? prevMeta.prerequisiteGap
+      : (objectiveId ? (objectiveInfo(objectiveId)?.prerequisites ?? []).map(p => objectiveInfo(p)?.title ?? p).join(", ") : "") || null) : null,
   });
 
   // Route
@@ -374,41 +406,51 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     : earlierSources.length ? earlierSourcesNote(earlierSources) : null;
 
   // The learner's profile and, for a typed question, matching passages from their own notes.
-  const [profile, passages, memoryRows] = await Promise.all([
+  const [profile, passages, memoryRows, teachingCounts] = await Promise.all([
     repo.getLearnerProfile(userId).catch(() => null),
     input.action === "message" && input.message ? repo.searchMaterials(userId, input.message, 4).catch(() => []) : Promise.resolve([]),
     // Their marked answers: at the start of a conversation and whenever teaching changes approach.
     !input.sessionId || struggling || plan.state === "EXPLAIN" || plan.state === "MODEL" || plan.state === "HINT"
       ? repo.learnerMemory(userId).catch(() => []) : Promise.resolve([]),
+    // How much help this learner has needed lately, at the start of a conversation.
+    !input.sessionId ? repo.teachingSignals(userId).catch(() => ({})) : Promise.resolve({}),
   ]);
+  const signals = signalsNote(teachingCounts as Record<string, number>);
   const prerequisites = objectiveId ? objectiveInfo(objectiveId)?.prerequisites ?? [] : [];
   const memoryEntries = memoryRows.map((r: any) => ({ id: r.objective_id, title: objectiveInfo(r.objective_id)?.title ?? r.objective_id, status: r.status, incorrect: Number(r.incorrect ?? 0),
     correct: Number(r.guided_correct ?? 0) + Number(r.independent_correct ?? 0), misconceptions: Object.keys(r.misconceptions ?? {}).map(m => { const item = generateItem(r.objective_id, 1); return item ? misconceptionText(item, m) ?? "" : ""; }).filter(Boolean),
     dueForReview: Boolean(r.next_review_at && Date.parse(r.next_review_at) <= now()) }));
   const weakPrerequisites = memoryEntries.filter(e => prerequisites.includes(e.id) && e.incorrect > e.correct).map(e => e.title);
   const memoryNote = learnerMemoryNote(memoryEntries, weakPrerequisites, typeof prevMeta.prerequisiteGap === "string" ? prevMeta.prerequisiteGap : null);
-  const profileLevel = profile?.education_level === "secondary" ? "secondary" : profile?.education_level === "university" ? "undergraduate" : undefined;
+  // What the learner chose, then what they say about themselves, then their profile. Unknown stays unknown: never assumed to be a university student.
+  const teachingLevel = normalizeLevel(input.learnerLevel) ?? inferLevelFromText(studentTexts.join(" ")) ?? levelFromProfile(profile?.education_level, profile?.year_of_study);
+  const plainness = Math.max(0, Math.min(2, Number(prevMeta.plainness ?? 0)
+    + (input.action === "simpler" || struggling || (input.action === "message" && wantsSimpleLanguage(input.message ?? "")) ? 1 : 0)
+    - (checked === "correct" ? 1 : 0)));
   const profileNote = learnerContextNote(profile);
   const notesNote = materialsNote(passages);   // placed next to the question, where the model attends most
   const system = buildSystemPrompt({
-    language: input.language, workedSolutions: ent.worked_solutions, privateFields: true, level: input.learnerLevel ?? profileLevel, style: input.style,
+    language: input.language, workedSolutions: ent.worked_solutions, privateFields: true, level: teachingLevel ?? undefined, style: input.style,
+    replyLanguage: lang ?? session.language, plainness,
     depth: ent.analytics_level === "enhanced" ? "detailed" : "standard",
   });
-  // Offered when asked for, or when the tutor is explaining: not on quick guiding turns.
-  const offerDiagram = canDraw && !presented && (asksDiagram || plan.state === "EXPLAIN" || plan.state === "MODEL");
-  const schema = buildResponseSchema(true, offerDiagram);
+  const schema = buildResponseSchema(true, offerDiagram || tablesOnly);
+  const switchedLanguage = Boolean(input.sessionId && session.language && lang && lang !== session.language && history.length);
   const messages: ChatMessage[] = [
     ...(profileNote ? [{ role: "user" as const, content: profileNote }] : []),
     ...(memoryNote ? [{ role: "user" as const, content: memoryNote }] : []),
+    ...(signals ? [{ role: "user" as const, content: signals }] : []),
     ...history.map(m => ({ role: m.role, content: m.content })),
     ...(!newProblem && (session.hints_used > 0 || attemptsNow > 0)
       ? [{ role: "user" as const, content: problemNote({ hintsUsed: session.hints_used, attempts: attemptsNow, practice: session.practice }) }] : []),
     ...(engineMessage ? [{ role: "user" as const, content: engineMessage }] : []),
-    ...(followStudent ? (detected ? [{ role: "user" as const, content: languageNote(detected) }] : [])
-      : (input.action === "message" || input.action === "check" ? [{ role: "user" as const, content: chosenLanguageNote(input.language!, detected) }] : [])),
     ...(notesNote ? [{ role: "user" as const, content: notesNote }] : []),
     ...(researchMessage ? [{ role: "user" as const, content: researchMessage }] : []),
-    ...(offerDiagram ? [{ role: "user" as const, content: diagramNote(asksDiagram) }] : asksDiagram ? [{ role: "user" as const, content: NO_PICTURE_NOTE }] : []),
+    ...(offerDiagram || tablesOnly ? [{ role: "user" as const, content: diagramNote(asksDiagram, visualKinds) }] : asksDiagram ? [{ role: "user" as const, content: NO_PICTURE_NOTE }] : []),
+    // Language last, right beside the student's words, where it carries the most weight.
+    ...(followStudent ? (detected ? [{ role: "user" as const, content: languageNote(detected) }] : [])
+      : (input.action === "message" || input.action === "check" ? [{ role: "user" as const, content: chosenLanguageNote(input.language!, detected) }] : [])),
+    ...(switchedLanguage ? [{ role: "user" as const, content: languageSwitchNote(session.language!, lang!) }] : []),
     { role: "user", content: userContent },
   ];
 
@@ -501,6 +543,27 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
                        inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
           }
         }
+
+        // Teach before asking: a reply that questions the student before teaching gets one rewrite.
+        if (shape.foundation && !served.rewrite && !presented) {
+          const order = checkTeachingOrder(served.reply.message, shape);
+          if (!order.ok) {
+            log({ event: "teach_first", problems: order.problems, state: plan.state });
+            if (remaining() >= MIN_CALL_MS) try {
+              const res4 = await provider.chat(withinBudget(candidate.config), { system, schema, messages: [
+                ...messages, { role: "assistant", content: JSON.stringify(publicReply(served.reply)) }, { role: "user", content: teachFirstRequest(order.problems) },
+              ] });
+              const taught = parseTutorJson(res4.text);
+              served.inputTokens += res4.inputTokens ?? 0; served.outputTokens += res4.outputTokens ?? 0; served.latencyMs += res4.latencyMs;
+              served.cachedTokens += res4.cachedInputTokens ?? 0;
+              const c4 = estimateCostUsd(candidate.config, res4);
+              served.cost = served.cost != null && c4 != null ? served.cost + c4 : served.cost;
+              if (taught && checkTeachingOrder(taught.message, shape).ok && (answerMayShow || !revealsAnswer(taught.message, served.reply.finalAnswer, studentTexts))) {
+                served.reply = { ...taught, finalAnswer: served.reply.finalAnswer, difficulty: served.reply.difficulty, diagram: taught.diagram ?? served.reply.diagram };
+              }
+            } catch { /* the first reply stands */ }
+          }
+        }
       } catch (err) {
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);
         log({ event: "provider_error", provider: provider.name, role: candidate.role, kind: lastError.kind, status: lastError.status });
@@ -590,15 +653,45 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const assessedObjective = reply.assessment && reply.assessment.objective !== "other" && reply.assessment.confidence >= 0.6 ? reply.assessment.objective : null;
   const sessionObjective = presented?.item.objective ?? objectiveId ?? assessedObjective;
 
-  // A picture is shown only if it can be drawn correctly, doesn't give the answer away, and the allowance
+  // A visual is shown only if it can be drawn correctly, doesn't give the answer away, and the allowance
   // still has room (checked and recorded together). One that isn't shown costs the learner nothing.
+  // A description the code can't draw gets one correction; a checked illustration of the topic can stand in for a missing one.
   let diagram: Diagram | null = null;
-  if (offerDiagram && reply.diagram) {
-    const drawn = renderDiagram(reply.diagram);
+  if (offerDiagram || tablesOnly) {
+    const renderOptions = { language: reply.language || lang };
+    // With no pictures left, a picture that comes with a computed table is still worth its table.
+    const fit = (d: Diagram | null) => !d || !tablesOnly || d.svg === null ? d : d.table ? { ...d, svg: null, frames: undefined } : null;
+    let drawn = fit(renderDiagram(reply.diagram ?? null, renderOptions));
+    if (!drawn && reply.diagram && remaining() >= MIN_CALL_MS) {
+      try {
+        const res5 = await providers[candidate.config.provider].chat(withinBudget(candidate.config), { system, schema, messages: [
+          ...messages, { role: "assistant", content: JSON.stringify({ ...publicReply(reply), diagram: reply.diagram }) }, { role: "user", content: FIX_DIAGRAM_REQUEST },
+        ] });
+        served.inputTokens += res5.inputTokens ?? 0; served.outputTokens += res5.outputTokens ?? 0; served.latencyMs += res5.latencyMs;
+        served.cachedTokens += res5.cachedInputTokens ?? 0;
+        const c5 = estimateCostUsd(candidate.config, res5);
+        served.cost = served.cost != null && c5 != null ? served.cost + c5 : served.cost;
+        const fixed = parseTutorJson(res5.text);
+        drawn = fit(renderDiagram(fixed?.diagram ?? null, renderOptions));
+      } catch { /* words only */ }
+    }
+    if (!drawn && !tablesOnly && suggestion?.template) {
+      const spec: DiagramSpec = { kind: "labelled", title: "", alt: templateAlt(suggestion.template, renderOptions.language), items: [{ role: "template", label: "", value: suggestion.template }] };
+      drawn = renderDiagram(spec, renderOptions);
+    }
     const leaks = drawn && !answerMayShow && revealsAnswer(drawn.text, reply.finalAnswer, studentTexts);
-    if (drawn && !leaks && await repo.useDiagram(userId, allowance.limit ?? 1_000_000)) diagram = drawn;
-    log({ event: "diagram", kind: reply.diagram.kind, shown: Boolean(diagram), drawable: Boolean(drawn), leak: Boolean(leaks) });
+    // Tables aren't pictures: they don't use the daily picture allowance.
+    if (drawn && !leaks && (drawn.svg === null || await repo.useDiagram(userId, allowance.limit ?? 1_000_000))) diagram = drawn;
+    log({ event: "diagram", kind: reply.diagram?.kind ?? suggestion?.template ?? null, shown: Boolean(diagram), drawable: Boolean(drawn), leak: Boolean(leaks) });
   }
+  const visualView = diagram ? { svg: diagram.svg, alt: diagram.alt, kind: diagram.kind ?? null, title: diagram.title ?? "", table: diagram.table ?? null, ...(diagram.frames ? { frames: diagram.frames } : {}) } : null;
+  // How the student's answer reads, from the server's facts first and the model's reading second.
+  const evidence = isAttempt ? classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: sessionItem?.kind ?? null, guidedSuccessBefore, assessment: reply.assessment ?? null }) : null;
+  const judgedWrong = isAttempt && (checked === "incorrect" || (checked === "unknown" && reply.assessment?.verdict === "incorrect" && reply.assessment.confidence >= 0.6));
+  const judgedRight = checked === "correct" || (isAttempt && reply.assessment?.verdict === "correct");
+  const wrongStreak = judgedRight || newProblem ? 0 : judgedWrong ? Number(prevMeta.wrongStreak ?? 0) + 1 : Number(prevMeta.wrongStreak ?? 0);
+  const dense = shape.format === "plain" ? [] : densityProblems(reply.message, teachingLevel, reply.language);
+  if (dense.length) log({ event: "dense_reply", problems: dense, level: teachingLevel, language: reply.language });
 
   // Persist conversation (never the private fields)
   const [, replyId] = await repo.appendMessages(session.id, userId, [
@@ -613,7 +706,12 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       ...(sessionObjective ? { objective: sessionObjective } : {}),
       ...(verifiedSolve ? { solved: true } : {}),
       ...(progressSummaryOk(reply, verifiedSolve) ? { summary: reply.progressSummary } : {}),
-      ...(diagram ? { diagram: { svg: diagram.svg, alt: diagram.alt } } : {}),
+      ...(visualView ? { diagram: visualView } : {}),
+      format: shape.format,
+      ...(wrongStreak ? { wrongStreak } : {}), ...(plainness ? { plainness } : {}),
+      ...(prerequisiteVisited || plan.state === "PREREQ" ? { prerequisiteVisited: true } : {}),
+      ...(prevMeta.taught === true || shape.foundation ? { taught: true } : {}),
+      ...(evidence && evidence !== "unclear" ? { lastEvidence: evidence } : {}),
     } },
   ]);
   if (reply.finalAnswer && reply.finalAnswer !== rememberedAnswer) await repo.setSessionAnswer(session.id, reply.finalAnswer);
@@ -644,6 +742,13 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       concepts: reply.conceptsDetected.slice(0, 8), hints_used: hintsUsed, examples_used: examplesUsed, attempts: attemptsNow,
     });
   }
+  // What happened in this turn, for the next teaching decision and for evaluating Menya. No text is stored.
+  await repo.recordTeachingEvents(teachingEvents({
+    format: shape.format, action: input.action as EngineAction, state: plan.state, isAttempt, visualKind: visualView?.kind ?? null, misconception: storedMisconception,
+    verified: checked, itemKind: sessionItem?.kind ?? null, masteryChanged: Boolean(newRecord && prevRecord && newRecord.status !== prevRecord.status), hadTeaching: prevMeta.taught === true,
+  }).map(e => ({ user_id: userId, session_id: session!.id, objective_id: sessionObjective, kind: e.kind, visual_kind: e.visual_kind ?? null, language: reply.language || null, level: teachingLevel }))).catch(err => {
+    log({ event: "teaching_events_failed", message: err instanceof Error ? err.message : String(err) });
+  });
   await repo.recordUsage({
     request_id: input.requestId, user_id: userId, org_id: ent.org_id, plan_id: ent.plan_id,
     provider: candidate.config.provider, model: candidate.config.model, model_role: candidate.role, premium: candidate.premium,
@@ -667,14 +772,14 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       reply: { ...publicReply(reply), messageId: replyId ?? null, solved: verifiedSolve, progressSummary: progressSummaryOk(reply, verifiedSolve) ? reply.progressSummary : null },
       sessionId: session.id,
       hintsUsed,
-      diagram: diagram ? { svg: diagram.svg, alt: diagram.alt } : null,
+      diagram: visualView,
       // The learner asked for a picture and none came: why, so the app can say so plainly.
       pictureNote: !asksDiagram || diagram ? null : canDraw ? { reason: "failed" }
         : { reason: "limit", limit: allowance.limit, upgrade_to: NEXT_PLAN[ent.plan_id] ?? null },
       problem: { solved: !newProblem && (session.solved || verifiedSolve), practice, attempts: attemptsNow },
       advancedReasoning: candidate.premium,  // plain-language flag; no model names
       engine: {
-        mode, state: plan.state, hintLevel: plan.hintLevel,
+        mode, state: plan.state, hintLevel: plan.hintLevel, format: shape.format,
         verified: checked === "unknown" ? null : checked,
         objective: sessionObjective ? { id: sessionObjective, title: objectiveInfo(sessionObjective)?.title ?? sessionObjective } : null,
         item: presented ? { kind: presented.kind } : sessionItem && !itemSolved ? { kind: sessionItem.kind } : null,

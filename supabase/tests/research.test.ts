@@ -489,16 +489,17 @@ describe("adaptive teaching decisions", () => {
   });
   test("a concept question is explained, not diagnosed", () => assert.equal(decideTurn(ctx({ newProblem: true, requestKind: "concept" })).state, "EXPLAIN"));
   test("a research question is taught", () => assert.equal(decideTurn(ctx({ newProblem: true, requestKind: "research" })).state, "EXPLAIN"));
-  test("a problem still starts with a question and no answer", () => {
+  test("a problem starts by teaching, and still without the answer", () => {
     const p = decideTurn(ctx({ newProblem: true, requestKind: "problem" }));
-    assert.equal(p.state, "DIAGNOSE");
+    assert.equal(p.state, "TEACH");
     assert.equal(p.revealAllowed, false);
   });
-  test("\"I don't know\" escalates: hint, explanation, worked example, full solution. Never the same question", () => {
-    const step = (n: number) => decideTurn(ctx({ struggling: true, previous: { state: "GUIDE", hintLevel: 0, misconception: null, sameMisconceptionCount: 0, struggleCount: n } }));
-    assert.deepEqual([0, 1, 2, 3].map(n => step(n).state), ["HINT", "EXPLAIN", "MODEL", "EXPLAIN"]);
+  test("\"I don't know\" escalates: hint, explanation, worked example, prerequisite, full solution. Never the same question", () => {
+    const step = (n: number, prerequisiteVisited = false) => decideTurn(ctx({ struggling: true, previous: { state: "GUIDE", hintLevel: 0, misconception: null, sameMisconceptionCount: 0, struggleCount: n, prerequisiteVisited } }));
+    assert.deepEqual([0, 1, 2, 3].map(n => step(n).state), ["HINT", "EXPLAIN", "MODEL", "PREREQ"]);
     assert.deepEqual([0, 1, 2].map(n => step(n).revealAllowed), [false, false, false]);
-    assert.equal(step(3).revealAllowed, true);
+    assert.equal(step(3).revealAllowed, false, "first go back to what the topic depends on");
+    assert.equal(step(3, true).revealAllowed, true, "then show the full solution");
   });
   test("three questions in a row without progress: stop asking and teach", () => {
     const p = decideTurn(ctx({ previous: { state: "GUIDE", hintLevel: 0, misconception: null, sameMisconceptionCount: 0, questionStreak: 2 } }));

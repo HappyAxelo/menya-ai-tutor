@@ -40,7 +40,7 @@ export function revealsAnswer(message: string, finalAnswer: string | null | unde
   const num = asNumeric(answer);
   if (num) {
     const v = escapeRe(num.value);
-    const patterns = [new RegExp(`(=|≈|≅)\\s*${v}(?![\\d.])`)];
+    const patterns = [new RegExp(`(=|≈|≅)\\s*${v}(?!\\d|\\.\\d)`)];   // the full stop in "x = 4." ends the sentence; 4.5 is a different number
     if (num.unit) patterns.push(new RegExp(`(?<![\\d.])${v}\\s*${escapeRe(num.unit)}(?![\\p{L}\\d/²³])`, "iu")); // "20 m" is not "20 m/s"
     const leaked = (text: string) => patterns.some(p => p.test(text.replace(/,(?=\d)/g, ".")));
     if (!leaked(message)) return false;

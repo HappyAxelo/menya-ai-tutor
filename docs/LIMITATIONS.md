@@ -1,6 +1,8 @@
 # Limitations: what is not implemented or not verified
 
-Stated plainly so nobody overclaims. Updated 31 October 2026.
+Stated plainly so nobody overclaims. Updated 9 November 2026.
+
+**The visual-first teaching upgrade has its own list of what is unverified: see `VISUAL_TUTOR_UPGRADE.md`, section 9. In particular it has not yet been run against the production model or read by fluent speakers.**
 
 ## Not implemented
 
@@ -46,11 +48,7 @@ Stated plainly so nobody overclaims. Updated 31 October 2026.
 - **All plans use the same AI model today.** Paid plans differ by limits, memory, explanation detail and
   pictures, not by a better model. No premium model is connected and its allowance is 0. Don't advertise a
   stronger model until one is running.
-- **Pictures come in eight kinds only**: graphs, circuits, right-angled triangles, forces, step or cycle
-  diagrams, rows of cells, bar charts and atoms. Menya's code draws them, so anything else (a cell, the
-  heart, a map, geometry beyond right-angled triangles) gets no picture and is explained in words.
-  What is drawn is only as right as the model's description: curves and geometry are computed, but
-  the model chooses, for example, which forces act on a block. Not reviewed by subject experts yet.
+- **Visuals**: see `VISUAL_TUTOR_UPGRADE.md` for the kinds that exist. There are no maps, and labelled science pictures exist for six topics only. Curves, fractions, truth tables and reactions are computed, but the model still chooses, for example, which forces act on a block. Not reviewed by subject experts yet.
 - **All plans share the AI provider's free-tier capacity**, so heavy use can mean "very busy, try again"
   until a paid AI tier is bought, whatever plan a student is on.
 

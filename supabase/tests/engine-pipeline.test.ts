@@ -15,7 +15,7 @@ before(async () => { db = await freshDb(); });
 const assessment = (over: Record<string, unknown> = {}) => ({
   verdict: "not_an_attempt", reasoning: "none", misconception: null, confidence: 0.9, prerequisiteGap: null, objective: "ee.ohms_law", ...over });
 const reply = (over: Record<string, unknown> = {}) => JSON.stringify({
-  language: "English", message: "Which law links voltage, current and resistance?", type: "question", conceptsDetected: ["Ohm's law"],
+  language: "English", message: "Current is like water flowing in a pipe, and the voltage is what pushes it along. A bigger resistance slows the flow, so the current gets smaller. Which quantity pushes the current?", type: "question", conceptsDetected: ["Ohm's law"],
   misconceptionDetected: null, hintLevel: null, progressSummary: null, solved: false, finalAnswer: "3 A", difficulty: "basic",
   assessment: assessment(), ...over });
 
@@ -54,12 +54,12 @@ async function ohmPractice(u: string, m: ReturnType<typeof model>, kind = "pract
 }
 
 describe("tutoring engine in the pipeline", () => {
-  test("a new problem starts in DIAGNOSE and the engine note reaches the model", async () => {
+  test("a new problem starts by teaching, and the engine note reaches the model", async () => {
     const u = await createUser(db);
     const m = model(() => reply());
     const res = await handleTutor(deps(m.provider), u, ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
-    assert.equal((res.body.engine as any).state, "DIAGNOSE");
-    assert.match(m.notes()[0], /Teaching move: DIAGNOSE/);
+    assert.equal((res.body.engine as any).state, "TEACH");
+    assert.match(m.notes()[0], /Teaching move: TEACH/);
     assert.equal((res.body.reply as any).assessment, undefined, "internal assessment never reaches the browser");
   });
 
@@ -146,7 +146,7 @@ describe("tutoring engine in the pipeline", () => {
     const first = await handleTutor(deps(m.provider), u, ask("12 V across 4 Ω, current?"));
     const res = await handleTutor(deps(m.provider), u, act("stuck", { sessionId: first.body.sessionId, stuck: "concept" }));
     assert.equal((res.body.engine as any).state, "EXPLAIN");
-    assert.match(m.notes().at(-1)!, /Help level 2 of 5: Conceptual hint/);
+    assert.match(m.notes().at(-1)!, /Help level 2 of 5: More specific hint/);
     assert.equal((await handleTutor(deps(m.provider), u, act("stuck", { sessionId: first.body.sessionId, stuck: "nonsense" }))).status, 400);
   });
 

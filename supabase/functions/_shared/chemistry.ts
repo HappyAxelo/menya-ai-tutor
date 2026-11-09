@@ -19,7 +19,7 @@ function add(into: Counts, from: Counts, times: number) {
 }
 
 // Atoms in one formula such as Ca(OH)2; null if it holds something that is not an element.
-function formulaCounts(formula: string): Counts | null {
+export function formulaCounts(formula: string): Counts | null {
   const stack: Counts[] = [new Map()];
   const re = /([A-Z][a-z]?)(\d*)|(\()|(\))(\d*)/g;
   let pos = 0, m: RegExpExecArray | null;

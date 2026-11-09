@@ -8,7 +8,7 @@ enforces it and the pricing page and dashboard display it. Change a limit in **A
 | Price | $0 | $5 / month | $5 / 14 days | $8 / month |
 | Tutor messages a day | 20 | 150 | 1,000 | 1,000 |
 | Tutor messages a month | 300 | 3,000 | 10,000 | 20,000 |
-| Pictures and diagrams a day | 1 | 3 | 10 | 10 |
+| Pictures and diagrams a day | 3 | 3 | 10 | 10 |
 | Conversation length | 30 | 80 | 120 | 150 |
 | Conversation memory setting | 10 | 24 | 30 | 40 |
 | Explanations | Standard | Detailed | Detailed | Detailed |

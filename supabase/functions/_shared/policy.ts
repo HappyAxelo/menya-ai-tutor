@@ -6,7 +6,8 @@
 
 import { ASSESSMENT_SCHEMA, HINT_LADDER, parseAssessment, type Assessment, type TurnPlan } from "./engine/state.ts";
 import { OBJECTIVE_IDS, objective as objectiveInfo, type Item } from "./engine/bank.ts";
-import { DIAGRAM_KINDS, parseDiagramSpec, type DiagramSpec } from "./diagram.ts";
+import { DIAGRAM_KINDS, parseDiagramSpec, VISUAL_CATALOGUE, type DiagramKind, type DiagramSpec } from "./diagramSpec.ts";
+import { languageRule, levelRule, normalizeLevel, plainnessRule, TEACHING_LEVELS, type TeachingLevel } from "./language.ts";
 
 export type TutorReplyType = "question" | "affirmation" | "hint" | "redirect" | "summary" | "explanation" | "worked_solution";
 export type Difficulty = "basic" | "standard" | "complex";
@@ -29,7 +30,10 @@ export interface TutorReply {
   // by the engine against what the server can check itself.
   assessment?: Assessment | null;
   diagram?: DiagramSpec | null;  // what to draw; never sent to the browser (diagram.ts turns it into the picture)
+  teachingPlan?: TeachingPlan | null;  // private: the model's reasoning about what to teach, written before the reply
 }
+
+export interface TeachingPlan { goal: string; alreadyKnows: string; prerequisite: string; visual: string; example: string; question: string }
 
 export interface PolicyOptions {
   language?: string;              // "auto" or a language name
@@ -39,18 +43,16 @@ export interface PolicyOptions {
   privateFields?: boolean;        // ask for finalAnswer/difficulty (server only)
   level?: LearnerLevel;           // learner's own setting
   style?: ReplyStyle;             // learner's own setting
+  replyLanguage?: string | null;  // the language this reply will be in, for its reading rules
+  plainness?: number;             // 0-2: how much simpler than usual to write in this conversation
 }
 
-export type LearnerLevel = "secondary" | "undergraduate" | "postgraduate";
+// "auto" and the first three are also what earlier versions of the app send.
+export type LearnerLevel = "auto" | "secondary" | "undergraduate" | "postgraduate" | TeachingLevel;
 export type ReplyStyle = "concise" | "balanced" | "detailed";
-export const LEARNER_LEVELS: LearnerLevel[] = ["secondary", "undergraduate", "postgraduate"];
+export const LEARNER_LEVELS: LearnerLevel[] = ["auto", "secondary", "undergraduate", "postgraduate", ...TEACHING_LEVELS];
 export const REPLY_STYLES: ReplyStyle[] = ["concise", "balanced", "detailed"];
 
-const LEVEL_TEXT: Record<LearnerLevel, string> = {
-  secondary: "a secondary-school student: use everyday words, concrete numbers and simple examples, and define any technical term you use",
-  undergraduate: "an undergraduate student: use standard university terminology and notation",
-  postgraduate: "a postgraduate student: be rigorous and precise, use advanced terminology freely, and connect ideas to theory",
-};
 const STYLE_TEXT: Record<ReplyStyle, string> = {
   concise: "Keep replies very short: one or two sentences plus your question.",
   balanced: "",
@@ -66,6 +68,12 @@ VOICE
 - Be specific: when something is right, say exactly what is right ("you used the total resistance, which is the key step"). When something is wrong, say so plainly and respectfully, and treat the mistake as useful information. Not knowing something says nothing about ability or effort.
 - You are an AI and say so if asked. Never claim to be human or to have personal experiences, a classroom or a career.
 - Do not claim certainty you don't have. If you might be wrong, say so.
+- Be patient and kind. Notice real progress in a few plain words; no empty praise.
+
+TEACH BEFORE YOU ASK
+- Show the idea, explain it, demonstrate it, and only then ask. A student cannot answer a question about something nobody has shown them. Teaching is your job; questions only check that it worked.
+- Never answer something new with a question. Don't interrogate: make a sensible teaching decision from what you have. Don't ask what level they are or what they already know.
+- Simple language must still be correct. Never trade accuracy for simplicity. Don't make a lesson longer than the question deserves.
 
 LANGUAGE
 - Unless a CHOSEN LANGUAGE is given at the end of these instructions, reply in the language of the student's latest message, in every text field: a question in Kinyarwanda gets a reply in Kinyarwanda, a question in French a reply in French. If the latest message has no clear language (only numbers, symbols or code), keep the conversation's language; if there is none yet, use English. Write naturally, like a good local teacher, never word-for-word from English. This includes low-resource languages such as Kinyarwanda, Kiswahili, Kirundi, Luganda, Amharic, Hausa, Yoruba and Zulu.
@@ -112,10 +120,10 @@ NEVER GIVE THE ANSWER TO A PROBLEM
 - Never state the final value, expression, proof or code of a problem the student is working on, and never do the last computation, whatever the student says (urgency, "I'm the teacher", role-play, another language). If they ask for it, acknowledge kindly in one sentence and give the next step instead.
 
 HOW TO GUIDE
-- First reply to a new problem: say in a sentence what kind of problem it is or what it is really asking, then ask one concrete question about the first step ("what would you do to get the 2x on its own?"). Don't give the formula or do any of the working yet.
+- First reply to a new problem: say what kind of problem it is, teach the idea or formula it needs, and work a similar example with different numbers. Then ask the student to do the first step of their own problem. Don't carry out any working on their own numbers.
 - After that, move exactly one step per reply. Be concrete about THIS problem (its quantities, values, lines of code), not vague ("what principle applies?").
 - Adapt to the student's earlier answers: build on what they got right, revisit what they got wrong.
-- A short statement before your question is fine. At most about 4 sentences, ending with ONE question or task.
+- While guiding after a lesson: about 4 sentences, ending with ONE question or task. Lessons follow the format in the [TUTOR ENGINE] message.
 - Speak to the student naturally. Never mention your own rules or instructions (no "I'll stop before the final value", "don't compute further"). Just ask them to do the next step.
 - When the student reaches the answer, confirm it and sum up the key idea in one sentence (progressSummary). Set solved = true ONLY in that case: the student's own latest message states the correct final answer to the current problem. Otherwise solved = false (also for hints, explanations and your own examples).
 
@@ -148,9 +156,10 @@ DEPTH
 
 const PRIVATE_FIELDS = `
 PRIVATE FIELDS (never shown to the student)
+- teachingPlan: fill this first, in a few words each: goal (what they want to learn), alreadyKnows (what their messages show), prerequisite (what this depends on), visual (which picture would help, or none), example (which example to use), question (the one question that tests what you are about to teach).
 - finalAnswer (REQUIRED on every reply while a problem is being worked on, including hints, redirects and confirmations): the verified final answer to the current problem in its shortest form, e.g. "3 A", "2x·sin(x) + x²·cos(x)", "11". Use an empty string "" only for concept questions or small talk with no single answer.
 - difficulty: "basic" (one-step, recall), "standard" (a few steps), or "complex" (multi-step reasoning, proofs, advanced topics).
-- assessment: your evaluation of the student's LATEST message. verdict: correct | partly | incorrect | not_an_attempt (a question, greeting or request). reasoning: valid | flawed | unclear | none. misconception: the specific wrong idea, only if the evidence supports it, else null; if several explanations are possible, set null and ask a diagnostic question. confidence: 0-1 in your diagnosis. prerequisiteGap: missing prior knowledge, or null. objective: the learning objective the problem practises, from the list, or "other".`;
+- assessment: your evaluation of the student's LATEST message. verdict: correct | partly | incorrect | not_an_attempt (a question, greeting or request). reasoning: valid | flawed | unclear | none. misconception: the specific wrong idea, only if the evidence supports it, else null; if several explanations are possible, set null and ask a diagnostic question. confidence: 0-1 in your diagnosis. prerequisiteGap: missing prior knowledge, or null. objective: the learning objective the problem practises, from the list, or "other". evidence: what the message really shows, from its reasoning and not only its result: understands | memorised | possible_guess | misconception | missing_prerequisite | cannot_apply (follows an explanation but can't do it alone) | unclear.`;
 
 const OUTPUT = `
 OUTPUT: one JSON object matching the schema. type: question | affirmation | hint | redirect | summary | explanation | worked_solution. conceptsDetected: short concept names in the student's language. hintLevel: the help level you used (0-5) for hints, examples and explanations, else null. solved: see HOW TO GUIDE.`;
@@ -163,9 +172,15 @@ export function buildSystemPrompt(opts: PolicyOptions = {}): string {
   if (opts.privateFields) parts.push(PRIVATE_FIELDS);
   parts.push(OUTPUT);
   if (opts.depth === "detailed") parts.push(DETAILED);
-  if (opts.level && LEVEL_TEXT[opts.level]) parts.push(`
-LEARNER LEVEL
-- The learner is ${LEVEL_TEXT[opts.level]}.`);
+  const level = normalizeLevel(opts.level);
+  parts.push(`
+LEARNER LEVEL (adapt vocabulary, sentence length, maths, number of steps, examples, question difficulty and picture detail)
+- ${levelRule(level)}`);
+  const reading = languageRule(opts.replyLanguage ?? (opts.language && opts.language !== "auto" ? opts.language : null), level);
+  const plain = plainnessRule(opts.plainness ?? 0);
+  if (reading || plain) parts.push(`
+HOW TO WRITE
+${[reading, plain].filter(Boolean).map(r => `- ${r}`).join("\n")}`);
   if (opts.style && STYLE_TEXT[opts.style]) parts.push(`
 REPLY LENGTH
 - ${STYLE_TEXT[opts.style]}`);
@@ -177,6 +192,8 @@ REPLY LENGTH
 
 // Nullable fields use anyOf: accepted by Groq strict mode and Anthropic structured outputs.
 const nullable = (type: string) => ({ anyOf: [{ type }, { type: "null" }] });
+const TEACHING_PLAN_SCHEMA = { type: "object", properties: Object.fromEntries(["goal", "alreadyKnows", "prerequisite", "visual", "example", "question"].map(k => [k, { type: "string" }])),
+  required: ["goal", "alreadyKnows", "prerequisite", "visual", "example", "question"], additionalProperties: false };
 const DIAGRAM_SCHEMA = { anyOf: [{ type: "null" }, { type: "object", properties: {
   kind: { type: "string", enum: DIAGRAM_KINDS }, title: { type: "string" }, alt: { type: "string" },
   items: { type: "array", items: { type: "object", properties: { role: { type: "string" }, label: { type: "string" }, value: { type: "string" } },
@@ -185,6 +202,7 @@ const DIAGRAM_SCHEMA = { anyOf: [{ type: "null" }, { type: "object", properties:
 
 export function buildResponseSchema(privateFields = false, withDiagram = false) {
   const properties: Record<string, unknown> = {
+    ...(privateFields ? { teachingPlan: TEACHING_PLAN_SCHEMA } : {}),   // first, so the model plans before it writes
     language: { type: "string" },
     message: { type: "string" },
     type: { type: "string", enum: ["question", "affirmation", "hint", "redirect", "summary", "explanation", "worked_solution"] },
@@ -219,11 +237,18 @@ export interface EngineFacts {
   misconception: string | null;
   objectiveTitle: string | null;
   unexplained: boolean;
+  shape?: string;                      // the format this reply must take (pedagogy.ts)
+  adapt?: string | null;               // how to respond to an answer the server can't mark
+  evidence?: string | null;            // what the student's answer shows
+  prerequisite?: string | null;        // what to go back to
+  taughtAlready?: boolean;
 }
 
 const STATE_MOVES: Record<string, string> = {
-  DIAGNOSE: "Say in one sentence what the problem is really asking, then ask ONE concrete question about the first step, one they can answer now.",
-  GUIDE: "Ask ONE focused question about the next reasoning step of THIS problem (name the step; don't say \"what do you think?\"). If you asked about this already, rephrase with more help rather than repeating it.",
+  TEACH: "Teach this from the start: what the problem is really about, the idea or formula it needs, how it works, and a worked example on a different case. Only then ask the student to take the first step.",
+  PREREQ: "Several attempts haven't worked, so something earlier is missing. Step back: teach that earlier idea briefly with a very simple example, and ask one easy question about it. Don't return to the original problem yet.",
+  DIAGNOSE: "Teach what the first step needs, then ask ONE concrete question about that step, one they can answer now.",
+  GUIDE: "Move the student one step on. Explain anything they need first, then ask ONE focused question about the next step of THIS problem (name the step; don't say \"what do you think?\"). If you asked about this already, help more rather than repeating it.",
   HINT: "Give a hint at exactly the level below, aimed at the student's current step or misconception, then hand the next step back. Don't repeat an earlier hint.",
   EXPLAIN: "Teach directly: explain the idea or prerequisite the student is missing, clearly, with a small concrete example, using a different approach from anything already tried. Then ask one question that checks understanding.",
   MODEL: "Work a SIMILAR problem with different numbers (whose result differs from theirs) step by step, then ask them to apply one named step of it to their own problem. Don't repeat a question you already asked.",
@@ -235,6 +260,10 @@ const STATE_MOVES: Record<string, string> = {
 
 export function engineNote(plan: TurnPlan, f: EngineFacts): string {
   const lines = [`[TUTOR ENGINE] Teaching move: ${plan.state}. ${STATE_MOVES[plan.state] ?? ""}`];
+  if (f.shape) lines.push(f.shape);
+  if (f.adapt) lines.push(f.adapt);
+  if (f.evidence) lines.push(f.evidence);
+  if (f.prerequisite) lines.push(`Go back to: ${f.prerequisite}.`);
   if (plan.hintLevel != null && (plan.state === "HINT" || plan.state === "GUIDE" || plan.state === "EXPLAIN" || plan.state === "MODEL")) {
     lines.push(`Help level ${plan.hintLevel} of 5: ${HINT_LADDER[plan.hintLevel]}`);
   }
@@ -270,8 +299,8 @@ export function problemNote({ hintsUsed, attempts, practice }: { hintsUsed: numb
 
 // Learner actions besides typing a message. Each becomes an app message
 // (English, in brackets) that the model answers in the learner's language.
-export type TutorAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck";
-export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "diagram", "example", "check", "practice", "summary", "verify", "review", "stuck"];
+export type TutorAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck" | "another" | "smaller" | "similar" | "test";
+export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "diagram", "example", "check", "practice", "summary", "verify", "review", "stuck", "another", "smaller", "similar", "test"];
 export const STUCK_REASONS = ["start", "step", "mistake", "concept"] as const;
 
 export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, language?: string | null, studentText?: string): string {
@@ -279,6 +308,12 @@ export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, 
   switch (action) {
     case "simpler":
       return `[EXPLAIN MORE SIMPLY] The student found your last reply hard to follow. Re-explain the same point in simpler words, with an everyday comparison or a small concrete number example. Do not move further toward the final answer than before. End with one short question. Reply in ${lang}.`;
+    case "another":
+      return `[EXPLAIN IT ANOTHER WAY] The student wants a different explanation of the same point. Use a different comparison, picture or example from anything already used in this conversation. Do not move further toward the final answer than before. End with one short question. Reply in ${lang}.`;
+    case "smaller":
+      return `[SMALLER STEPS] Break the current step into smaller numbered pieces. Do the first piece, say why, and ask the student to do only the second piece. Do not reveal the final answer. Reply in ${lang}.`;
+    case "similar":
+      return `[SHOW A SIMILAR PROBLEM] The student wants to see how a problem like theirs is solved. Fully work through a SIMILAR problem with different numbers or values, giving the reason for each step and how to check the result. Choose values whose result is DIFFERENT from the answer to the student's problem. Do not solve the student's own problem. Finish by asking them to do the first step of theirs. Reply in ${lang}.`;
     case "diagram":
       return `[SHOW IT AS A PICTURE] The student wants to see your last point drawn. Draw it in the diagram field and explain the picture in one or two short sentences, ending with one question that uses it. Do not move further toward the answer. Reply in ${lang}.`;
     case "example":
@@ -289,6 +324,7 @@ export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, 
       return `[PRACTICE QUESTION] Give the student ONE new practice question on the same idea at a similar level, with different numbers or a different context (type "question"). State only the question, briefly, with no hints and no answer. From now on the current problem is this practice question: finalAnswer must be ITS verified answer. Reply in ${lang}.`;
     case "verify":
     case "review":
+    case "test":
       return `[INDEPENDENT CHECK] Give the student ONE new problem on the same idea that they have not seen, to solve on their own (type "question"). State only the problem: no hints, no method, no answer. From now on the current problem is this one: finalAnswer must be ITS verified answer. Reply in ${lang}.`;
     case "stuck": {
       const why: Record<string, string> = {
@@ -342,6 +378,9 @@ export function parseTutorJson(raw: string): TutorReply | null {
       difficulty: ["basic", "standard", "complex"].includes(p.difficulty) ? p.difficulty : undefined,
       assessment: parseAssessment(p.assessment, OBJECTIVE_IDS),
       diagram: parseDiagramSpec(p.diagram),
+      teachingPlan: p.teachingPlan && typeof p.teachingPlan === "object" ? {
+        goal: clip(p.teachingPlan.goal, 200), alreadyKnows: clip(p.teachingPlan.alreadyKnows, 200), prerequisite: clip(p.teachingPlan.prerequisite, 200),
+        visual: clip(p.teachingPlan.visual, 120), example: clip(p.teachingPlan.example, 200), question: clip(p.teachingPlan.question, 300) } : null,
     };
   } catch {
     return null;
@@ -350,7 +389,7 @@ export function parseTutorJson(raw: string): TutorReply | null {
 
 // What the browser receives: never the private fields.
 export function publicReply(r: TutorReply) {
-  const { finalAnswer: _f, difficulty: _d, assessment: _a, diagram: _p, ...rest } = r;
+  const { finalAnswer: _f, difficulty: _d, assessment: _a, diagram: _p, teachingPlan: _t, ...rest } = r;
   return rest;
 }
 
@@ -371,7 +410,7 @@ const LANGUAGE_WORDS: Record<string, string[]> = {
     "za", "cha", "kitu", "kiswahili", "asante", "habari", "nataka", "naomba", "ngapi", "jinsi", "kwanini", "ipi", "zipi"],
   French: ["le", "la", "les", "des", "est", "une", "comment", "pourquoi", "quelle", "quel", "quels", "je", "tu", "vous", "avec", "pour",
     "dans", "sur", "que", "qui", "calculer", "dériver", "résoudre", "aide", "aidez", "merci", "français", "combien", "c'est", "est-ce",
-    "du", "au", "aux", "mon", "ma", "mes", "explique", "expliquez", "trouver", "fonction", "vitesse", "courant"],
+    "du", "au", "aux", "mon", "ma", "mes", "explique", "expliquez", "trouver", "fonction", "vitesse", "courant", "facile", "moi"],
   English: ["the", "is", "what", "how", "and", "of", "to", "find", "solve", "calculate", "please", "why", "which", "explain", "help",
     "does", "do", "can", "you", "my", "this", "that", "with", "for", "are", "an", "if", "it", "in", "english"],
 };
@@ -412,7 +451,7 @@ const clip = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/[\r\
 
 const STYLE_PREF: Record<string, string> = {
   steps: "clear numbered steps", examples: "a worked example first", analogies: "an everyday analogy first",
-  visual: "a diagram, table or sketch in text (e.g. a small ASCII circuit or a table)",
+  visual: "a picture or a table",
 };
 
 export function learnerContextNote(p: LearnerContext | null): string | null {
@@ -446,18 +485,19 @@ ${quoted}`;
 }
 
 // Offered only on turns where a picture may help, because it adds to the prompt and the reply.
-export function diagramNote(asked: boolean): string {
-  return `[APP NOTE] Pictures: ${asked ? "the student asked for one, so describe it in the diagram field unless none of the kinds below fits" : "you may describe a picture in the diagram field, but only if it would really help; otherwise null"}. You don't draw: the app draws exactly what you describe, so only these kinds exist. items are {role, label, value}; labels are short and in the student's language.
-- graph: role "curve" (label "y = x^2 - 4", value the expression "x^2-4", in x), optional role "point" (label, value "2,0"; mark the points the student asks about; points not on the curve are dropped), optional role "range" (value "-5,5").
-- circuit: one role "battery" (label "12 V"), then in order "resistor", "lamp", "capacitor", "switch", "ammeter" or "voltmeter" (label "4 Ω"; value "parallel" if in parallel with the others marked so, otherwise ""), optional role "current" (label "I").
-- triangle (right-angled): roles "angle" (label "θ"), "opposite", "adjacent", "hypotenuse" (label; value the length if known).
-- forces: role "surface" (value "flat" or "incline 30"), then one role "force" for EVERY force (label "W", value one of down, up, left, right, normal, along-up, along-down). On a slope: weight is down, the normal reaction is normal, friction holding a block still is along-up.
-- flow: role "step" in order (label); add role "loop" if it is a cycle.
-- array: role "cell" (label; value "highlight", "dim" or ""); start a new row with role "row" (label) to show steps.
-- bars: role "bar" (label, value a number).
-- atom: role "nucleus" (label, the symbol only, like "Na"), then role "shell" (value the number of electrons), innermost first.
-title is short; alt is one sentence describing the picture. Use "" for values that don't apply. Never put the answer to the student's problem in a label. The message must make sense on its own.`;
+export function diagramNote(asked: boolean, kinds: DiagramKind[] = [...DIAGRAM_KINDS]): string {
+  const catalogue = kinds.map(k => `- ${VISUAL_CATALOGUE[k]}`).join("\n");
+  return `[APP NOTE] Visuals: ${asked ? "the student asked for one, so describe it in the diagram field unless none of the kinds below fits" : "describe one in the diagram field if it would really help understanding; otherwise null. Never decorate"}. You don't draw: the app draws exactly what you describe, so only these kinds exist. items are {role, label, value}; labels are short and in the student's language.
+${catalogue}
+title is short; alt describes the picture in one or two sentences for someone who cannot see it. Use "" for values that don't apply. Never put the answer to the student's problem in a label. If what you want to show isn't one of these, use null and explain it in words: a wrong picture is worse than none.`;
 }
+
+// The learner changed language in the middle of a lesson.
+export const languageSwitchNote = (from: string, to: string) =>
+  `[APP NOTE] The student has switched from ${from} to ${to}. Carry on the same lesson from the same point, in ${to}. Don't start again or repeat what was already covered.`;
+
+// One more chance to describe a picture the app couldn't draw.
+export const FIX_DIAGRAM_REQUEST = `[FIX THE PICTURE] The app couldn't draw the picture you described: a value was missing or not in the form listed. Send the same reply with a corrected diagram field that follows the roles and values exactly, or null if this picture can't be described that way. Same language, same JSON format.`;
 
 // What the server has verified about this learner, so teaching can follow it. Only marked answers count.
 export interface MemoryEntry { title: string; status: string; incorrect: number; correct: number; misconceptions: string[]; dueForReview: boolean }
@@ -487,6 +527,9 @@ export function polishReply(message: string): string {
   const pieces = message.split(/(```[\s\S]*?```)/);   // code stays exactly as written
   const prose = (s: string) => s.replace(EMOJI, "");
   let text = pieces.map((p, i) => (i % 2 ? p : prose(p))).join("");
+  // A lesson starts with its first section's marker; the opener to remove comes right after it.
+  const marker = /^\s*@@\w+[ \t]*\n/.exec(text)?.[0] ?? "";
+  text = text.slice(marker.length);
   for (let k = 0; k < 3; k++) {
     const next = text.replace(OPENER, "").replace(ANNOUNCE, "");
     if (next === text) break;
@@ -494,7 +537,7 @@ export function polishReply(message: string): string {
   }
   text = text.replace(CLOSER, "").trim();
   if (!text) return message.trim();
-  return text[0].toUpperCase() + text.slice(1);
+  return marker + text[0].toUpperCase() + text.slice(1);
 }
 
 export const NO_PICTURE_NOTE = "[APP NOTE] The student asked for a picture but has used today's picture allowance. Explain clearly in words instead. Don't offer or promise a picture; the app tells them about the limit.";

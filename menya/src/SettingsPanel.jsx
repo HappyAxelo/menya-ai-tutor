@@ -58,8 +58,9 @@ export default function SettingsPanel({
               </select>
             </Row>
             <Row stack label={t("settings.level")} help={t("settings.levelHelp")}>
-              <Segmented label={t("settings.level")} value={settings.level} onChange={level => update({ level })}
-                options={seg("settings.level", ["secondary", "undergraduate", "postgraduate"])} />
+              <select className="mn-select-full" value={settings.level} onChange={e => update({ level: e.target.value })} aria-label={t("settings.level")}>
+                {["auto", "lower_secondary", "upper_secondary", "university_intro", "university_advanced"].map(v => <option key={v} value={v}>{t(`settings.level.${v}`)}</option>)}
+              </select>
             </Row>
             <Row stack label={t("settings.length")} help={t("settings.lengthHelp")}>
               <Segmented label={t("settings.length")} value={settings.style} onChange={style => update({ style })}

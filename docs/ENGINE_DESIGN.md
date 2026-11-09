@@ -31,7 +31,9 @@ learner message ──► verify (bank marking / answer match / chemistry) ─�
 
 | State | Meaning | Entered when |
 |---|---|---|
-| DIAGNOSE | Find out what the learner knows / what the problem needs | first message of a problem; "I don't know where to start" |
+| TEACH | Explain, show and demonstrate before asking anything | first message of a problem; "I don't know where to start" |
+| PREREQ | Go back and teach what the topic depends on | repeated wrong answers or "I don't know" after a worked example |
+| DIAGNOSE | (older conversations only) | no longer entered |
 | GUIDE | One focused question on the next step | default continuation; wrong answer with unknown cause; answer unreadable; correct answer **without reasoning** (justify first) |
 | HINT | A clue at the chosen ladder level | hint button; a diagnosed misconception (first time); stuck on a step; asked for the answer too early |
 | EXPLAIN | Teach a prerequisite or the idea directly | "I don't understand the idea"; "explain more simply"; **Explain mode**; answer requested after genuine attempts; still stuck after a worked example |
@@ -50,10 +52,10 @@ problem → unreadable → continue. The model never chooses the state.
 
 | Level | Help |
 |---|---|
-| 0 | Reflective question: name the concept/relationship (Menya doesn't name it) |
-| 1 | Directional: point to the principle, formula, construct or law |
-| 2 | Conceptual: explain the principle in general terms |
-| 3 | Partial worked step: do one step, the learner does the next |
+| 0 | Conceptual reminder |
+| 1 | Small hint: point to the principle, formula, construct or law |
+| 2 | More specific hint: how the principle applies here |
+| 3 | Partly completed solution: do one step, the learner does the next |
 | 4 | Analogous worked example with different numbers and a different result |
 | 5 | Full explanation (only after genuine attempts, in Explain mode, or when withholding stops learning) |
 

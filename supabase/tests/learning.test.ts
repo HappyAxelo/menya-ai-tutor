@@ -293,7 +293,7 @@ describe("learning companion API", () => {
     assert.equal(res.status, 200);
     assert.match(seen[0], /secondary school/);
     assert.match(seen[0], /Physics S5, page 12/);
-    assert.match(seen[0], /secondary-school student/, "the profile's level sets the explanation level");
+    assert.match(seen[0], /Upper secondary/, "the profile's level sets the explanation level");
   });
 
   test("Review Today brings back a wrong question (as practice) and new questions on due topics (as review)", async () => {

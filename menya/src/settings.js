@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
 
 export const DEFAULT_SETTINGS = {
   language: "auto",         // "auto": reply in the language the learner writes in (English when unclear)
-  level: "undergraduate",   // secondary | undergraduate | postgraduate
+  level: "auto",            // auto | lower_secondary | upper_secondary | university_intro | university_advanced
   style: "balanced",        // concise | balanced | detailed
   theme: "system",          // system | light | dark
   textSize: "md",           // sm | md | lg
@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS = {
 };
 
 const KEY = "menya-settings";
-const VERSION = 2;
+const VERSION = 3;
 
 // Version 1 defaulted the reply language to English, which made Menya answer
 // Kinyarwanda questions in English. Settings saved before version 2 with that
@@ -25,6 +25,13 @@ export function migrateSettings(saved) {
   if (!saved || typeof saved !== "object") return { ...DEFAULT_SETTINGS, v: VERSION };
   const next = { ...DEFAULT_SETTINGS, ...saved, v: VERSION };
   if ((saved.v ?? 1) < 2 && saved.language === "English") next.language = "auto";
+  // Version 2 defaulted everyone to University without asking. Level is now worked out unless someone chooses it;
+  // "undergraduate" can't be told apart from that default, so it moves to auto too.
+  if ((saved.v ?? 1) < 3) {
+    if (saved.level === "undergraduate" || saved.level === undefined) next.level = "auto";
+    else if (saved.level === "secondary") next.level = "upper_secondary";
+    else if (saved.level === "postgraduate") next.level = "university_advanced";
+  }
   return next;
 }
 

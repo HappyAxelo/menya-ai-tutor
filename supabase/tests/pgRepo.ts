@@ -132,6 +132,14 @@ export function pgRepo(db: PGlite): Repo {
       await db.query(`insert into public.learning_events (user_id, session_id, kind, concepts, hints_used, examples_used, attempts)
         values ($1, $2, $3, $4, $5, $6, $7)`, [e.user_id, e.session_id, e.kind, e.concepts, e.hints_used, e.examples_used, e.attempts]);
     },
+    async recordTeachingEvents(events) {
+      for (const e of events) await db.query(`insert into public.teaching_events (user_id, session_id, objective_id, kind, visual_kind, language, level)
+        values ($1, $2, $3, $4, $5, $6, $7)`, [e.user_id, e.session_id, e.objective_id, e.kind, e.visual_kind, e.language, e.level]);
+    },
+    async teachingSignals(userId) {
+      const rows = (await db.query<any>("select kind, count(*)::int as n from public.teaching_events where user_id = $1 and created_at > now() - interval '14 days' group by kind", [userId])).rows;
+      return Object.fromEntries(rows.map(r => [r.kind, r.n]));
+    },
     processPaymentEvent: (provider, event, raw) => rpc(db, "process_payment_event", { p_provider: provider, p_event: event, p_raw: raw }),
     async audit(entry) {
       await db.query("insert into public.audit_logs (actor_id, action, target_type, target_id, org_id, details) values ($1, $2, $3, $4, $5, $6)",

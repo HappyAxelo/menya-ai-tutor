@@ -113,21 +113,23 @@ const run = (u: string, m: ReturnType<typeof model>, input = ask()) => handleTut
 const pictures = async (u: string) => (await db.query<any>("select count(*)::int as n from public.media_usage where user_id = $1 and kind = 'diagram'", [u])).rows[0].n;
 
 describe("picture limits per plan", () => {
-  test("Free gets 1 picture a day; the next request says why, and tutoring carries on in words", async () => {
+  test("Free gets 3 pictures a day; the next request says why, and tutoring carries on in words", async () => {
     const u = await createUser(db), m = model();
     const first = await run(u, m);
     assert.equal(first.status, 200);
     assert.ok((first.body.diagram as any).svg.startsWith("<svg"));
     assert.equal((first.body.diagram as any).alt, "Two steps");
     assert.equal(await pictures(u), 1);
+    for (let i = 2; i <= 3; i++) assert.ok((await run(u, m, ask({ sessionId: first.body.sessionId }))).body.diagram, `picture ${i}`);
+    assert.equal(await pictures(u), 3);
 
     const second = await run(u, m, ask({ sessionId: first.body.sessionId }));
     assert.equal(second.status, 200, "the question is still answered");
     assert.equal(second.body.diagram, null);
     assert.equal((second.body.pictureNote as any).reason, "limit");
-    assert.equal((second.body.pictureNote as any).limit, 1);
+    assert.equal((second.body.pictureNote as any).limit, 3);
     assert.equal((second.body.pictureNote as any).upgrade_to, "pro");
-    assert.equal(await pictures(u), 1);
+    assert.equal(await pictures(u), 3);
     assert.ok(!m.calls.at(-1).schema.properties.diagram, "the model isn't even offered a picture");
     assert.ok(JSON.stringify(m.calls.at(-1).messages).includes("used today's picture allowance"));
 
@@ -199,7 +201,7 @@ describe("picture limits per plan", () => {
   test("the plans table holds the limits and the new name and price", async () => {
     const plans = await rpc(db, "public_plans", {}) as any[];
     const by = Object.fromEntries(plans.map(p => [p.id, p]));
-    assert.deepEqual([by.free.daily_image_limit, by.pro.daily_image_limit, by.exam.daily_image_limit, by.professional.daily_image_limit], [1, 3, 10, 10]);
+    assert.deepEqual([by.free.daily_image_limit, by.pro.daily_image_limit, by.exam.daily_image_limit, by.professional.daily_image_limit], [3, 3, 10, 10]);
     assert.equal(by.professional.name, "Max");
     assert.equal(by.professional.price_monthly_cents, 800);
   });

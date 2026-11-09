@@ -37,7 +37,7 @@ drop table if exists
   public.research_exports, public.research_saved_papers, public.research_syntheses, public.evidence_assessments, public.research_claims,
   public.research_search_papers, public.research_papers, public.research_searches, public.research_projects,
   public.research_queries, public.research_calls, public.research_rate, public.research_cache, public.research_connectors, public.guest_claims, public.guest_sessions, public.payments, public.material_chunks, public.course_materials, public.mock_exams, public.learner_exams, public.learner_profiles,
-  public.media_usage, public.learner_objectives, public.assessment_attempts, public.served_items, public.session_items, public.tutor_feedback, public.learning_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
+  public.media_usage, public.learner_objectives, public.assessment_attempts, public.served_items, public.session_items, public.tutor_feedback, public.learning_events, public.teaching_events, public.tutoring_session_answers, public.quote_requests, public.audit_logs, public.tutoring_messages, public.tutoring_sessions,
   public.usage_records, public.request_reservations, public.rate_buckets, public.usage_counters,
   public.payment_events, public.subscriptions, public.org_invitations, public.org_members,
   public.organizations, public.profiles, public.model_configs, public.plans, public.app_settings cascade;

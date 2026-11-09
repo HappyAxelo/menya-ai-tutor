@@ -69,7 +69,7 @@ const payments = async (u: string) => (await call("GET", "/billing/history", `to
 
 describe("each plan gets exactly its entitlements", () => {
   const EXPECT: Record<string, number[]> = {   // day, month, conversation, memory, per minute, pictures, notes
-    free: [20, 300, 30, 10, 6, 1, 3], pro: [150, 3000, 80, 24, 15, 3, 30], exam: [1000, 10000, 120, 30, 20, 10, 30], professional: [1000, 20000, 150, 40, 30, 10, 30],
+    free: [20, 300, 30, 10, 6, 3, 3], pro: [150, 3000, 80, 24, 15, 3, 30], exam: [1000, 10000, 120, 30, 20, 10, 30], professional: [1000, 20000, 150, 40, 30, 10, 30],
   };
   test("the table holds the agreed limits and prices, and the server reports the same", async () => {
     const { plans } = (await call("GET", "/plans")).body;

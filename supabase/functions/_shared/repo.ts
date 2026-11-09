@@ -70,6 +70,10 @@ export interface LearningEvent {
   concepts: string[]; hints_used: number; examples_used: number; attempts: number;
 }
 
+export interface TeachingEvent {
+  user_id: string; session_id: string; objective_id: string | null; kind: string; visual_kind: string | null; language: string | null; level: string | null;
+}
+
 export interface StoredMessage { role: "user" | "assistant"; content: string; meta: Record<string, unknown> }
 
 export interface UsageRecord {
@@ -124,6 +128,9 @@ export interface Repo extends ResearchStore {
   recordResearchQuery(record: ResearchQueryRecord): Promise<void>;
   learnerMemory(userId: string): Promise<any[]>;
   recordLearningEvent(event: LearningEvent): Promise<void>;
+  // Teaching events: what happened, never what was said. Failing to record one never stops a reply.
+  recordTeachingEvents(events: TeachingEvent[]): Promise<void>;
+  teachingSignals(userId: string): Promise<Record<string, number>>;   // events of each kind in the last 14 days
   processPaymentEvent(provider: string, event: unknown, raw: unknown): Promise<string>;
   audit(entry: { actor_id: string | null; action: string; target_type?: string; target_id?: string; org_id?: string | null; details?: Record<string, unknown> }): Promise<void>;
 }
@@ -279,6 +286,14 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
     },
     async recordLearningEvent(event) {
       check(await sb.from("learning_events").insert(event), "record_learning_event");
+    },
+    async recordTeachingEvents(events) {
+      if (events.length) check(await sb.from("teaching_events").insert(events), "record_teaching_events");
+    },
+    async teachingSignals(userId) {
+      const rows = check(await sb.from("teaching_events").select("kind").eq("user_id", userId)
+        .gte("created_at", new Date(Date.now() - 14 * 864e5).toISOString()).order("created_at", { ascending: false }).limit(300), "teaching_signals") as { kind: string }[];
+      return rows.reduce<Record<string, number>>((all, r) => { all[r.kind] = (all[r.kind] ?? 0) + 1; return all; }, {});
     },
     async processPaymentEvent(provider, event, raw) {
       return check(await sb.rpc("process_payment_event", { p_provider: provider, p_event: event, p_raw: raw }), "process_payment_event");

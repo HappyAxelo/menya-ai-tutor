@@ -59,7 +59,7 @@ describe("the ten required scenarios", () => {
     const p = decideTurn(ctx({ action: "stuck", stuck: "concept" }));
     assert.equal(p.state, "EXPLAIN");
     assert.equal(p.hintLevel, 2);
-    assert.equal(decideTurn(ctx({ action: "stuck", stuck: "start", newProblem: true })).state, "DIAGNOSE");
+    assert.equal(decideTurn(ctx({ action: "stuck", stuck: "start", newProblem: true })).state, "TEACH");
   });
 
   test("7. a correct guess without reasoning is not counted until justified", () => {
@@ -118,8 +118,8 @@ describe("hint ladder", () => {
     assert.equal(selectHintLevel(ctx({ misconception: "x", previous: { hintLevel: 1, sameMisconceptionCount: 1 } as any })), 4);
     assert.ok(selectHintLevel(ctx({ action: "hint", previous: { hintLevel: 3 } as any })) <= 3, "the hint button never reaches the full solution");
   });
-  test("a new problem starts with diagnosis", () => {
-    assert.equal(decideTurn(ctx({ newProblem: true, attempts: 0 })).state, "DIAGNOSE");
+  test("a new problem starts by teaching, not by asking", () => {
+    assert.equal(decideTurn(ctx({ newProblem: true, attempts: 0 })).state, "TEACH");
   });
 });
 

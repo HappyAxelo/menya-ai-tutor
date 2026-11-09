@@ -172,7 +172,7 @@ export function finalExpression(text: string): string {
 
 // ---------------- Boolean algebra (digital logic) ----------------
 // Accepts A·B / AB / A&B / A AND B, A+B / A|B / A OR B, A' / ~A / !A / NOT A, A^B / A XOR B.
-type BNode = { k: "v"; n: string } | { k: "c"; v: boolean } | { k: "not"; a: BNode } | { k: "and" | "or" | "xor"; a: BNode; b: BNode };
+export type BNode = { k: "v"; n: string } | { k: "c"; v: boolean } | { k: "not"; a: BNode } | { k: "and" | "or" | "xor"; a: BNode; b: BNode };
 
 export function parseBoolean(src: string): BNode | null {
   const s = src.toUpperCase().replace(/\bAND\b/g, "&").replace(/\bOR\b/g, "|").replace(/\bXOR\b/g, "^").replace(/\bNOT\b/g, "~")
@@ -205,7 +205,7 @@ export function parseBoolean(src: string): BNode | null {
   try { const n = or(); return i === s.length ? n : null; } catch { return null; }
 }
 
-function bEval(n: BNode, env: Record<string, boolean>): boolean {
+export function bEval(n: BNode, env: Record<string, boolean>): boolean {
   switch (n.k) {
     case "v": return env[n.n] ?? false;
     case "c": return n.v;
@@ -216,7 +216,7 @@ function bEval(n: BNode, env: Record<string, boolean>): boolean {
   }
 }
 
-function bVars(n: BNode, out = new Set<string>()): Set<string> {
+export function bVars(n: BNode, out = new Set<string>()): Set<string> {
   if (n.k === "v") out.add(n.n);
   else if (n.k === "not") bVars(n.a, out);
   else if (n.k !== "c") { bVars(n.a, out); bVars(n.b, out); }

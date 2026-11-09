@@ -10,6 +10,9 @@ import { callTutor, actionRequest, hintRequest, verifyKey, LANGUAGES } from "./t
 import { ACTION_LABELS, availableActions, tabTitle } from "./lib/chat.js";
 import { useT, greeting, setConversationLanguage } from "./i18n.js";
 import { readAttachment } from "./lib/attachments.js";
+import { parseLesson, stripLessonMarkers } from "../../supabase/functions/_shared/lessonFormat.ts";
+import { LessonSections } from "./lesson/LessonMessage.jsx";
+import VisualExplanation from "./lesson/VisualExplanation.jsx";
 import { browserDictation, dictationSupported, recordVoice, voiceSupported } from "./lib/voice.js";
 // The Markdown + maths renderer is a separate download, fetched while the
 // first reply is being prepared, so the first screen stays light.
@@ -228,9 +231,11 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
     : t(`chip.${REPLY_STYLE[msg.type] ? msg.type : "question"}`);
   const Icon = style.icon;
   const plain = msg.type === "error" || msg.type === "limit";
+  const lesson = plain ? null : parseLesson(shown);
+  const isLesson = lesson?.sections.length > 0;
 
   const copy = async () => {
-    try { await navigator.clipboard.writeText(msg.content); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+    try { await navigator.clipboard.writeText(stripLessonMarkers(msg.content)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
   };
 
   return (
@@ -243,16 +248,13 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
         </div>
         {msg.engine?.item && <div className="mn-item-label"><Target size={13} aria-hidden="true" />{t(`engine.item.${msg.engine.item.kind}`)}</div>}
         <div className="mn-content" dir="auto">
-          {plain ? <p>{shown}</p> : <Suspense fallback={<p style={{ whiteSpace: "pre-wrap" }}>{shown}</p>}><Markdown>{shown}</Markdown></Suspense>}
+          {plain ? <p>{shown}</p>
+            : isLesson ? <LessonSections lesson={lesson} diagram={msg.diagram} settled={done} />
+            : <Suspense fallback={<p style={{ whiteSpace: "pre-wrap" }}>{shown}</p>}><Markdown>{shown}</Markdown></Suspense>}
         </div>
         {done && (
           <>
-            {msg.diagram && (
-              <figure className="mn-diagram">
-                <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(msg.diagram.svg)}`} alt={msg.diagram.alt || t("picture.alt")} />
-                <figcaption>{t("picture.caption")}</figcaption>
-              </figure>
-            )}
+            {msg.diagram && !isLesson && <VisualExplanation diagram={msg.diagram} />}
             {msg.research && <ResearchSources research={msg.research} onPlans={onPlans} />}
             {msg.pictureNote && (
               <div className="mn-callout warn">
@@ -306,9 +308,11 @@ function ActionBar({ actions, onAction }) {
   const { t } = useT();
   const [menu, setMenu] = useState(null);
   if (!actions.length) return null;
+  // The most used stay in view; the rest wait behind one button so a short screen isn't filled with choices.
+  const more = actions.filter(a => a.more);
   return (
     <div className="mn-action-bar" role="group" aria-label={t("msg.nextSteps")}>
-      {actions.map(a => a.menu ? (
+      {actions.filter(a => !a.more).map(a => a.menu ? (
         <span key={a.id} className="mn-action-menu">
           <button className="mn-action" aria-expanded={menu === a.id} onClick={() => setMenu(menu === a.id ? null : a.id)}>
             <CircleHelp size={14} aria-hidden="true" />{t(`next.${a.id}`)}
@@ -328,6 +332,18 @@ function ActionBar({ actions, onAction }) {
           {a.left != null && <span className="mn-action-detail">{t("next.hintsLeft", { n: a.left })}</span>}
         </button>
       ))}
+      {more.length > 0 && (
+        <span className="mn-action-menu">
+          <button className="mn-action" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}>
+            <ChevronDown size={14} aria-hidden="true" />{t("next.more")}
+          </button>
+          {menu === "more" && (
+            <span className="mn-menu" role="menu">
+              {more.map(a => <button key={a.id} role="menuitem" onClick={() => { setMenu(null); onAction(a.id); }}>{t(`next.${a.id}`)}</button>)}
+            </span>
+          )}
+        </span>
+      )}
     </div>
   );
 }
@@ -482,7 +498,8 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
     setHintsUsed(resume.session.hints_used ?? 0);
     setProblem({ solved: resume.session.solved, practice: resume.session.practice, attempts: resume.session.attempts });
     setMode(resume.session.mode ?? "learn");
-    setEngine(resume.session.objective ? { objective: { id: resume.session.objective } } : null);
+    // A reopened conversation keeps its help buttons, with or without a bank objective.
+    setEngine({ objective: resume.session.objective ? { id: resume.session.objective } : null });
     setLastLanguage(resume.session.language ?? null);
     setInput("");
     onSessionChange?.(resume.session.id);
@@ -509,7 +526,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
     });
     if (action === "message" || action === "check") { setInput(""); if (attachments) setFiles([]); }
     if (action === "message") setResearchNext(false);
-    const prefs = { learnerLevel: settings.level, style: settings.style };
+    const prefs = { learnerLevel: settings.level === "auto" ? undefined : settings.level, style: settings.style };
     const lang = language !== "auto" ? language : lastLanguage;
     try {
       let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null, researchView = null;
@@ -656,7 +673,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
   const exportConversation = () => {
     const label = m => m.role === "user" ? (m.control && m.control !== "check" ? "You (action)" : "You") : `Menya${m.type === "hint" ? ` (hint ${m.hintLevel || 1} of 3)` : ""}`;
     const md = `# Menya conversation\n\n_${new Date().toLocaleString()}_\n\n` +
-      messages.map(m => `**${label(m)}:**\n\n${m.content}\n`).join("\n");
+      messages.map(m => `**${label(m)}:**\n\n${stripLessonMarkers(m.content)}\n`).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
     a.download = `menya-conversation-${new Date().toISOString().slice(0, 10)}.md`;

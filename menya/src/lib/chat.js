@@ -14,6 +14,10 @@ export const ACTION_LABELS = {
   verify: "Asked for a problem to solve alone",
   review: "Started a review",
   stuck: "Said I'm stuck",
+  another: "Asked for another explanation",
+  smaller: "Asked for smaller steps",
+  similar: "Asked to see a similar problem solved",
+  test: "Asked to be tested",
 };
 
 const STUCK_LABELS = { start: "I don't know where to start", step: "I'm stuck on a step", mistake: "I can't find my mistake", concept: "I don't understand the idea" };
@@ -33,8 +37,13 @@ export function availableActions({ hasConversation, loading, hintsUsed, problem,
   if (!solved && !independent && engine) actions.push({ id: "diagram", label: "Show it as a picture" });
   if (!solved && !independent) actions.push({ id: "example", label: "Show a worked example" });
   if (solved && engine?.objective) actions.push({ id: "verify", label: "Check yourself", primary: true });
-  actions.push({ id: "practice", label: solved ? "Try a similar question" : "Give me a similar question", primary: solved && !engine?.objective });
-  if (assistantReplies >= 2) actions.push({ id: "summary", label: "Summarise what I learned" });
+  actions.push({ id: "practice", label: solved ? "Try a similar question" : "Give me a similar question", primary: solved && !engine?.objective, more: !solved });
+  // Offered behind "More ways to help" (the signed-in tutor understands these; developer mode doesn't have them).
+  if (!solved && !independent && engine) {
+    actions.push({ id: "another", label: "Explain it another way", more: true }, { id: "smaller", label: "Break it into smaller steps", more: true },
+      { id: "similar", label: "Show me a similar problem solved", more: true }, { id: "test", label: "Test my understanding", more: true });
+  }
+  if (assistantReplies >= 2) actions.push({ id: "summary", label: "Summarise what I learned", more: !solved });
   return actions;
 }
 

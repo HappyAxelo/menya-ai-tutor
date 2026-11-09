@@ -4,53 +4,38 @@
 // Free-form drawings by the model were tried first and were often wrong (marked points off the
 // curve, jumbled circuits), which is worse for a learner than no picture.
 import { evaluate, parseExpression } from "./engine/expr.ts";
+import { DIAGRAM_KINDS, parseDiagramSpec, TABLE_KINDS, type DiagramItem, type DiagramKind, type DiagramSpec } from "./diagramSpec.ts";
+import { ACCENT, circle, COLORS, H, INK, isSafeSvg, line, MARK, n, nums, rect, SOFT, text, W, wrap } from "./svgKit.ts";
+import { EXTRA_DRAW, tableFor, type VisualTable, type RenderOptions } from "./visuals.ts";
 
-export const DIAGRAM_KINDS = ["graph", "circuit", "triangle", "forces", "flow", "array", "bars", "atom"] as const;
-export type DiagramKind = typeof DIAGRAM_KINDS[number];
-export interface DiagramItem { role: string; label: string; value: string }
-export interface DiagramSpec { kind: DiagramKind; title: string; alt: string; items: DiagramItem[] }
-export interface Diagram { svg: string; alt: string; text: string }   // text: every label, for the answer-leak check
-
-const W = 640, H = 400;
-const INK = "#1d1b2e", ACCENT = "#251F8C", MARK = "#b42318", SOFT = "#ece9fb", COLORS = [ACCENT, "#b42318", "#0f766e", "#b54708"];
-const FONT = 'font-family="Arial, Helvetica, sans-serif"';
-
-const pretty = (s: string) => s.replace(/\^2\b/g, "²").replace(/\^3\b/g, "³").replace(/\*/g, "·");
-const esc = (s: unknown) => pretty(String(s ?? "").slice(0, 60)).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const n = (v: number) => (Math.round(v * 10) / 10).toString();
-const text = (x: number, y: number, s: string, o: { size?: number; anchor?: string; fill?: string; weight?: string; base?: string; halo?: boolean } = {}) =>
-  `<text x="${n(x)}" y="${n(y)}" ${FONT} font-size="${o.size ?? 16}" text-anchor="${o.anchor ?? "middle"}" fill="${o.fill ?? INK}"${o.weight ? ` font-weight="${o.weight}"` : ""}${o.base ? ` dominant-baseline="${o.base}"` : ""}${o.halo ? ' stroke="#fff" stroke-width="3" paint-order="stroke"' : ""}>${esc(s)}</text>`;
-const line = (x1: number, y1: number, x2: number, y2: number, o: { color?: string; width?: number; arrow?: boolean; dash?: string } = {}) =>
-  `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${o.color ?? INK}" stroke-width="${o.width ?? 2}"${o.dash ? ` stroke-dasharray="${o.dash}"` : ""}${o.arrow ? ' marker-end="url(#arrow)"' : ""}/>`;
-const rect = (x: number, y: number, w: number, h: number, o: { fill?: string; stroke?: string; rx?: number; width?: number; transform?: string } = {}) =>
-  `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" fill="${o.fill ?? "#fff"}" stroke="${o.stroke ?? INK}" stroke-width="${o.width ?? 2}"${o.rx ? ` rx="${o.rx}"` : ""}${o.transform ? ` transform="${o.transform}"` : ""}/>`;
-const circle = (x: number, y: number, r: number, o: { fill?: string; stroke?: string; width?: number } = {}) =>
-  `<circle cx="${n(x)}" cy="${n(y)}" r="${n(r)}" fill="${o.fill ?? "#fff"}" stroke="${o.stroke ?? INK}" stroke-width="${o.width ?? 2}"/>`;
-
-// Words into lines that fit a box.
-function wrap(s: string, chars: number, maxLines = 3): string[] {
-  const lines: string[] = [];
-  let cur = "";
-  for (const word of s.trim().split(/\s+/)) {
-    if (cur && (cur + " " + word).length > chars) { lines.push(cur); cur = word; } else cur = cur ? `${cur} ${word}` : word;
-  }
-  if (cur) lines.push(cur);
-  return lines.slice(0, maxLines);
-}
-
-const nums = (s: string) => (s.replace(/[−–]/g, "-").match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+export { DIAGRAM_KINDS, parseDiagramSpec };
+export type { DiagramItem, DiagramKind, DiagramSpec, VisualTable };
+export interface DiagramFrame { svg: string; label: string }
+// svg is null for a table; text: every label, for the answer-leak check.
+export interface Diagram { svg: string | null; alt: string; text: string; kind?: DiagramKind; title?: string; frames?: DiagramFrame[]; table?: VisualTable | null }
 
 // ---------- graph: curves are evaluated, never drawn from the model's idea of them ----------
-function drawGraph(items: DiagramItem[]): string | null {
+const sliderOf = (items: DiagramItem[]) => {
+  const s = items.find(i => i.role === "slider");
+  const name = s?.label.trim().toLowerCase() ?? "", r = nums(s?.value ?? "");
+  return s && /^[a-wyz]$/.test(name) && r.length >= 2 && r[1] > r[0] ? { name, min: r[0], max: r[1] } : null;
+};
+// The slider's five positions; a graph with no slider has just one.
+const sweepOf = (items: DiagramItem[]): Record<string, number>[] => {
+  const s = sliderOf(items);
+  return s ? Array.from({ length: 5 }, (_, i) => ({ [s.name]: Math.round((s.min + (s.max - s.min) * i / 4) * 100) / 100 })) : [{}];
+};
+function drawGraph(items: DiagramItem[], sweep: Record<string, number>[] = [{}], at: Record<string, number> = sweep[0]): string | null {
   const curves = items.filter(i => i.role === "curve").slice(0, 3)
     .map(i => ({ label: i.label, node: parseExpression(i.value.replace(/[−–]/g, "-").replace(/^\s*[a-z](?:\(x\))?\s*=\s*/i, "")) }));
   if (!curves.length || curves.some(c => !c.node)) return null;
-  const f = (c: typeof curves[number], x: number) => { try { return evaluate(c.node!, { x }); } catch { return NaN; } };
+  const f = (c: typeof curves[number], x: number, vars: Record<string, number> = at) => { try { return evaluate(c.node!, { ...vars, x }); } catch { return NaN; } };
   const r = nums(items.find(i => i.role === "range")?.value ?? "");
   const [x0, x1] = r.length >= 2 && r[1] > r[0] ? [r[0], r[1]] : [-5, 5];
-  const steps = 240;
+  const steps = sweep.length > 1 ? 100 : 240;
   const samples = curves.map(c => Array.from({ length: steps + 1 }, (_, k) => { const x = x0 + (x1 - x0) * k / steps; return [x, f(c, x)] as const; }));
-  const ys = samples.flat().map(p => p[1]).filter(Number.isFinite).sort((a, b) => a - b);
+  // The vertical scale covers every slider position, so moving it can't be mistaken for the axes changing.
+  const ys = sweep.flatMap(vars => curves.flatMap(c => Array.from({ length: 241 }, (_, k) => f(c, x0 + (x1 - x0) * k / 240, vars)))).filter(Number.isFinite).sort((a, b) => a - b);
   if (ys.length < 10) return null;
   // Ignore the extreme tails (a curve shooting to infinity shouldn't flatten everything else).
   let y0 = Math.min(ys[Math.floor(ys.length * 0.02)], 0), y1 = Math.max(ys[Math.floor(ys.length * 0.98)], 0);
@@ -235,7 +220,7 @@ function drawFlow(items: DiagramItem[]): string | null {
 }
 
 // ---------- rows of cells: arrays, memory, the steps of an algorithm ----------
-function drawArray(items: DiagramItem[]): string | null {
+function drawArray(items: DiagramItem[], rowsAlwaysShown = 0): string | null {
   const rows: { name: string; cells: DiagramItem[] }[] = [];
   for (const it of items) {
     if (it.role === "row") rows.push({ name: it.label, cells: [] });
@@ -245,7 +230,7 @@ function drawArray(items: DiagramItem[]): string | null {
   const most = Math.max(0, ...used.map(r => r.cells.length));
   if (!most || most > 16) return null;
   const hasNames = used.some(r => r.name);
-  const left = hasNames ? 130 : 30, size = Math.min(52, (W - left - 20) / most), gap = Math.min(66, (H - 60) / used.length);
+  const left = hasNames ? 130 : 30, size = Math.min(52, (W - left - 20) / most), gap = Math.min(66, (H - 60) / Math.max(used.length, rowsAlwaysShown));
   const out: string[] = [];
   used.forEach((row, r) => {
     const y = 50 + r * gap + (gap - size) / 2;
@@ -297,29 +282,57 @@ function drawAtom(items: DiagramItem[]): string | null {
   return out.join("");
 }
 
-const DRAW: Record<DiagramKind, (items: DiagramItem[]) => string | null> = {
-  graph: drawGraph, circuit: drawCircuit, triangle: drawTriangle, forces: drawForces, flow: drawFlow, array: drawArray, bars: drawBars, atom: drawAtom,
+type Drawn = string | { body: string; height: number } | null;
+const DRAW: Record<string, (items: DiagramItem[], options: RenderOptions) => Drawn> = {
+  graph: items => { const sw = sweepOf(items); return drawGraph(items, sw, sw[sw.length - 1]); }, circuit: drawCircuit, triangle: drawTriangle, forces: drawForces, flow: drawFlow, array: items => drawArray(items), bars: drawBars, atom: drawAtom,
+  ...EXTRA_DRAW,
 };
 
-export function parseDiagramSpec(raw: unknown): DiagramSpec | null {
-  const d = raw as any;
-  if (!d || typeof d !== "object" || !DIAGRAM_KINDS.includes(d.kind) || !Array.isArray(d.items)) return null;
-  return { kind: d.kind, title: typeof d.title === "string" ? d.title.slice(0, 60) : "", alt: typeof d.alt === "string" ? d.alt.slice(0, 300) : "",
-    items: d.items.slice(0, 40).filter((i: any) => i && typeof i.role === "string")
-      .map((i: any) => ({ role: i.role.trim().toLowerCase(), label: String(i.label ?? "").slice(0, 60), value: String(i.value ?? "").trim().toLowerCase().slice(0, 80) })) };
+const DEFS = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker></defs>`;
+function wholePicture(spec: DiagramSpec, drawn: Drawn): string | null {
+  if (!drawn) return null;
+  const body = typeof drawn === "string" ? drawn : drawn.body, height = typeof drawn === "string" ? H : drawn.height;
+  const title = spec.title ? text(W / 2, 24, spec.title, { weight: "bold", size: 17 }) : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${height}" role="img">${DEFS}<rect width="${W}" height="${height}" fill="#fff"/>${title}${body}</svg>`;
+  return isSafeSvg(svg) ? svg : null;
 }
 
-// The finished picture, or null if the description can't be drawn correctly.
-export function renderDiagram(spec: DiagramSpec | null): Diagram | null {
+// Positions a learner can step through. Everything is drawn here: the browser only shows one picture at a time.
+function framesFor(spec: DiagramSpec): DiagramFrame[] | undefined {
+  if (spec.kind === "graph") {
+    const s = sliderOf(spec.items);
+    if (!s) return undefined;
+    const sweep = sweepOf(spec.items);
+    const frames = sweep.map(at => ({ label: `${s.name} = ${at[s.name]}`, svg: wholePicture(spec, drawGraph(spec.items, sweep, at)) }));
+    return frames.every(f => f.svg) ? frames as DiagramFrame[] : undefined;
+  }
+  if (spec.kind === "array") {
+    const starts = spec.items.flatMap((it, i) => it.role === "row" ? [i] : []);
+    if (starts.length < 2 || starts.length > 5) return undefined;
+    const frames = starts.map((_, r) => ({ label: spec.items[starts[r]].label || String(r + 1),
+      svg: wholePicture(spec, drawArray(r + 1 < starts.length ? spec.items.slice(0, starts[r + 1]) : spec.items, starts.length)) }));
+    return frames.every(f => f.svg) ? frames as DiagramFrame[] : undefined;
+  }
+  return undefined;
+}
+
+// The finished visual, or null if the description can't be drawn correctly.
+export function renderDiagram(spec: DiagramSpec | null, options: RenderOptions = {}): Diagram | null {
   if (!spec) return null;
-  let body: string | null;
-  try { body = DRAW[spec.kind](spec.items); } catch { return null; }
-  if (!body) return null;
-  const defs = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker></defs>`;
-  const title = spec.title ? text(W / 2, 24, spec.title, { weight: "bold", size: 17 }) : "";
-  const labels = [spec.title, ...spec.items.map(i => i.label)].filter(Boolean).join(" ");
-  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img">${defs}<rect width="${W}" height="${H}" fill="#fff"/>${title}${body}</svg>`,
-           alt: spec.alt, text: labels };
+  try {
+    const table = tableFor(spec);
+    const tableOnly = TABLE_KINDS.includes(spec.kind);
+    if (tableOnly && !table) return null;
+    const labels = [spec.title, ...spec.items.map(i => i.label)].filter(Boolean).join(" ");
+    const tableText = table ? table.rows.flat().join(" ") : "";
+    if (tableOnly) return { svg: null, alt: spec.alt || spec.title, text: [labels, tableText].filter(Boolean).join(" "), kind: spec.kind, title: spec.title, table };
+    if (!DRAW[spec.kind]) return null;
+    const drawn = DRAW[spec.kind](spec.items, options);
+    const svg = wholePicture(spec, drawn);
+    if (!svg) return null;
+    const frames = framesFor(spec);
+    return { svg, alt: spec.alt, text: [labels, tableText].filter(Boolean).join(" "), kind: spec.kind, title: spec.title, table: table ?? null, ...(frames ? { frames } : {}) };
+  } catch { return null; }
 }
 
 // The learner asked for a picture in their own words (four interface languages).

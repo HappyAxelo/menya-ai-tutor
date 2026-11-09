@@ -5,7 +5,7 @@ export const PLAN_CATALOG = [
   {
     id: "free", name: "Free", tagline: "Try guided tutoring", priceMonthlyCents: 0,
     daily: 20, monthly: 300, premium: 0,
-    features: ["Step-by-step Socratic tutoring", "Three progressive hints per problem", "Your sessions saved to your account"],
+    features: ["Step-by-step Socratic tutoring", "Three progressive hints per problem", "Your sessions saved to your account", "Up to 3 pictures or diagrams a day"],
   },
   {
     id: "pro", name: "Pro", tagline: "For students who want daily learning support, more practice and better study flexibility", priceMonthlyCents: 500, highlight: true,

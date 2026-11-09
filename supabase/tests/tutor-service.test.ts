@@ -17,7 +17,7 @@ before(async () => { db = await freshDb(); });
 
 function reply(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
-    language: "English", message: "What do you already know about this circuit?", type: "question",
+    language: "English", message: "Current is like water flowing in a pipe, and the voltage is what pushes it along. A bigger resistance slows the flow, so the current gets smaller. Which quantity pushes the current?", type: "question",
     conceptsDetected: ["Ohm's law"], misconceptionDetected: null, hintLevel: null, progressSummary: null,
     solved: false, finalAnswer: "3 A", difficulty: "basic", ...overrides,
   });
@@ -57,7 +57,7 @@ describe("tutor pipeline", () => {
     const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep }, u,
       ask("A 12 V battery is across a 4 Ω resistor. What is the current?"));
     assert.equal(res.status, 200);
-    assert.equal((res.body.reply as any).message, "What do you already know about this circuit?");
+    assert.equal((res.body.reply as any).message, "Current is like water flowing in a pipe, and the voltage is what pushes it along. A bigger resistance slows the flow, so the current gets smaller. Which quantity pushes the current?");
     assert.equal((res.body.reply as any).finalAnswer, undefined, "private answer never reaches the browser");
     assert.equal(groq.calls[0].model, "openai/gpt-oss-120b", "free plan uses the medium model");
     const rows = await usage(u);
@@ -595,7 +595,7 @@ describe("tutor pipeline", () => {
     const groq = fakeProvider("groq", () => reply());
     const deps = { repo: pgRepo(db), providers: { groq: groq.provider }, sleep: noSleep };
     await handleTutor(deps, u, ask("hi", { learnerLevel: "secondary", style: "concise" }));
-    assert.match(groq.calls[0].req.system, /secondary-school student/);
+    assert.match(groq.calls[0].req.system, /Upper secondary/);
     assert.match(groq.calls[0].req.system, /one or two sentences/);
     assert.equal((await handleTutor(deps, u, ask("hi", { learnerLevel: "phd" }))).body.error, "invalid_level");
     assert.equal((await handleTutor(deps, u, ask("hi", { style: "essay" }))).body.error, "invalid_style");
