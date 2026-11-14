@@ -71,3 +71,8 @@ export function splitSteps(rawBody: string): { lead: string; steps: string[]; ta
   if (cut >= 0) steps[steps.length - 1] = last.slice(0, cut).trim();
   return { lead: lines.slice(0, starts[0]).join("\n").trim(), steps, tail };
 }
+
+// A lesson put back together after one of its sections was replaced.
+export function formatLesson(lesson: ParsedLesson): string {
+  return [lesson.intro, ...lesson.sections.map(s => `@@${s.id}\n${s.body}`)].filter(Boolean).join("\n");
+}

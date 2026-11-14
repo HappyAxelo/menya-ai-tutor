@@ -12,13 +12,13 @@ import {
 } from "./policy.ts";
 import { matchesAnswer, revealsAnswer, statesAnswer, statesCorrection } from "./answerGuard.ts";
 import { arithmeticRequest, checkArithmetic } from "./engine/mathCheck.ts";
-import { parseLesson } from "./lessonFormat.ts";
+import { formatLesson, parseLesson } from "./lessonFormat.ts";
 import { checkEquation } from "./chemistry.ts";
 import { asksForPicture, renderDiagram, type Diagram } from "./diagram.ts";
 import { DIAGRAM_KINDS, TABLE_KINDS, type DiagramKind, type DiagramSpec } from "./diagramSpec.ts";
 import { templateAlt } from "./visualTemplates.ts";
 import { densityProblems, inferLevelFromText, levelFromProfile, normalizeLevel, wantsSimpleLanguage } from "./language.ts";
-import { ADAPT_NOTE, checkTeachingOrder, classifyEvidence, detectIntent, EVIDENCE_NOTE, isBriefFact, lessonShape, shapeNote, signalsNote, suggestVisual, teachFirstRequest, teachingEvents, objectiveFromText, subjectNote, SUPPORT_NOTE, teachingSubject, asksForProblem, referenceExampleNote, USE_REFERENCE_REQUEST, type LessonShape } from "./engine/pedagogy.ts";
+import { ADAPT_NOTE, checkTeachingOrder, classifyEvidence, detectIntent, EVIDENCE_NOTE, isBriefFact, lessonShape, shapeNote, signalsNote, suggestVisual, teachFirstRequest, teachingEvents, objectiveFromText, subjectNote, SUPPORT_NOTE, teachingSubject, asksForProblem, composeExample, referenceExampleNote, USE_REFERENCE_REQUEST, type LessonShape } from "./engine/pedagogy.ts";
 import { numbersIn } from "./engine/bankKit.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
@@ -384,7 +384,6 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     adapt: adapts ? ADAPT_NOTE : null,
     evidence: EVIDENCE_NOTE[classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: sessionItem?.kind ?? null, guidedSuccessBefore,
       assessment: null })] ?? (assessmentBefore ? EVIDENCE_NOTE[assessmentBefore as keyof typeof EVIDENCE_NOTE] ?? null : null),
-    reference: reference ? referenceExampleNote(reference) : null,
     prerequisite: plan.state === "PREREQ" ? (typeof prevMeta.prerequisiteGap === "string" ? prevMeta.prerequisiteGap
       : (objectiveId ? (objectiveInfo(objectiveId)?.prerequisites ?? []).map(p => objectiveInfo(p)?.title ?? p).join(", ") : "") || null) : null,
   });
@@ -497,6 +496,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     ...(followStudent ? (detected ? [{ role: "user" as const, content: languageNote(detected) }] : [])
       : (input.action === "message" || input.action === "check" ? [{ role: "user" as const, content: chosenLanguageNote(input.language!, detected) }] : [])),
     ...(switchedLanguage ? [{ role: "user" as const, content: languageSwitchNote(session.language!, lang!) }] : []),
+    // The checked worked example goes last but one, beside the student's words: buried in the engine note, the model ignored it.
+    ...(reference ? [{ role: "user" as const, content: referenceExampleNote(reference) }] : []),
     { role: "user", content: userContent },
   ];
 
@@ -650,7 +651,20 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             const redo = parseTutorJson(res8.text);
             if (redo && usesReference(redo.message) && (answerMayShow || !revealsAnswer(redo.message, served.reply.finalAnswer, studentTexts))
                 && (!shape.foundation || checkTeachingOrder(redo.message, shape).ok)) { served.reply = keep(redo); exampleState = "checked"; }
-          } catch { /* the model's own example stands, and is not labelled as checked */ }
+          } catch { /* handled below */ }
+          // Still its own example. Models get this kind of arithmetic wrong often enough that the server's
+          // example goes in instead. It is written in English, so only an English lesson gets it; in other
+          // languages the model's example stays and is not labelled as checked.
+          if (exampleState === "unchecked" && /^english$/i.test(served.reply.language || "")) {
+            const lesson = parseLesson(served.reply.message);
+            if (lesson.sections.some(x => x.id === "example")) {
+              const swapped = formatLesson({ intro: lesson.intro, sections: lesson.sections.map(x => (x.id === "example" ? { ...x, body: composeExample(reference) } : x)) });
+              if (answerMayShow || !revealsAnswer(swapped, served.reply.finalAnswer, studentTexts)) {
+                served.reply = { ...served.reply, message: swapped }; exampleState = "checked";
+                log({ event: "reference_example_inserted", objective: objectiveId });
+              }
+            }
+          }
         }
 
         // Recompute the arithmetic the reply shows. Lines that don't hold get one rewrite; what still

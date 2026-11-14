@@ -327,3 +327,9 @@ export function asksForProblem(text: string): "practice" | "test" | null {
   if (/\b(?:give|show|set|ask|send) me\b.{0,25}\b(?:problem|question|exercise|one)\b|\b(?:another|a harder|a new|one more|a similar|a different|more) (?:practice |difficult )?(?:problem|question|exercise|one|practice)\b|\bmore practice\b|\bun autre (?:probl[èe]me|exercice)\b|\b(?:probl[èe]me|exercice) plus difficile\b/i.test(t)) return "practice";
   return null;
 }
+
+// The checked example written out by the server itself, for when the model would not use it:
+// the problem, the method in a sentence, every computed step on its own line, and the result.
+export function composeExample(example: { question: string; steps: string[]; answer: string; rubric: string }): string {
+  return [example.question, "", example.rubric, "", ...example.steps.map((s, i) => `${i + 1}. ${s}`), `${example.steps.length + 1}. Result: ${example.answer}`].join("\n");
+}

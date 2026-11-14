@@ -2,7 +2,7 @@
 
 Written 14 November 2026. Branch `claude/menya-5-learning-engine`, built on `claude/visual-first-tutor`.
 
-**Status: built and tested locally. Not committed, not deployed. A first run against the production AI model on 14 November 2026 reached 7 of 20 topics and led to the fixes in section 9; a full run after those fixes is still to do.** The audit that led to this work is in [MENYA5_AUDIT.md](MENYA5_AUDIT.md).
+**Status: deployed on 14 November 2026 at the owner's request (migration applied, website published, server function version 28 from this branch). A first run against the production AI model reached 7 of 20 topics and led to the fixes in section 9; a full run after those fixes is still to do, and no teacher has reviewed the replies.** The audit that led to this work is in [MENYA5_AUDIT.md](MENYA5_AUDIT.md).
 
 ## 1. What changed, in one table
 
@@ -51,7 +51,7 @@ Run on 14 November 2026.
 
 | Suite | Before | Now |
 |---|---|---|
-| Backend (`cd supabase && npm test`) | 364 passed | **404 passed, 0 failed** |
+| Backend (`cd supabase && npm test`) | 364 passed | **406 passed, 0 failed** |
 | Web (`cd menya && npm test`) | 31 passed | **35 passed, 0 failed** |
 | Web build | succeeds | succeeds; main file 166.5 KB gzipped, **up from 150.0 KB** |
 | Server bundle (`npm run bundle:api`) | succeeds | succeeds |
@@ -120,7 +120,7 @@ Tests should be invigilated and on paper or with the tutor switched off. A compa
 
 ## 7. Deployment
 
-Not done. When you decide to deploy, keep the usual order, because the new site reads old replies but the old site doesn't know the new fields.
+Done on 14 November 2026, in this order. For the next deploy keep the same order, because the new site reads old replies but the old site doesn't know the new fields.
 
 1. **Run the live evaluation first** (section 5) and read it.
 2. **Database:** run `supabase/migrations/20261113000025_menya_diagnostic_mode.sql` in the Supabase SQL editor. It only widens the list of allowed exam modes; its header has the rollback.
@@ -155,3 +155,12 @@ The owner ran `dev/eval-menya5.ts` with their key. The free tier's per-minute li
 | 13 topics refused as busy. | Each lesson uses a large share of the free tier's tokens per minute. | Not fixed: this is capacity, not code. The same will happen to students at busy times until a paid AI tier is used. The script now waits. |
 
 Not changed: the "check" in the differentiation lesson ("g′(1) = 2, which matches the slope of the tangent") proves nothing. With the server's example in place this should stop for bank topics; a full run will show.
+
+### After deploying (same day)
+
+The first live question on the deployed site showed the model **ignoring the server's worked example twice** and writing its own (correct that time). Two changes followed, deployed as function version 28:
+
+- The checked example is now given to the model right beside the student's message instead of inside the longer engine note.
+- If the model still writes its own, **the server replaces the worked-example section with its own computed one** (problem, method, each step on its own line, result). This happens for lessons in English only, because the server's example is written in English; in other languages the model's example stays and is not labelled as checked.
+
+Worked-example steps are now shown all at once, each on its own line (the owner's choice), instead of one at a time behind a button.

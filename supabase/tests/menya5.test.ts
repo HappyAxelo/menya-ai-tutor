@@ -607,7 +607,8 @@ describe("worked examples computed by the server", () => {
     const note = m.calls[0].messages.map(x => String(x.content)).find(c => c.includes("[CHECKED EXAMPLE]"))!;
     assert.match(note, /Problem: A \d+(\.\d+)? V battery is connected to a \d+ Ω resistor in series with a parallel pair/);
     assert.match(note, /V_parallel = [\d.]+ − [\d.]+·\d+ = [\d.]+ V/, "the step the live model got wrong is given, computed");
-    assert.match(note, /Learning objective: Analyse a series-parallel circuit with Kirchhoff's laws/);
+    assert.match(m.calls[0].messages.map(x => String(x.content)).join("\n"), /Learning objective: Analyse a series-parallel circuit with Kirchhoff's laws/);
+    assert.ok(String(m.calls[0].messages.at(-2)!.content).startsWith("[CHECKED EXAMPLE]"), "placed right before the student's message");
     assert.deepEqual((res.body as any).accuracy, { checked: (res.body as any).accuracy.checked, unverified: [], example: "checked" });
     assert.ok((res.body as any).accuracy.checked >= 3, "and its lines were recomputed too");
     assert.deepEqual((res.body as any).engine.topic, { stage: "not_started", next: "learn", support: 1, practice: true, prerequisites: ["ee.ohms_law", "ee.series_circuits"] });
@@ -618,13 +619,30 @@ describe("worked examples computed by the server", () => {
     assert.equal(saved.exampleChecked, true);
   });
 
-  test("a model that writes its own example is asked once to use the checked one; if it won't, the example is not labelled as checked", async () => {
+  test("a model that keeps writing its own example (as the live model did) has it replaced by the server's", async () => {
     const u = await createUser(db);
-    const groq = scripted([reply(RIGHT_LESSON)]);
+    const groq = scripted([reply(WRONG_LESSON)]);     // its own example, and a wrong one
     const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: async () => {} }, u, ask(KIRCHHOFF));
-    assert.equal(groq.referenceCalls.length, 1, "asked once");
+    assert.equal(groq.referenceCalls.length, 1, "asked once to use the checked example");
     assert.match(String(groq.referenceCalls[0].messages.at(-1)!.content), /\[USE THE CHECKED EXAMPLE\][\s\S]*Result: [\d.]+ A/);
+    const message = (res.body.reply as any).message as string;
+    const example = parseLesson(message).sections.find(x => x.id === "example")!.body;
+    assert.match(example, /^A [\d.]+ V battery is connected to a \d+ Ω resistor in series with a parallel pair/);
+    assert.match(example, /\n1\. R_parallel = [\s\S]*\n4\. V_parallel = [\d.]+ − [\d.]+·\d+ = [\d.]+ V\n5\. [\s\S]*\n6\. Result: [\d.]+ A$/, "each computed step on its own line");
+    assert.ok(!message.includes("4.29"), "the model's wrong working is gone");
+    assert.match(message, /@@idea[\s\S]*@@try\nWhat is the combined resistance/, "the rest of the lesson is untouched");
+    assert.deepEqual((res.body as any).accuracy.unverified, []);
+    assert.equal((res.body as any).accuracy.example, "checked");
+    assert.equal(groq.calls.length, 1, "nothing left for the arithmetic check to send back");
+  });
+
+  test("in a language other than English the model's own example stays, and is not labelled as checked", async () => {
+    const u = await createUser(db);
+    const groq = scripted([reply(RIGHT_LESSON, { language: "French" })]);
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: async () => {} }, u, ask(KIRCHHOFF));
+    assert.equal(groq.referenceCalls.length, 1);
     assert.equal((res.body as any).accuracy.example, "unchecked");
+    assert.match((res.body.reply as any).message, /5\.71 V/);
     const saved = (await db.query<any>("select meta from public.tutoring_messages where user_id = $1 and role = 'assistant'", [u])).rows[0].meta;
     assert.equal(saved.exampleChecked, undefined);
   });
