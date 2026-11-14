@@ -28,8 +28,12 @@ function pretty(text) {
     .replace(/\^\{([^{}]{1,8})\}/g, (whole, inner) => { const s = inner.replace(/\s/g, ""); return all(s, SUP) ? map(s, SUP) : whole; })
     .replace(/\^\(([^()]{1,8})\)/g, (whole, inner) => { const s = inner.replace(/\s/g, ""); return /^[-−+]?\d+$|^[a-z][-−+]\d$/.test(s) && all(s, SUP) ? map(s, SUP) : whole; })
     .replace(/\^(-?\d+|[nxtk])(?![\w(])/g, (whole, p) => (all(p, SUP) ? map(p, SUP) : whole))
-    .replace(/(?<=[A-Za-zΩ])_\{?(\d{1,2})\}?(?!\w)/g, (_, d) => map(d, SUB));
+    .replace(/(?<=[A-Za-zΩ])_\{?(\d{1,2})\}?(?!\w)/g, (_, d) => map(d, SUB))
+    // A word as a subscript (R_{p}, I_total, V_parallel) has no Unicode form: it is typeset as maths.
+    .replace(/(?<![\w$])([A-Za-z])_\{([A-Za-z0-9 ]{1,12})\}/g, (_, base, sub) => wordSubscript(base, sub))
+    .replace(/(?<![\w$])([A-Z])_([a-z]{1,12})(?![\w(])/g, (_, base, sub) => wordSubscript(base, sub));
 }
+const wordSubscript = (base, sub) => `$${base}_{\\text{${sub}}}$`;
 
 // Code and LaTeX are left exactly as written.
 export function prettyMath(text) {

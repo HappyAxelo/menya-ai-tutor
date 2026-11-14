@@ -7,7 +7,8 @@ import { historyToMessages } from "../src/lib/chat.js";
 test("plain-text powers and subscripts become readable; code and LaTeX are left alone", () => {
   assert.equal(prettyMath("g(t)=2t^3+4t, so g'(t)=6t^2+4"), "g(t)=2t³+4t, so g'(t)=6t²+4");
   assert.equal(prettyMath("a·n·x^{n-1} and 10^-3 and x^n"), "a·n·xⁿ⁻¹ and 10⁻³ and xⁿ");
-  assert.equal(prettyMath("R_1 + R_2 = R_total"), "R₁ + R₂ = R_total");
+  assert.equal(prettyMath("R_1 + R_2 = R_total"), "R₁ + R₂ = $R_{\\text{total}}$");
+  assert.equal(prettyMath("V_{p}=30 V−I_{total}·3 Ω"), "$V_{\\text{p}}$=30 V−$I_{\\text{total}}$·3 Ω", "as the live model writes them");
   assert.equal(prettyMath("use `x^2` or\n```\ny = x^2\n```\nand $x^2$"), "use `x^2` or\n```\ny = x^2\n```\nand $x^2$");
   assert.equal(prettyMath("e^(2x) stays, x^{2y+z} stays"), "e^(2x) stays, x^{2y+z} stays");
   assert.equal(prettyMath("snake_case_name and file_2024"), "snake_case_name and file_2024");

@@ -2,7 +2,7 @@
 
 Written 14 November 2026. Branch `claude/menya-5-learning-engine`, built on `claude/visual-first-tutor`.
 
-**Status: deployed on 14 November 2026 at the owner's request (migration applied, website published, server function version 28 from this branch). A first run against the production AI model reached 7 of 20 topics and led to the fixes in section 9; a full run after those fixes is still to do, and no teacher has reviewed the replies.** The audit that led to this work is in [MENYA5_AUDIT.md](MENYA5_AUDIT.md).
+**Status: deployed on 14 November 2026 at the owner's request (migration applied, website published, server function version 29 from this branch). A first run against the production AI model reached 7 of 20 topics and led to the fixes in section 9; a full run after those fixes is still to do, and no teacher has reviewed the replies.** The audit that led to this work is in [MENYA5_AUDIT.md](MENYA5_AUDIT.md).
 
 ## 1. What changed, in one table
 
@@ -158,9 +158,11 @@ Not changed: the "check" in the differentiation lesson ("g′(1) = 2, which matc
 
 ### After deploying (same day)
 
-The first live question on the deployed site showed the model **ignoring the server's worked example twice** and writing its own (correct that time). Two changes followed, deployed as function version 28:
+The first live question on the deployed site showed the model **ignoring the server's worked example twice** and writing its own (correct that time). Two changes followed, deployed as function versions 28 and 29:
 
 - The checked example is now given to the model right beside the student's message instead of inside the longer engine note.
 - If the model still writes its own, **the server replaces the worked-example section with its own computed one** (problem, method, each step on its own line, result). This happens for lessons in English only, because the server's example is written in English; in other languages the model's example stays and is not labelled as checked.
 
 Worked-example steps are now shown all at once, each on its own line (the owner's choice), instead of one at a time behind a button.
+
+Version 29 also stops the answer-leak guard from reading the server's own example as the student's answer (a value such as "1 A" in the example had replaced a whole lesson with a stand-in question). Checked on the live site afterwards: the Kirchhoff lesson used the server's example (30 V, 3 Ω, 20 Ω and 30 Ω: 12 Ω, 15 Ω, 2 A, 24 V, 1.2 A), named both laws, showed six steps on separate lines and carried the "computed by Menya" label. That is one question, not an evaluation: the 20-topic run is still to do.
