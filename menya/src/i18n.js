@@ -22,6 +22,12 @@ export function translate(lang, key, vars) {
   return value.replace(/\{(\w+)\}/g, (m, k) => (vars[k] ?? m));
 }
 
+// A topic's name: the translation when there is one, otherwise the title the server sent.
+export function topicName(t, id, title) {
+  const key = `obj.${id}`, text = t(key);
+  return text === key ? (title ?? id) : text;
+}
+
 // Greeting for the hour of the day (the learner's own clock).
 export function greetingKey(hour) {
   if (hour >= 5 && hour < 12) return "morning";

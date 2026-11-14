@@ -4,20 +4,15 @@
 // mastery check can't be wrong because a model invented a bad answer key.
 // Each template also recognises the wrong answers that common misconceptions
 // produce, which gives a diagnosis with evidence instead of a guess.
-import { booleanEquivalent, equivalent, finalExpression, rng } from "./expr.ts";
+import { booleanEquivalent, equivalent, finalExpression } from "./expr.ts";
+import { int, lastNumber, lastQuantity, numericMark, pick, rng, round, type Item, type Marking, type Objective, type Template } from "./bankKit.ts";
+import { STEM_OBJECTIVES, STEM_TEMPLATES } from "./bankStem.ts";
+export { lastNumber, lastQuantity, workingFound } from "./bankKit.ts";
+export type { Item, Marking, Objective, Subject, Template, Verdict } from "./bankKit.ts";
 
-export type Subject = "mathematics" | "calculus" | "electronics" | "digital_logic" | "programming";
-
-export interface Objective {
-  id: string;
-  subject: Subject;
-  title: string;
-  prerequisites: string[];
-}
-
-export const OBJECTIVES: Objective[] = [
+const CORE_OBJECTIVES: Objective[] = [
   { id: "math.linear_equations", subject: "mathematics", title: "Solve linear equations in one unknown", prerequisites: [] },
-  { id: "calc.basic_derivatives", subject: "calculus", title: "Differentiate powers and standard functions", prerequisites: [] },
+  { id: "calc.basic_derivatives", subject: "calculus", title: "Differentiate powers and polynomials", prerequisites: [] },
   { id: "calc.product_rule", subject: "calculus", title: "Differentiate a product with the product rule", prerequisites: ["calc.basic_derivatives"] },
   { id: "calc.chain_rule", subject: "calculus", title: "Differentiate a composite function with the chain rule", prerequisites: ["calc.basic_derivatives"] },
   { id: "ee.ohms_law", subject: "electronics", title: "Apply Ohm's law (V = I·R)", prerequisites: [] },
@@ -29,72 +24,15 @@ export const OBJECTIVES: Objective[] = [
   { id: "prog.loop_tracing", subject: "programming", title: "Trace a loop and predict its output", prerequisites: [] },
   { id: "prog.complexity", subject: "programming", title: "Estimate the time complexity of simple loops", prerequisites: ["prog.loop_tracing"] },
 ];
+// Core topics first, then the first-year maths, physics, engineering and computing topics, grouped by subject for display.
+const SUBJECT_ORDER = ["mathematics", "calculus", "physics", "electronics", "engineering", "digital_logic", "programming"];
+export const OBJECTIVES: Objective[] = [...CORE_OBJECTIVES, ...STEM_OBJECTIVES]
+  .map((o, i) => ({ o, i })).sort((a, b) => SUBJECT_ORDER.indexOf(a.o.subject) - SUBJECT_ORDER.indexOf(b.o.subject) || a.i - b.i).map(x => x.o);
 export const OBJECTIVE_IDS = OBJECTIVES.map(o => o.id);
 export const objective = (id: string) => OBJECTIVES.find(o => o.id === id) ?? null;
 
-export type Verdict = "correct" | "incorrect" | "unreadable";
-
-export interface Marking {
-  verdict: Verdict;
-  misconception: string | null;   // id from the template's catalogue
-  note: string;                   // short, factual, for the tutor (never shown verbatim)
-}
-
-export interface Item {
-  templateId: string;
-  objective: string;
-  seed: number;
-  difficulty: 1 | 2 | 3;
-  question: string;                // English; the tutor presents it in the learner's language
-  answer: string;                  // reference answer (private)
-  rubric: string;                  // what a full answer contains
-  steps: string[];                 // expected intermediate reasoning
-}
-
-export interface Template {
-  id: string;
-  objective: string;
-  difficulty: 1 | 2 | 3;
-  misconceptions: Record<string, string>;   // id -> description
-  generate(seed: number): Item;
-  mark(item: Item, studentText: string): Marking;
-}
-
-// ---------- helpers ----------
-const pick = <T,>(r: () => number, xs: T[]) => xs[Math.floor(r() * xs.length)];
-const int = (r: () => number, lo: number, hi: number) => lo + Math.floor(r() * (hi - lo + 1));
-const round = (v: number, dp = 3) => Math.round(v * 10 ** dp) / 10 ** dp;
-
-// The last number the student wrote (their final answer), with comma decimals accepted.
-export function lastNumber(text: string): number | null {
-  const m = text.replace(/(\d),(\d)/g, "$1.$2").replace(/[−–]/g, "-").match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/gi);
-  return m ? Number(m[m.length - 1]) : null;
-}
-
-// Value in base units from a number followed by an optional SI prefix and unit ("250 mA", "0.25 A", "2.5 k").
-export function lastQuantity(text: string, unit: string): number | null {
-  const re = new RegExp(`(-?\\d+(?:[.,]\\d+)?)\\s*(k|m|µ|u|M)?\\s*(${unit})?\\b`, "g");
-  let last: RegExpExecArray | null = null, m: RegExpExecArray | null;
-  while ((m = re.exec(text))) last = m;
-  if (!last) return null;
-  const v = Number(last[1].replace(",", "."));
-  const scale = { k: 1e3, M: 1e6, m: 1e-3, µ: 1e-6, u: 1e-6 }[last[2] as "k"] ?? 1;
-  return v * scale;
-}
-
-const close = (a: number, b: number, rel = 0.01) => Math.abs(a - b) <= rel * Math.max(1, Math.abs(b));
-
-function numericMark(value: number | null, answer: number, wrong: Record<string, number>, rel = 0.01): Marking {
-  if (value == null) return { verdict: "unreadable", misconception: null, note: "no number found in the answer" };
-  if (close(value, answer, rel)) return { verdict: "correct", misconception: null, note: `${value} matches the reference` };
-  for (const [id, v] of Object.entries(wrong)) {
-    if (Number.isFinite(v) && close(value, v, rel)) return { verdict: "incorrect", misconception: id, note: `${value} is what ${id} produces` };
-  }
-  return { verdict: "incorrect", misconception: null, note: `${value} does not match the reference` };
-}
-
 // ---------- templates ----------
-export const TEMPLATES: Template[] = [
+const CORE_TEMPLATES: Template[] = [
   {
     id: "linear.ax_plus_b", objective: "math.linear_equations", difficulty: 1,
     misconceptions: {
@@ -340,7 +278,9 @@ export const TEMPLATES: Template[] = [
   },
 ];
 
-export const templateFor = (objectiveId: string, difficulty?: number) =>
+export const TEMPLATES: Template[] = [...CORE_TEMPLATES, ...STEM_TEMPLATES];
+
+export const templateFor =(objectiveId: string, difficulty?: number) =>
   TEMPLATES.filter(t => t.objective === objectiveId && (difficulty == null || t.difficulty <= difficulty));
 
 export function generateItem(objectiveId: string, seed: number): Item | null {

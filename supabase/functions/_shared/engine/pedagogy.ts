@@ -117,19 +117,19 @@ export function suggestVisual(text: string): VisualSuggestion | null {
 
 // ---------- What each section of a reply must do (sent only for the sections this reply uses) ----------
 const SECTION_TEXT: Record<SectionId, string> = {
-  idea: "@@idea — A familiar comparison from daily life first, then a one-sentence definition. Two to four short sentences. At most one new technical word, explained where it appears.",
-  see: "@@see — Explain the picture: what the student is looking at, how the parts connect, the one thing to notice, and how that answers their question. Two to four short sentences that still make sense if the picture can't be shown. Name the parts in words.",
-  example: "@@example — A worked example with DIFFERENT numbers or a different case from the student's own problem. Write it as a numbered list: 1. what we know and what we need; then each step with the reason for it; last step: how to check the result.",
-  try: "@@try — Exactly ONE question, the only question in the reply. It tests the one thing just taught, can be answered from what was just shown, and needs nothing new. Ask for recognition first; application once they have shown recognition. For a problem of their own, ask them to do its first step, not the whole thing.",
-  feedback: "@@feedback — About the student's last answer, respectfully: what was right, then the missing or wrong idea. Short.",
-  check: "@@check — One short independent exercise on a different case, to do without help.",
+  idea: "@@idea: A familiar comparison from daily life first, then a one-sentence definition. Two to four short sentences. At most one new technical word, explained where it appears.",
+  see: "@@see: Explain the picture: what the student is looking at, how the parts connect, the one thing to notice, and how that answers their question. Two to four short sentences that still make sense if the picture can't be shown. Name the parts in words.",
+  example: "@@example: A worked example with DIFFERENT numbers or a different case from the student's own problem. Write it as a numbered list: 1. what we know and what we need; then each step with the reason for it; last step: how to check the result.",
+  try: "@@try: Exactly ONE question, the only question in the reply. It tests the one thing just taught, can be answered from what was just shown, and needs nothing new. Ask for recognition first; application once they have shown recognition. For a problem of their own, ask them to do its first step, not the whole thing.",
+  feedback: "@@feedback: About the student's last answer, respectfully: what was right, then the missing or wrong idea. Short.",
+  check: "@@check: One short independent exercise on a different case, to do without help.",
 };
 
 export function shapeNote(s: LessonShape, picture: { offered: boolean; tablesOnly: boolean }): string {
   if (s.format === "plain" || (!s.sections.length && s.format !== "brief")) return "";
   if (s.format === "brief") return "Format: a short direct answer. No sections, no lesson, no follow-up question unless one is really useful.";
   const sections = s.sections.filter(id => id !== "see" || picture.offered);
-  const lines = [`Format: write the message in these sections, in this order, each starting on its own line with its marker exactly as shown, nothing before the first marker. Keep it short: students read this on a phone.`];
+  const lines = [`Format: write the message in these sections, in this order, each starting on its own line with its marker (for example @@idea) followed by a line break, nothing before the first marker and no dash after a marker. In a worked example put every numbered step on its own line. Keep it short: students read this on a phone.`];
   for (const id of sections) lines.push(SECTION_TEXT[id]);
   if (s.foundation) lines.push("Teach before you ask: nothing in the reply may be a question until the @@try section.");
   return lines.join("\n");
@@ -230,5 +230,100 @@ export function signalsNote(counts: Record<string, number>): string | null {
   const help = (counts.hint_requested ?? 0) + (counts.explained_again ?? 0), alone = counts.independent_answered ?? 0;
   if (help >= 4 && help >= alone * 3) return "[APP NOTE] This learner has needed a lot of help recently. Use smaller steps and a fuller worked example from the start.";
   if (alone >= 3 && help === 0) return "[APP NOTE] This learner has been working independently. You can move a little faster and ask a more demanding question.";
+  return null;
+}
+
+// ---------- Subject teaching structure ----------
+// A lesson in mathematics is not built like one in physics. These notes go with a lesson, a worked
+// example or a re-teach; a hint or a short answer doesn't get them.
+export type TeachingSubject = "maths" | "physics" | "computing";
+const SUBJECT_TEXT: Record<TeachingSubject, string> = {
+  maths: `Mathematics lesson. In this order: (1) say what is given and what is wanted; (2) name the method and say why it fits this problem; (3) state the rule in its general form and say what each symbol means BEFORE using it; (4) show every algebra step on its own line with the reason for it, and never write "simplifying gives" over a step the student needs to see; (5) when a term disappears or changes sign, say why (the derivative of a constant is zero because a constant does not change); (6) verify the result with numbers you actually compute: substitute back, differentiate an integral, or test a simple value.`,
+  physics: `Physics lesson. In this order: (1) describe what physically happens before any equation; (2) name the law by its name and state it in words and in symbols, and if the student named a law (Kirchhoff's laws, Newton's second law, Faraday's law), state THAT law explicitly and use it, not a shortcut that hides it; (3) define every symbol with its SI unit; (4) say how the quantities depend on each other (what happens to one when another grows); (5) carry units through every line of the worked example; (6) end with a check you actually compute: units, a conservation law (currents at a junction add up, energy is conserved) or a limiting case.`,
+  computing: `Computing lesson. Trace one small concrete input step by step first (a table of the variables after each step), then state the general rule, then its cost or its limits. Show code or pseudocode only after the trace.`,
+};
+const LESSON_FORMATS: LessonFormat[] = ["lesson", "demonstrate", "reteach", "prerequisite"];
+
+export function teachingSubject(text: string, objectiveSubject: string | null = null): TeachingSubject | null {
+  const fromObjective: Record<string, TeachingSubject> = { mathematics: "maths", calculus: "maths", physics: "physics", electronics: "physics",
+    engineering: "physics", digital_logic: "computing", programming: "computing" };
+  if (objectiveSubject && fromObjective[objectiveSubject]) return fromObjective[objectiveSubject];
+  const s = suggestVisual(text)?.subject;
+  if (s === "maths" || s === "statistics") return "maths";
+  if (s === "physics" || s === "electronics") return "physics";
+  if (s === "computer science") return "computing";
+  if (/\b(integra\w*|deriv\w*|differentiat\w*|matrix|matrices|determinant|probabilit\w*|complex numbers?|logarithm\w*|limit of|differential equations?|vectors?|eigen\w*)\b/i.test(text)) return "maths";
+  if (/\b(kirchhoff|momentum|kinematics|projectile|velocity|acceleration|energy|thermodynamic\w*|induction|magnetic|electric field|capacitor|inductor|wavelength|frequency|pressure|optics|quantum)\b/i.test(text)) return "physics";
+  return null;
+}
+
+export function subjectNote(subject: TeachingSubject | null, format: LessonFormat): string | null {
+  return subject && LESSON_FORMATS.includes(format) ? SUBJECT_TEXT[subject] : null;
+}
+
+// ---------- Support for this topic ----------
+// 1 strong guidance · 2 guided independence · 3 independent mastery. Decided per topic from marked
+// answers (mastery.ts), so a learner can be at 3 in calculus and at 1 in mechanics.
+export const SUPPORT_NOTE: Record<1 | 2 | 3, string> = {
+  1: "Support for this topic: strong guidance. Go slowly, state each rule before using it, give a full worked example and offer help readily.",
+  2: "Support for this topic: guided independence. Keep explanations short, let the student carry out most steps, give fewer hints than before and make each problem a little harder than the last.",
+  3: "Support for this topic: independent mastery. Don't re-teach what they have shown. Pose an unfamiliar or exam-style application and let them work alone; step in only when asked.",
+};
+
+// ---------- Which bank topic is this conversation about? ----------
+// Words in the student's own request, so verified practice, "Check yourself" and spaced review are
+// available from the first reply. A guess here only chooses which checked problems are offered.
+const OBJECTIVE_WORDS: [RegExp, string][] = [
+  [/kirchhoff|\bkcl\b|\bkvl\b|loi des (mailles|n[œo]euds)/i, "ee.kirchhoff_laws"],
+  [/voltage divider|diviseur de tension/i, "ee.voltage_divider"],
+  [/resistors? in series|series circuit|r[ée]sistances? en s[ée]rie/i, "ee.series_circuits"],
+  [/ohm'?s law|loi d'ohm/i, "ee.ohms_law"],
+  [/integrat\w* by substitution|u[- ]substitution|changement de variable/i, "calc.integration_substitution"],
+  [/chain rule|d[ée]riv[ée]e d'une compos[ée]e/i, "calc.chain_rule"],
+  [/product rule|d[ée]riv[ée]e d'un produit/i, "calc.product_rule"],
+  [/differential equations?|[ée]quations? diff[ée]rentielles?/i, "calc.first_order_ode"],
+  [/\bintegra(l|ls|tion|te)\b|int[ée]grale?s?\b|primitive/i, "calc.integration_power"],
+  [/differentiat\w*|derivatives?|d[ée]riv[ée]es?\b|power rule/i, "calc.basic_derivatives"],
+  [/determinant/i, "linalg.determinants"],
+  [/matri(x|ces) (multiplication|product)|multiply(ing)? matrices|produit (matriciel|de matrices)/i, "linalg.matrix_multiplication"],
+  [/binomial (distribution|probability)|loi binomiale/i, "prob.binomial_distribution"],
+  [/independent events|probabilit/i, "prob.independent_events"],
+  [/complex numbers?|nombres? complexes?/i, "math.complex_numbers"],
+  [/projectile/i, "phys.projectile_motion"],
+  [/newton'?s? (second|2nd|laws?)|deuxi[èe]me loi de newton|f\s*=\s*ma\b/i, "phys.newtons_second_law"],
+  [/faraday|electromagnetic induction|induction [ée]lectromagn[ée]tique/i, "phys.electromagnetic_induction"],
+  [/wave (speed|equation|mechanics)|wavelength|longueur d'onde/i, "phys.wave_speed"],
+  [/nyquist|sampling (rate|theorem|frequency)|[ée]chantillonnage/i, "sig.sampling"],
+  [/steady[- ]state|closed[- ]loop|feedback loop|control systems?/i, "ctrl.feedback_steady_state"],
+  [/\bdiodes?\b/i, "semi.diode_circuits"],
+  [/\bstacks?\b|\bqueues?\b|\bpile\b|\bfile d'attente/i, "ds.stacks_queues"],
+  [/binary search|recherche dichotomique/i, "algo.binary_search"],
+  [/big[- ]?o\b|time complexity|complexit[ée]/i, "prog.complexity"],
+  [/boolean|de morgan/i, "logic.boolean_algebra"],
+  [/linear equations?|[ée]quations? du premier degr[ée]/i, "math.linear_equations"],
+];
+export function objectiveFromText(text: string): string | null {
+  return OBJECTIVE_WORDS.find(([re]) => re.test(text))?.[1] ?? null;
+}
+
+// ---------- A worked example the server has computed ----------
+// For a topic in the question bank the worked example is not left to the model: the server generates
+// a problem of the same kind (other numbers), with every intermediate value computed by the template
+// that will later mark the student. The model explains it; it does not do the arithmetic.
+export function referenceExampleNote(example: { question: string; steps: string[]; answer: string; rubric: string }): string {
+  return `[CHECKED EXAMPLE] Use this as the worked example in @@example. The server computed it, so every value below is correct: keep each number exactly as given, don't add steps with numbers of your own, and don't swap it for another example. Your part is to explain, in the student's language, WHY each step is taken.
+Problem: ${example.question}
+Method: ${example.rubric}
+Steps: ${example.steps.map((s, i) => `${i + 1}. ${s}`).join("  ")}
+Result: ${example.answer}`;
+}
+export const USE_REFERENCE_REQUEST = `[USE THE CHECKED EXAMPLE] Your worked example did not use the checked example you were given, or changed its numbers. Send the reply again with that example in @@example, every number exactly as given, ending in its stated result. Everything else stays. Same language, same sections, same JSON format.`;
+
+// "Give me a harder problem", "another one", "test me": a request for a problem, not a step of the current one.
+export function asksForProblem(text: string): "practice" | "test" | null {
+  const t = text.trim();
+  if (!t || t.length > 90) return null;
+  if (/\b(?:test|quiz) me\b|\binterroge[- ]moi\b|\bteste[- ]moi\b/i.test(t)) return "test";
+  if (/\b(?:give|show|set|ask|send) me\b.{0,25}\b(?:problem|question|exercise|one)\b|\b(?:another|a harder|a new|one more|a similar|a different|more) (?:practice |difficult )?(?:problem|question|exercise|one|practice)\b|\bmore practice\b|\bun autre (?:probl[èe]me|exercice)\b|\b(?:probl[èe]me|exercice) plus difficile\b/i.test(t)) return "practice";
   return null;
 }

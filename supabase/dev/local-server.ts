@@ -27,6 +27,9 @@ for (const f of ["../menya/.env", ".env"]) {
   }
 }
 
+// Where the web app is served from (APP_ORIGIN, when the dev server isn't on its usual port).
+const APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:5173";
+
 const db = await freshDb();
 
 // Seed: a learner, an admin (platform admin + org admin of a pilot university).
@@ -51,13 +54,13 @@ const ctx: ApiContext = {
   billing: null,
   async getUser(jwt) { return tokens.get(jwt) ?? null; },
   async deleteUser(id) { await db.query("delete from auth.users where id = $1", [id]); },
-  appUrl: "http://localhost:5173",
-  allowedOrigins: ["http://localhost:5173"],
+  appUrl: APP_ORIGIN,
+  allowedOrigins: [APP_ORIGIN],
   log: (e) => { if (e.level !== "info") console.log(JSON.stringify(e)); },
 };
 
 const CORS = {
-  "Access-Control-Allow-Origin": "http://localhost:5173",
+  "Access-Control-Allow-Origin": APP_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, content-type, x-client-info, apikey, prefer, accept-profile, content-profile, x-supabase-api-version",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, PATCH, OPTIONS",
 };

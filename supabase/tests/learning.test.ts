@@ -216,7 +216,7 @@ describe("learning companion API", () => {
     const res = await call("POST", "/exam/submit", u.token, { id: start.body.id, answers, seconds: { 1: 40, 2: 75 } });
     assert.equal(res.status, 200);
     assert.deepEqual(res.body.results.map((r: any) => r.verdict), ["correct", "incorrect", "unanswered", "unanswered"]);
-    assert.deepEqual(res.body.score, { correct: 1, total: 4, unanswered: 2 });
+    assert.deepEqual(res.body.score, { correct: 1, total: 4, unanswered: 2, marks: 8, awarded: 2 });   // two marks a question at this level
     assert.equal(res.body.results[0].seconds, 40);
     assert.ok(res.body.byObjective.some((o: any) => o.revise), "says what to revise");
 

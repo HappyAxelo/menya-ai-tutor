@@ -38,10 +38,35 @@ Which row of the table has an output of 1?`,
 };
 const FEEDBACK = { language: "English", type: "redirect", message: "@@feedback\nYou found the shaded parts, which is the right place to look. The lower bar has 4 small parts, and 2 of them are shaded.\n@@try\nSo what fraction of the lower bar is shaded?", diagram: null };
 
+// The worked example recorded from the live site on 13 November 2026, with its false check. The server's
+// arithmetic check should flag it; if the rewrite request arrives, the corrected working is returned
+// (ask about "kirchhoff stubborn" to see what a student is shown when the model repeats the error).
+const KIRCHHOFF_WRONG = `@@idea
+A circuit is like water in pipes: the battery pushes, the resistors hold the flow back. Kirchhoff's current law says the current flowing into a junction equals the current flowing out. Kirchhoff's voltage law says the voltage rises and drops round any closed loop add up to zero.
+@@example
+1. Take a 10 V battery, a 1 Ω series resistor and parallel branches of 2 Ω and 4 Ω.
+2. R_total = 1 Ω + 1.33 Ω = 2.33 Ω.
+3. I_total = 10 V / 2.33 Ω ≈ 4.29 A.
+4. V_parallel = I_total × 1 Ω = 4.29 V.
+5. I_a = V_parallel / 2 Ω ≈ 2.14 A, I_b = V_parallel / 4 Ω ≈ 1.07 A.
+6. Check: I_a + I_b ≈ I_total.
+@@try
+What is the combined resistance of the two parallel branches in your circuit?`;
+const KIRCHHOFF_RIGHT = KIRCHHOFF_WRONG.replace("V_parallel = I_total × 1 Ω = 4.29 V", "V_parallel = 10 V − I_total × 1 Ω = 5.71 V (Kirchhoff's voltage law round the loop)")
+  .replace("≈ 2.14 A", "≈ 2.86 A").replace("≈ 1.07 A", "≈ 1.43 A");
+const POWER = { language: "English", type: "explanation", diagram: null, finalAnswer: "6x + 5",
+  message: "@@idea\nThe derivative measures how fast a function changes. For a power of x, bring the power down as a multiplier and lower the power by one: d/dx(a·x^n) = a·n·x^{n-1}.\n@@example\n1. Take g(t) = 2t^3 + 4t.\n2. Power rule on 2t^3: 2·3·t^2 = 6t^2.\n3. The derivative of 4t is 4.\n4. So g'(t) = 6t^2 + 4.\n@@try\nWhat is the derivative of the first term, 3x^2?" };
+
 export const demoProvider: ModelProvider = {
   name: "groq",
   async chat(_config, req) {
     const last = String(req.messages.at(-1)!.content), first = req.messages.filter(m => m.role === "assistant").length === 0;
+    const asked = req.messages.map(m => String(m.content)).join("\n");
+    if (/kirchhoff/i.test(asked)) {
+      const fixed = /\[CHECK YOUR WORKING\]/.test(last) && !/stubborn/i.test(asked);
+      return { text: JSON.stringify({ ...base, language: "English", type: "explanation", diagram: null, message: fixed ? KIRCHHOFF_RIGHT : KIRCHHOFF_WRONG }), inputTokens: 1, outputTokens: 1, latencyMs: 400, ttftMs: null };
+    }
+    if (/derivative/i.test(asked) && first) return { text: JSON.stringify({ ...base, ...POWER }), inputTokens: 1, outputTokens: 1, latencyMs: 400, ttftMs: null };
     const reply = /logic|gate/i.test(last) ? LOGIC : first || /\[SHOW IT AS A PICTURE|fraction/i.test(last) ? FRACTIONS : FEEDBACK;
     return { text: JSON.stringify({ ...base, ...reply }), inputTokens: 1, outputTokens: 1, latencyMs: 400, ttftMs: null };
   },

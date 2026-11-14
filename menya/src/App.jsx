@@ -8,7 +8,8 @@ import SettingsPanel from "./SettingsPanel.jsx";
 import PlansView from "./PlansView.jsx";
 import { callTutor, actionRequest, hintRequest, verifyKey, LANGUAGES } from "./tutor.js";
 import { ACTION_LABELS, availableActions, tabTitle } from "./lib/chat.js";
-import { useT, greeting, setConversationLanguage } from "./i18n.js";
+import { useT, greeting, setConversationLanguage, topicName } from "./i18n.js";
+import StageSteps from "./lesson/StageSteps.jsx";
 import { readAttachment } from "./lib/attachments.js";
 import { parseLesson, stripLessonMarkers } from "../../supabase/functions/_shared/lessonFormat.ts";
 import { LessonSections } from "./lesson/LessonMessage.jsx";
@@ -227,7 +228,8 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
   const done = shown === msg.content;
   const [copied, setCopied] = useState(false);
   const style = msg.solved ? { icon: CheckCircle2, cls: "ok" } : REPLY_STYLE[msg.type] ?? REPLY_STYLE.question;
-  const label = msg.solved ? t("chip.solved") : msg.type === "hint" ? t("chip.hint", { n: msg.hintLevel || 1 })
+  // "Hint 2 of 3" is for the hint button, which is counted; help the tutor chose to give is just a hint.
+  const label = msg.solved ? t("chip.solved") : msg.type === "hint" ? (msg.counted === false ? t("chip.help") : t("chip.hint", { n: msg.hintLevel || 1 }))
     : t(`chip.${REPLY_STYLE[msg.type] ? msg.type : "question"}`);
   const Icon = style.icon;
   const plain = msg.type === "error" || msg.type === "limit";
@@ -265,6 +267,11 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
                 </div>
               </div>
             )}
+            {msg.exampleChecked && !msg.unverified?.length && <div className="mn-verified ok"><Check size={14} aria-hidden="true" />{t("accuracy.example")}</div>}
+            {msg.unverified?.length > 0 && (
+              <div className="mn-callout warn" role="note"><TriangleAlert size={16} aria-hidden="true" /><div><b>{t("accuracy.title")}</b>{t("accuracy.note")}
+                <ul className="mn-unverified">{msg.unverified.map(line => <li key={line}>{line}</li>)}</ul></div></div>
+            )}
             {msg.misconceptionDetected && (
               <div className="mn-callout warn"><TriangleAlert size={16} aria-hidden="true" /><div><b>{t("callout.misconception")}</b>{msg.misconceptionDetected}</div></div>
             )}
@@ -273,9 +280,15 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
             )}
             {msg.engine?.verified === "correct" && <div className="mn-verified ok"><Check size={14} aria-hidden="true" />{t("engine.correct")}</div>}
             {msg.engine?.verified === "incorrect" && <div className="mn-verified no">{t("engine.incorrect")}</div>}
+            {msg.engine?.topic && msg.engine.objective && (msg.engine.mastery || msg.showTopic) && (
+              <div className="mn-topic-strip">
+                <b>{topicName(t, msg.engine.objective.id, msg.engine.objective.title)}</b>
+                <StageSteps stage={msg.engine.topic.stage} next={msg.engine.topic.next ?? null} compact />
+              </div>
+            )}
             {msg.engine?.mastery && msg.engine.objective && (
               <div className="mn-mastery-line">
-                <b>{t(`obj.${msg.engine.objective.id}`, null) === `obj.${msg.engine.objective.id}` ? msg.engine.objective.title : t(`obj.${msg.engine.objective.id}`)}</b>
+                <b>{topicName(t, msg.engine.objective.id, msg.engine.objective.title)}</b>
                 {" · "}{t(`engine.status.${msg.engine.mastery.status}`)}
                 {" · "}{t("engine.independent", { n: msg.engine.mastery.independent })}
                 {msg.engine.mastery.nextReview && <>{" · "}{t("engine.nextReview", { date: new Date(msg.engine.mastery.nextReview).toLocaleDateString() })}</>}
@@ -350,7 +363,7 @@ function ActionBar({ actions, onAction }) {
 
 // The new-conversation screen: greeting for the time of day, the input in the
 // middle, then shortcuts and examples underneath (the way Claude welcomes you).
-function Welcome({ client, userName, composer, onExample, onIntent, introOpen, onDismissIntro, onReview, onNavigate }) {
+function Welcome({ client, guest, userName, composer, onExample, onIntent, introOpen, onDismissIntro, onReview, onNavigate }) {
   const { t, lang } = useT();
   const hour = useHour();
   const [subject, setSubject] = useState(null);
@@ -366,6 +379,7 @@ function Welcome({ client, userName, composer, onExample, onIntent, introOpen, o
         <div className="mn-companion" role="group" aria-label={t("companion.label")}>
           <button className="mn-intent" onClick={() => onNavigate("study")}><CalendarCheck size={16} aria-hidden="true" />{t("companion.study")}</button>
           <button className="mn-intent" onClick={() => onNavigate("exam")}><ClipboardCheck size={16} aria-hidden="true" />{t("companion.exam")}</button>
+          <button className="mn-intent" onClick={() => onNavigate("notebook")}><NotebookPen size={16} aria-hidden="true" />{t("companion.notebook")}</button>
           <button className="mn-intent" onClick={() => onNavigate("notes")}><BookOpen size={16} aria-hidden="true" />{t("companion.notes")}</button>
         </div>
       )}
@@ -412,7 +426,7 @@ function Welcome({ client, userName, composer, onExample, onIntent, introOpen, o
 
       <p className="mn-data-note">
         {client
-          ? <>{t("data.note")} <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">{t("privacy")}</a></>
+          ? <>{t(guest ? "data.guest" : "data.note")} <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">{t("privacy")}</a></>
           : t("data.dev")}
       </p>
     </section>
@@ -529,7 +543,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
     const prefs = { learnerLevel: settings.level === "auto" ? undefined : settings.level, style: settings.style };
     const lang = language !== "auto" ? language : lastLanguage;
     try {
-      let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null, researchView = null;
+      let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null, researchView = null, unverified = null, firstOnTopic = false, exampleChecked = false;
       if (client) {
         const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined, research,
           attachments: attachments?.map(({ name, kind, text: body }) => ({ name, kind, text: body })) });
@@ -537,7 +551,9 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
           const message = errorText(t, r.error, r.message, { seconds: r.retryAfter ?? 30 });
           throw Object.assign(new Error(message), { limit: r.isLimit ? r : null, retryable: r.retryable });
         }
-        parsed = r.reply; advanced = r.advanced; engineView = r.engine; diagram = r.diagram; pictureNote = r.pictureNote; researchView = r.research;
+        parsed = r.reply; advanced = r.advanced; engineView = r.engine; diagram = r.diagram; pictureNote = r.pictureNote; researchView = r.research; unverified = r.unverified; exampleChecked = r.exampleChecked;
+        // The first reply on a topic says where the learner stands on it; after that only when an answer was marked.
+        firstOnTopic = Boolean(r.engine?.objective && r.engine.objective.id !== engine?.objective?.id);
         setHintsUsed(r.hintsUsed ?? 0);
         setProblem(r.problem);
         setEngine(r.engine);
@@ -559,7 +575,8 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
         content: parsed.message, type: action === "hint" ? "hint" : parsed.type, hintLevel: parsed.hintLevel,
         conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected,
         progressSummary: parsed.progressSummary, solved: parsed.solved === true, advanced, messageId: parsed.messageId ?? null,
-        engine: client ? engineView : null, diagram, pictureNote, research: researchView,
+        engine: client ? engineView : null, diagram, pictureNote, research: researchView, unverified, exampleChecked,
+        counted: action === "hint", showTopic: firstOnTopic,
       });
     } catch (err) {
       if (err.limit) pushAssistant({ content: err.message, type: "limit", upgradeTo: err.limit.upgradeTo });
@@ -568,7 +585,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
     }
     setLoading(false);
     if (action === "message" || action === "check") inputRef.current?.focus();
-  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, mode, researchNext, onUsage, onSessionChange, pushAssistant, t]);
+  }, [loading, online, client, apiKey, apiMessages, language, lastLanguage, hintsUsed, settings.level, settings.style, mode, researchNext, onUsage, onSessionChange, pushAssistant, t, engine?.objective?.id]);
 
   const retry = useCallback(({ action, text, stuck, objective, attachments, research }) => runAction(action, text, { retry: research ? "research" : true, stuck, objective, attachments }), [runAction]);
 
@@ -839,7 +856,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
         <main className="mn-thread">
           <div className="mn-thread-inner">
             {empty && (
-              <Welcome client={client} userName={userName} onNavigate={guest ? null : onNavigate} onExample={q => runAction("message", q)} onIntent={useIntent}
+              <Welcome client={client} guest={guest} userName={userName} onNavigate={guest ? null : onNavigate} onExample={q => runAction("message", q)} onIntent={useIntent}
                 onReview={objective => runAction("review", "", { objective })}
                 introOpen={introOpen} onDismissIntro={dismissIntro}
                 composer={<div className="mn-welcome-composer">{offlineNote}{composer}</div>} />

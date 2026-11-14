@@ -10,13 +10,16 @@ import {
   REWRITE_REQUEST, recheckRequest, unbalancedRequest, engineNote, presentRequest, STUCK_REASONS, LEARNER_LEVELS, REPLY_STYLES, TUTOR_ACTIONS,
   type LearnerLevel, type ReplyStyle, type TutorAction, type TutorReply,
 } from "./policy.ts";
-import { matchesAnswer, revealsAnswer, statesAnswer } from "./answerGuard.ts";
+import { matchesAnswer, revealsAnswer, statesAnswer, statesCorrection } from "./answerGuard.ts";
+import { arithmeticRequest, checkArithmetic } from "./engine/mathCheck.ts";
+import { parseLesson } from "./lessonFormat.ts";
 import { checkEquation } from "./chemistry.ts";
 import { asksForPicture, renderDiagram, type Diagram } from "./diagram.ts";
 import { DIAGRAM_KINDS, TABLE_KINDS, type DiagramKind, type DiagramSpec } from "./diagramSpec.ts";
 import { templateAlt } from "./visualTemplates.ts";
 import { densityProblems, inferLevelFromText, levelFromProfile, normalizeLevel, wantsSimpleLanguage } from "./language.ts";
-import { ADAPT_NOTE, checkTeachingOrder, classifyEvidence, detectIntent, EVIDENCE_NOTE, isBriefFact, lessonShape, shapeNote, signalsNote, suggestVisual, teachFirstRequest, teachingEvents, type LessonShape } from "./engine/pedagogy.ts";
+import { ADAPT_NOTE, checkTeachingOrder, classifyEvidence, detectIntent, EVIDENCE_NOTE, isBriefFact, lessonShape, shapeNote, signalsNote, suggestVisual, teachFirstRequest, teachingEvents, objectiveFromText, subjectNote, SUPPORT_NOTE, teachingSubject, asksForProblem, referenceExampleNote, USE_REFERENCE_REQUEST, type LessonShape } from "./engine/pedagogy.ts";
+import { numbersIn } from "./engine/bankKit.ts";
 import { classifyDifficulty, planRoute, type RouteCandidate } from "./router.ts";
 import { estimateCostUsd, ProviderError, type ChatMessage, type ModelProvider } from "./providers.ts";
 import type { Entitlement, Repo, Session } from "./repo.ts";
@@ -25,7 +28,7 @@ import { decideResearch, keywordsFrom, scrubPersonal, type ResearchDecision } fr
 import { runResearch, type ResearchDeps, type ResearchResult } from "./research/pipeline.ts";
 import { checkCitations, dropUnsourcedClaims, earlierSourcesNote, failureCount, notCheckedLine, NO_RESEARCH_NOTE, RESEARCH_LIMIT_NOTE, researchNote, toPublicSource, type PublicSource } from "./research/citations.ts";
 import { generateItem, markItem, questionKey, misconceptionText, objective as objectiveInfo, OBJECTIVE_IDS, type Item } from "./engine/bank.ts";
-import { emptyRecord, estimate, evidenceKind, update as updateMastery } from "./engine/mastery.ts";
+import { emptyRecord, estimate, evidenceKind, nextEvidence, stageOf, supportLevel, update as updateMastery } from "./engine/mastery.ts";
 
 export interface TutorInput {
   requestId: string;          // client-generated UUID; makes retries idempotent
@@ -90,8 +93,13 @@ const START_FALLBACK: Record<string, string> = {
   Spanish: "¿Qué idea o fórmula relaciona las magnitudes que tienes, y cómo empezarías?",
   Swahili: "Ni wazo au fomula gani inayounganisha vipimo ulivyopewa, na ungeanzaje?",
 };
-const fallbackFor = (language: string, starting: boolean) =>
-  (starting ? START_FALLBACK : SAFE_FALLBACK)[language] ?? (starting ? START_FALLBACK : SAFE_FALLBACK).English;
+// For a student who has just said they don't know: "carry out the step" would be asking the same thing again.
+const STRUGGLE_FALLBACK: Record<string, string> = {
+  English: "Let's slow down. Which part is unclear: the rule itself, or how to put your own numbers into it? Tell me which, or press \"Show a worked example\" to see a similar problem solved step by step.",
+  French: "Ralentissons. Qu'est-ce qui n'est pas clair : la règle elle-même, ou la façon d'y placer tes valeurs ? Dis-le-moi, ou appuie sur « Montrer un exemple résolu » pour voir un problème semblable résolu pas à pas.",
+};
+const fallbackFor = (language: string, starting: boolean, struggling = false) =>
+  (struggling && STRUGGLE_FALLBACK[language]) || ((starting ? START_FALLBACK : SAFE_FALLBACK)[language] ?? (starting ? START_FALLBACK : SAFE_FALLBACK).English);
 
 // Sent instead of a reply that called an unbalanced equation correct.
 const UNBALANCED_FALLBACK: Record<string, string> = {
@@ -162,6 +170,8 @@ const NOT_YET_FALLBACK: Record<string, string> = {
   Spanish: "Todavía no. Revisa tu último paso: ¿qué magnitud o regla usaste y encaja con este problema?",
   Swahili: "Bado si sahihi. Pitia tena hatua yako ya mwisho: ulitumia kipimo au kanuni gani, na je, inafaa tatizo hili?",
 };
+// Sent when a reply to a wrong attempt stated the corrected result of the step.
+const CORRECTION_REQUEST = `[REWRITE] Your last reply told the student the corrected result of the step they got wrong ("should be ..., not ..."). Rewrite it: say plainly their result isn't right yet, name the rule or the part of the step to look at again, explain that rule in a different way from before, and ask them to redo the step. Do not state the corrected value or expression. Same language, same sections, same JSON format.`;
 const PRESENT_LABEL = { practice: "Practice problem", verify: "Check yourself (no hints this time)", review: "Review" } as const;
 
 function quotaError(reason: string, plan: string, retryAfter?: number): ServiceResponse {
@@ -194,6 +204,9 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const maxChars = await repo.getSettingNumber("max_message_chars", 4000);
   const input = validateInput(rawInput, maxChars);
   if (typeof input === "string") return { status: 400, body: { error: input } };
+  // "Give me a harder problem" typed as a message is the same request as the practice button.
+  const wantsProblem = input.action === "message" && input.sessionId && !input.attachments?.length ? asksForProblem(input.message ?? "") : null;
+  if (wantsProblem) input.action = wantsProblem;
 
   const ent: Entitlement = await repo.resolveEntitlement(userId);
 
@@ -251,6 +264,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const modeChanged = Boolean(input.sessionId && input.mode && input.mode !== (session.mode ?? "learn"));
   const sessionItem = input.sessionId ? await repo.getSessionItem(session.id) : null;
   let objectiveId: string | null = sessionItem?.item.objective ?? session.objective ?? null;
+  // A new conversation that names a bank topic ("Kirchhoff's laws") gets that topic's checked practice from the start.
+  if (!objectiveId && !input.sessionId && input.action === "message") objectiveId = objectiveFromText(input.message ?? "");
   if (input.action === "review") objectiveId = input.objective ?? (await repo.dueReviews(userId, new Date(now()), 1))[0] ?? objectiveId;
 
   // What the server can verify itself: a bank item (deterministic marking), an
@@ -284,6 +299,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     kind: evidenceKind(sessionItem?.kind ?? null), verdict: checked as "correct" | "incorrect", hintsUsed: session.hints_used,
     unexplained, misconception: marking?.misconception ?? null, at: now() }) : null;
 
+  // Where this learner stands on this topic (marked answers only): it sets how much support the reply gives.
+  const topicRecord = newRecord ?? prevRecord ?? (objectiveId ? await repo.getObjectiveRecord(userId, objectiveId).catch(() => null) : null);
   const wrongStreakBefore = Number(prevMeta.wrongStreak ?? 0) + (checked === "incorrect" ? 1 : 0);
   const prerequisiteVisited = prevMeta.prerequisiteVisited === true;
   const guidedSuccessBefore = Number(prevRecord?.guided_correct ?? 0) > 0;
@@ -314,6 +331,16 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     }
     if (presented) await repo.setSessionItem(session.id, userId, presented);
   }
+  // A checked worked example for this topic, when the lesson is going to contain one (decided below, used in the engine note).
+  const pickReference = async (): Promise<Item | null> => {
+    if (!objectiveId || presented) return null;
+    for (let k = 0; k < 6; k++) {
+      const item = generateItem(objectiveId, Math.floor(Math.random() * 2 ** 31));
+      // Not the problem being answered, and not one already shown: once explained it can't serve as an unseen check.
+      if (item && item.answer !== sessionItem?.item.answer && await repo.markServed(userId, item.templateId, questionKey(item.question), "practice")) return item;
+    }
+    return null;
+  };
 
   // What this reply should look like, and the visual that would help most.
   const researching = researchDecision.tier !== "none" && researchLeft;
@@ -330,6 +357,17 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     : asksDiagram && !suggestion ? [...DIAGRAM_KINDS]
     : [...new Set<DiagramKind>([...(suggestion?.kinds ?? ["graph", "flowchart", "bars", "array"]), "flow", "compare"])];
   const adapts = isAttempt && checked === "unknown" && !plan.presentItem;
+  const reference = shape.sections.includes("example") ? await pickReference() : null;
+  // Does the reply's worked example end in the checked result (as an expression, or all of its numbers)?
+  const usesReference = (message: string) => {
+    if (!reference) return true;
+    const lesson = parseLesson(message);
+    const body = lesson.sections.find(x => x.id === "example")?.body ?? message;
+    // Its given values must all be there too: a lone "1 A" could turn up in any example by coincidence.
+    const have = numbersIn(body), present = (w: number) => have.some(h => Math.abs(h - w) <= 0.011 * Math.max(1, Math.abs(w)));
+    const given = numbersIn(reference.question.replace(/\b[A-Za-z]_?\d\b/g, " ")), result = numbersIn(reference.answer);
+    return given.every(present) && (matchesAnswer(body, reference.answer) || (result.length > 0 && result.every(present)));
+  };
   const assessmentBefore = prevMeta.lastEvidence as string | undefined;
 
   const userContent = presented ? presentRequest(presented.item, presented.kind, lang)
@@ -340,10 +378,13 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     mode, modeChanged, verified: checked, verificationNote, unexplained,
     misconception: serverMisconception, objectiveTitle: objectiveId ? objectiveInfo(objectiveId)?.title ?? null : null,
     shape: [shapeNote(shape, { offered: offerDiagram || tablesOnly, tablesOnly }),
+            subjectNote(teachingSubject(topicText, objectiveId ? objectiveInfo(objectiveId)?.subject ?? null : null), shape.format) ?? "",
+            topicRecord && shape.format !== "brief" && shape.format !== "plain" ? SUPPORT_NOTE[supportLevel(topicRecord)] : "",
             intent === "exam" ? "The student is preparing for an exam: finish with the kind of question an exam would ask." : ""].filter(Boolean).join("\n"),
     adapt: adapts ? ADAPT_NOTE : null,
     evidence: EVIDENCE_NOTE[classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: sessionItem?.kind ?? null, guidedSuccessBefore,
       assessment: null })] ?? (assessmentBefore ? EVIDENCE_NOTE[assessmentBefore as keyof typeof EVIDENCE_NOTE] ?? null : null),
+    reference: reference ? referenceExampleNote(reference) : null,
     prerequisite: plan.state === "PREREQ" ? (typeof prevMeta.prerequisiteGap === "string" ? prevMeta.prerequisiteGap
       : (objectiveId ? (objectiveInfo(objectiveId)?.prerequisites ?? []).map(p => objectiveInfo(p)?.title ?? p).join(", ") : "") || null) : null,
   });
@@ -469,6 +510,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const withinBudget = (config: RouteCandidate["config"]) => ({ ...config, timeout_ms: Math.min(config.timeout_ms, remaining()),
     max_output_tokens: offerDiagram || tablesOnly ? Math.max(config.max_output_tokens, VISUAL_MIN_OUTPUT_TOKENS) : config.max_output_tokens });
   let answerMayShow = false;
+  // What the server could confirm about the numbers in the reply (null: nothing to check).
+  let accuracy: { checked: number; unverified: string[]; example: "checked" | "unchecked" | null } | null = null;
   const queue = [...route];
   const rateLimited = new Map<RouteCandidate, number>();   // model -> how long it asked us to wait
   for (let position = 0; position < queue.length; position++) {
@@ -513,7 +556,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
           } catch { /* fall through to the safe message */ }
           const stillLeaks = !rewritten || revealsAnswer(rewritten.message, reply.finalAnswer, studentTexts);
           const finalReply: TutorReply = stillLeaks
-            ? { ...reply, type: "question", hintLevel: null, message: fallbackFor(reply.language, attemptsNow === 0 && session.hints_used === 0 && !newProblem) }
+            ? { ...reply, type: "question", hintLevel: null, message: fallbackFor(reply.language, attemptsNow === 0 && session.hints_used === 0 && !newProblem, struggling) }
             : { ...rewritten!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty };
           served = { candidate, reply: finalReply, inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
         }
@@ -572,6 +615,68 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
               }
             } catch { /* the first reply stands */ }
           }
+        }
+
+        // The cost and time of one more model call on this request.
+        const spend = (res: { inputTokens?: number | null; outputTokens?: number | null; latencyMs: number; cachedInputTokens?: number | null }) => {
+          served!.inputTokens += res.inputTokens ?? 0; served!.outputTokens += res.outputTokens ?? 0; served!.latencyMs += res.latencyMs;
+          served!.cachedTokens += res.cachedInputTokens ?? 0;
+          const c = estimateCostUsd(candidate.config, res as any);
+          served!.cost = served!.cost != null && c != null ? served!.cost + c : served!.cost;
+        };
+        const again = (request: string) => provider.chat(withinBudget(candidate.config), { system, schema, messages: [
+          ...messages, { role: "assistant", content: JSON.stringify(publicReply(served!.reply)) }, { role: "user", content: request }] });
+        const keep = (next: TutorReply) => ({ ...next, finalAnswer: served!.reply.finalAnswer, difficulty: served!.reply.difficulty, diagram: next.diagram ?? served!.reply.diagram });
+
+        // A wrong attempt must not be answered with the corrected result of that step: the student repairs it themselves.
+        const judgedWrongNow = checked === "incorrect" || served.reply.type === "redirect" || served.reply.assessment?.verdict === "incorrect";
+        if (isAttempt && !presented && !answerMayShow && judgedWrongNow && statesCorrection(served.reply.message, input.message ?? "")) {
+          log({ event: "correction_leak", state: plan.state });
+          let fixed: TutorReply | null = null;
+          if (remaining() >= MIN_CALL_MS) try { const res6 = await again(CORRECTION_REQUEST); spend(res6); fixed = parseTutorJson(res6.text); } catch { /* the safe message below */ }
+          const usable = fixed && !statesCorrection(fixed.message, input.message ?? "") && !revealsAnswer(fixed.message, served.reply.finalAnswer, studentTexts);
+          served.reply = usable ? keep(fixed!)
+            : { ...served.reply, type: "redirect", solved: false, progressSummary: null, message: NOT_YET_FALLBACK[served.reply.language] ?? NOT_YET_FALLBACK.English };
+          served.rewrite = true;
+        }
+
+        // The worked example must be the one the server computed. If the model wrote its own, it is asked once to use it.
+        let exampleState: "checked" | "unchecked" | null = reference ? "checked" : null;
+        if (reference && !usesReference(served.reply.message)) {
+          log({ event: "reference_example_ignored", objective: objectiveId });
+          exampleState = "unchecked";
+          if (remaining() >= MIN_CALL_MS) try {
+            const res8 = await again(USE_REFERENCE_REQUEST + "\n" + referenceExampleNote(reference)); spend(res8);
+            const redo = parseTutorJson(res8.text);
+            if (redo && usesReference(redo.message) && (answerMayShow || !revealsAnswer(redo.message, served.reply.finalAnswer, studentTexts))
+                && (!shape.foundation || checkTeachingOrder(redo.message, shape).ok)) { served.reply = keep(redo); exampleState = "checked"; }
+          } catch { /* the model's own example stands, and is not labelled as checked */ }
+        }
+
+        // Recompute the arithmetic the reply shows. Lines that don't hold get one rewrite; what still
+        // doesn't hold is flagged to the student instead of being presented as checked.
+        if (!presented) {
+          let arithmetic = checkArithmetic(served.reply.message);
+          if (arithmetic.problems.length) {
+            log({ event: "arithmetic_mismatch", lines: arithmetic.problems.length, checked: arithmetic.checked, state: plan.state });
+            if (remaining() >= MIN_CALL_MS) try {
+              const res7 = await again(arithmeticRequest(arithmetic.problems)); spend(res7);
+              const redone = parseTutorJson(res7.text);
+              const recheck = redone ? checkArithmetic(redone.message) : null;
+              // A rewrite that simply drops the worked example has not corrected it: every section must still be there.
+              const sectionsOf = (m: string) => parseLesson(m).sections.map(x => x.id);
+              const kept = redone ? sectionsOf(served.reply.message).every(id => sectionsOf(redone.message).includes(id)) : false;
+              if (redone && recheck && kept && recheck.problems.length < arithmetic.problems.length
+                  && (exampleState !== "checked" || usesReference(redone.message))
+                  && (answerMayShow || !revealsAnswer(redone.message, served.reply.finalAnswer, studentTexts))
+                  && (!shape.foundation || checkTeachingOrder(redone.message, shape).ok)
+                  && !(isAttempt && judgedWrongNow && statesCorrection(redone.message, input.message ?? ""))) {
+                served.reply = keep(redone); arithmetic = recheck;
+              }
+            } catch { /* the reply stands, flagged below */ }
+          }
+          accuracy = arithmetic.checked || exampleState ? { checked: arithmetic.checked, unverified: arithmetic.problems.slice(0, 3).map(q => q.statement), example: exampleState } : null;
+          if (arithmetic.problems.length) log({ event: "arithmetic_unverified", lines: arithmetic.problems.length });
         }
       } catch (err) {
         lastError = err instanceof ProviderError ? err : new ProviderError("unavailable", provider.name);
@@ -670,6 +775,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const misconceptionCount = storedMisconception ? (storedMisconception === prevMis ? Number(prevMeta.misconceptionCount ?? 1) + 1 : 1) : 0;
   const assessedObjective = reply.assessment && reply.assessment.objective !== "other" && reply.assessment.confidence >= 0.6 ? reply.assessment.objective : null;
   const sessionObjective = presented?.item.objective ?? objectiveId ?? assessedObjective;
+  const stageRecord = newRecord ?? topicRecord ?? (sessionObjective && sessionObjective !== objectiveId ? await repo.getObjectiveRecord(userId, sessionObjective).catch(() => null) : null);
 
   // A visual is shown only if it can be drawn correctly, doesn't give the answer away, and the allowance
   // still has room (checked and recorded together). One that isn't shown costs the learner nothing.
@@ -725,6 +831,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       ...(verifiedSolve ? { solved: true } : {}),
       ...(progressSummaryOk(reply, verifiedSolve) ? { summary: reply.progressSummary } : {}),
       ...(visualView ? { diagram: visualView } : {}),
+      ...(accuracy?.unverified.length ? { unverified: accuracy.unverified } : {}),
+      ...(accuracy?.example === "checked" ? { exampleChecked: true } : {}),
       format: shape.format,
       ...(wrongStreak ? { wrongStreak } : {}), ...(plainness ? { plainness } : {}),
       ...(prerequisiteVisited || plan.state === "PREREQ" ? { prerequisiteVisited: true } : {}),
@@ -791,6 +899,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       sessionId: session.id,
       hintsUsed,
       diagram: visualView,
+      // Numbers in the reply the server recomputed; "unverified" lists lines that did not hold even after a rewrite.
+      accuracy,
       // The learner asked for a picture and none came: why, so the app can say so plainly.
       pictureNote: !asksDiagram || diagram ? null : canDraw ? { reason: "failed" }
         : { reason: "limit", limit: allowance.limit, upgrade_to: NEXT_PLAN[ent.plan_id] ?? null },
@@ -800,6 +910,9 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         mode, state: plan.state, hintLevel: plan.hintLevel, format: shape.format,
         verified: checked === "unknown" ? null : checked,
         objective: sessionObjective ? { id: sessionObjective, title: objectiveInfo(sessionObjective)?.title ?? sessionObjective } : null,
+        // Which of the five stages this learner has evidence for on this topic, and the support level it gives.
+        topic: sessionObjective && objectiveInfo(sessionObjective) ? { stage: stageOf(stageRecord), next: nextEvidence(stageRecord), support: supportLevel(stageRecord),
+          practice: Boolean(generateItem(sessionObjective, 1)), prerequisites: objectiveInfo(sessionObjective)!.prerequisites } : null,
         item: presented ? { kind: presented.kind } : sessionItem && !itemSolved ? { kind: sessionItem.kind } : null,
         mastery: newRecord ? { status: newRecord.status, estimate: Math.round(estimate(newRecord).mean * 100) / 100,
                                independent: newRecord.independent_correct, nextReview: newRecord.next_review_at } : null,

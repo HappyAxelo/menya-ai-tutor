@@ -115,7 +115,9 @@ export function backendTutorClient() {
     sessionId = r.data.sessionId;
     return { ok: true, reply: r.data.reply, quota: r.data.quota, advanced: r.data.advancedReasoning,
              hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null, engine: r.data.engine ?? null,
-             diagram: r.data.diagram ?? null, pictureNote: r.data.pictureNote ?? null, research: r.data.research ?? null };
+             diagram: r.data.diagram ?? null, pictureNote: r.data.pictureNote ?? null, research: r.data.research ?? null,
+             unverified: r.data.accuracy?.unverified?.length ? r.data.accuracy.unverified : null,
+             exampleChecked: r.data.accuracy?.example === "checked" };
   };
   return {
     // action: message | hint | simpler | diagram | example | check | practice | summary | verify | review | stuck

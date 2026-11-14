@@ -12,7 +12,7 @@ import type { ModelProvider } from "./providers.ts";
 import { toRecord, type Repo } from "./repo.ts";
 import { buildXlsx, type Cell } from "./xlsx.ts";
 import { MediaError, readImage, transcribe, type MediaOptions } from "./media.ts";
-import { buildMockExam, buildReviewSet, knowledgeMap, markMockExam, studyPlan, todaySummary, type ExamItem, type LearningState } from "./learning.ts";
+import { buildDiagnostic, buildMockExam, buildReviewSet, diagnosticAdvice, examReadiness, knowledgeMap, markMockExam, notebook, studyPlan, todaySummary, type ExamItem, type LearningState } from "./learning.ts";
 import { objective as objectiveInfo, questionKey } from "./engine/bank.ts";
 import { emptyRecord, update as updateMastery } from "./engine/mastery.ts";
 
@@ -577,8 +577,29 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
     switch (`${method} ${path}`) {
       case "GET /learn/state": {
         const state = await loadLearningState(ctx, user.id);
-        return json(200, { profile: state.profile, exams: state.exams, map: knowledgeMap(state.objectives, now),
-          today: todaySummary(state, now), plan: studyPlan(state, now, 7) });
+        // Each exam carries a readiness statement per topic: what the evidence shows, never a predicted mark.
+        return json(200, { profile: state.profile, exams: state.exams.map(e => ({ ...e, readiness: examReadiness(e.objectives, state.objectives, now) })),
+          map: knowledgeMap(state.objectives, now), today: todaySummary(state, now), plan: studyPlan(state, now, 7) });
+      }
+      // The revision notebook: formula cards, stage reached, mistakes seen and review dates for every topic met.
+      case "GET /learn/notebook": {
+        const state = await loadLearningState(ctx, user.id);
+        return json(200, { entries: notebook(state, now) });
+      }
+      // Before a topic is taught: unseen questions on what it depends on, then the topic itself. Untimed.
+      case "POST /learn/diagnostic": {
+        const b = await readJson(req);
+        if (typeof b?.objective !== "string" || !objectiveInfo(b.objective)) return json(400, { error: "invalid_objective" });
+        const served = new Set(await ctx.db.rpc<number[]>("served_keys", { p_user: user.id }));
+        const items = buildDiagnostic(b.objective, Math.random, item => !served.has(questionKey(item.question)));
+        if (!items.length) return json(400, { error: "choose_topics" });
+        for (const it of items) await ctx.repo.markServed(user.id, it.templateId, questionKey(it.question), "verify");
+        const title = `Diagnostic: ${objectiveInfo(b.objective)!.title}`;
+        // The target topic is the last one listed, so the result can say where to start.
+        const id = await ctx.db.rpc<string>("create_mock_exam", { p_user: user.id, p_title: title, p_objectives: [...new Set(items.map(i => i.objective).filter(o => o !== b.objective)), b.objective],
+          p_items: items, p_limit: 14400, p_mode: "diagnostic" });
+        return json(200, { id, title, mode: "diagnostic", target: b.objective, timeLimitSeconds: null, source: "generated_practice",
+          questions: items.map(it => ({ n: it.n, objective: it.objective, question: it.question })) });
       }
       case "POST /learn/profile": {
         const b = await readJson(req);
@@ -692,9 +713,14 @@ async function learningRoutes(path: string, req: Request, ctx: ApiContext, user:
         const marked = markMockExam(items, (b.answers ?? {}) as Record<string, string>,
           (b.seconds && typeof b.seconds === "object" ? b.seconds : {}) as Record<string, number>);
         const elapsed = Math.round((now - Date.parse(exam.started_at)) / 1000);
-        const review = exam.mode === "review";
-        const results = { ...marked, mode: exam.mode ?? "exam", elapsedSeconds: elapsed, timeLimitSeconds: review ? null : exam.time_limit_s,
-                          late: !review && elapsed > exam.time_limit_s + 120, source: "generated_practice" };
+        const review = exam.mode === "review", diagnostic = exam.mode === "diagnostic", untimed = review || diagnostic;
+        // The last practice exam with the same title, for "compared with last time". Looked up before this one is saved.
+        const earlier = untimed ? null : ((await ctx.db.rpc<any[]>("list_mock_exams", { p_user: user.id })) ?? [])
+          .find(e => e.id !== b.id && e.submitted_at && e.title === exam.title && e.score);
+        const results = { ...marked, mode: exam.mode ?? "exam", elapsedSeconds: elapsed, timeLimitSeconds: untimed ? null : exam.time_limit_s,
+                          late: !untimed && elapsed > exam.time_limit_s + 120, source: "generated_practice",
+                          previous: earlier ? { correct: earlier.score.correct, total: earlier.score.total, awarded: earlier.score.awarded ?? null, marks: earlier.score.marks ?? null, at: earlier.submitted_at } : null,
+                          advice: diagnostic ? diagnosticAdvice((exam.objectives as string[]).at(-1)!, marked.results) : null };
         // Only the first submission counts (checked in the database, so two tabs can't both count).
         if (!(await ctx.db.rpc<boolean>("submit_mock_exam", { p_user: user.id, p_id: b.id, p_results: results }))) {
           return json(409, { error: "already_submitted" });

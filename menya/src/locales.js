@@ -2,6 +2,7 @@
 // missing in another language falls back to English. {name}-style placeholders
 // are filled in by t(). Kinyarwanda, French and Kiswahili need review by native
 // speakers before wide release (see docs/CHANGELOG.md).
+import { EN5, FR5, STALE } from "./locales5.js";
 
 const en = {
   "menu.research": "Research",
@@ -2794,5 +2795,11 @@ const sw = {
   "settings.level.university_intro": "Chuo kikuu, miaka ya mwanzo",
   "settings.level.university_advanced": "Chuo kikuu, ngazi ya juu",
 };
+
+// Menya 5 text lives in its own file; see the note there about which languages it covers.
+Object.assign(en, EN5);
+Object.assign(fr, FR5);
+for (const k of STALE.rw) delete rw[k];
+for (const k of STALE.sw) delete sw[k];
 
 export const LOCALES = { en, rw, fr, sw };

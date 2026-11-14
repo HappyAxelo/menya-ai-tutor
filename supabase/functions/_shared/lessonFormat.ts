@@ -7,7 +7,8 @@ export type SectionId = typeof SECTION_IDS[number];
 export interface LessonSection { id: SectionId; body: string }
 export interface ParsedLesson { intro: string; sections: LessonSection[] }
 
-const MARKER = /^[\s>*_#]*@@\s*([a-z]+)\b[\s:*_]*(.*)$/i;
+// A marker may be followed by a colon or a dash before the text ("@@idea — Think of..."): neither is part of the lesson.
+const MARKER = /^[\s>*_#]*@@\s*([a-z]+)\b[\s:*_]*(?:[—–-]\s+)?(.*)$/i;
 
 export function parseLesson(message: string): ParsedLesson {
   const sections: LessonSection[] = [];
@@ -41,7 +42,25 @@ export function stripLessonMarkers(message: string): string {
 export const isLesson = (message: string) => parseLesson(message).sections.length > 0;
 
 // "1. First step" items, for showing a worked example one step at a time.
-export function splitSteps(body: string): { lead: string; steps: string[]; tail: string } | null {
+// "1. Let g(t) = ... 2. Apply the rule ... 3. So ..." or "a • b • c" written on one line: put each step on its own line.
+export function unfoldSteps(body: string): string {
+  if (/^\s*\d+[.)]\s+/m.test(body.split(/\r?\n/).slice(1).join("\n"))) return body;       // already one step per line
+  const bullets = body.split(/\s+•\s+/);
+  if (bullets.length >= 3 && !/\n\s*[-•*]\s/.test(body)) {
+    const [lead, ...rest] = bullets;
+    return [lead.replace(/^•\s*/, "").trim(), ...rest.map((b, i) => (i + 1) + ". " + b.trim())].filter(Boolean).join("\n");
+  }
+  let expect = 1;
+  const out = body.replace(/(^|[.;:!?)]\s+|\s{2,})(\d+)[.)]\s+(?=\S)/g, (whole, before, n) => {
+    if (Number(n) !== expect) return whole;
+    expect += 1;
+    return (before.trim() ? before.trimEnd() + "\n" : "") + n + ". ";
+  });
+  return expect > 2 ? out : body;
+}
+
+export function splitSteps(rawBody: string): { lead: string; steps: string[]; tail: string } | null {
+  const body = unfoldSteps(rawBody);
   const lines = body.split(/\r?\n/);
   const starts = lines.flatMap((l, i) => /^\s*\d+[.)]\s+/.test(l) ? [i] : []);
   if (starts.length < 2) return null;

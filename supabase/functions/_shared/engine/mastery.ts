@@ -82,3 +82,46 @@ export function update(prev: ObjectiveRecord, e: Evidence): ObjectiveRecord {
 export function evidenceKind(itemKind: "practice" | "verify" | "review" | null): Evidence["kind"] {
   return itemKind ?? "guided";
 }
+
+// ---------- The five stages of learning ----------
+// Each stage needs its own kind of evidence, so following an explanation can never look like mastery:
+//   exposure       the topic has been met (taught or attempted), nothing verified right yet
+//   understanding  solved with guidance, reasoning shown
+//   application    solved an unseen problem alone
+//   retention      solved an unseen problem alone again after at least two days
+//   mastery        the full rule in isMastered (estimate, lower bound, independent and delayed successes)
+export type Stage = "not_started" | "exposure" | "understanding" | "application" | "retention" | "mastery";
+export const STAGES: Stage[] = ["not_started", "exposure", "understanding", "application", "retention", "mastery"];
+
+export function stageOf(r: ObjectiveRecord | null | undefined): Stage {
+  if (!r || (!r.last_seen_at && r.independent_correct + r.guided_correct + r.incorrect === 0)) return "not_started";
+  if (isMastered(r)) return "mastery";
+  if (r.delayed_correct >= 1) return "retention";
+  if (r.independent_correct >= 1) return "application";
+  if (r.guided_correct >= 1) return "understanding";
+  return "exposure";
+}
+
+// What the next piece of evidence has to be, in words the app can translate.
+export function nextEvidence(r: ObjectiveRecord | null | undefined): "learn" | "solve_guided" | "solve_alone" | "solve_after_break" | "stay_consistent" | "keep_reviewing" {
+  switch (stageOf(r)) {
+    case "not_started": return "learn";
+    case "exposure": return "solve_guided";
+    case "understanding": return "solve_alone";
+    case "application": return "solve_after_break";
+    case "retention": return "stay_consistent";
+    default: return "keep_reviewing";
+  }
+}
+
+// Instructional support for ONE topic (never for the learner as a whole):
+//   1 strong guidance · 2 guided independence · 3 independent mastery
+// It moves both ways: recent failures bring a topic back to more support.
+export function supportLevel(r: ObjectiveRecord | null | undefined): 1 | 2 | 3 {
+  const stage = stageOf(r);
+  if (!r || stage === "not_started" || stage === "exposure") return 1;
+  const { mean } = estimate(r);
+  if (mean < 0.5 || r.review_streak === 0 && r.incorrect > r.independent_correct + r.guided_correct) return 1;
+  if ((stage === "retention" || stage === "mastery") && mean >= 0.7) return 3;
+  return 2;
+}

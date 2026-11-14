@@ -303,7 +303,9 @@ describe("tutor pipeline", () => {
   test("the guard remembers the answer when the model stops reporting it", async () => {
     const u = await createUser(db);
     let call = 0;
-    const groq = fakeProvider("groq", () => {
+    const groq = fakeProvider("groq", (_config, req) => {
+      // The request to use the server's worked example is not part of what this test counts.
+      if (String(req.messages.at(-1)!.content).startsWith("[USE THE CHECKED EXAMPLE]")) return reply({ message: "Which rule applies to a product?", finalAnswer: "2x·sin(x) + x²·cos(x)" });
       call++;
       if (call === 1) return reply({ message: "Which rule applies to a product?", finalAnswer: "2x·sin(x) + x²·cos(x)" });
       if (call === 2) return reply({ type: "hint", message: "The derivative is (2x)·sin(x) + x²·cos(x).", finalAnswer: "" });

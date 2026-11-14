@@ -65,6 +65,7 @@ export function historyToMessages(rows) {
       conceptsDetected: Array.isArray(r.meta?.concepts) ? r.meta.concepts : [],
       misconceptionDetected: r.meta?.misconception ?? null, progressSummary: r.meta?.summary ?? null,
       solved: r.meta?.solved === true, diagram: r.meta?.diagram ?? null, research: r.meta?.research ?? null,
+      unverified: Array.isArray(r.meta?.unverified) ? r.meta.unverified : null, exampleChecked: r.meta?.exampleChecked === true,
     };
   });
 }

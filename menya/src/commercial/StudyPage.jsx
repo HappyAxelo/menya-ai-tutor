@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/backend.js";
-import { useT } from "../i18n.js";
+import { useT, topicName } from "../i18n.js";
+import { flatTopics, STAGE_CLASS } from "../lib/learning.js";
 import { Page, Card, Button, Notice, Loading, Field, inputStyle } from "./ui.jsx";
 
 // "My study": what to do today, the week's plan, the knowledge map, exams and the
@@ -9,7 +10,7 @@ import { Page, Card, Button, Notice, Loading, Field, inputStyle } from "./ui.jsx
 const LEVEL_CLASS = { strong: "ok", developing: "info", started: "hint", needs_work: "warn", not_assessed: "" };
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-export default function StudyPage({ onBack, onStart, onExam, onReview }) {
+export default function StudyPage({ onBack, onStart, onExam, onReview, onDiagnose }) {
   const { t, lang } = useT();
   const [state, setState] = useState(null);
   const [error, setError] = useState(false);
@@ -22,7 +23,9 @@ export default function StudyPage({ onBack, onStart, onExam, onReview }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const objName = id => t(`obj.${id}`);
+  // Topic names come translated when there is a translation, otherwise as the server titles them.
+  const titles = Object.fromEntries(flatTopics(state?.map).map(x => [x.objective, x.title]));
+  const objName = id => topicName(t, id, titles[id]);
   const fmtDate = d => new Date(`${d}T12:00:00Z`).toLocaleDateString([lang], { weekday: "short", day: "numeric", month: "short" });
 
   // Each plan item starts real work: an unseen verified problem, a lesson, or a mock exam.
@@ -95,7 +98,7 @@ export default function StudyPage({ onBack, onStart, onExam, onReview }) {
       </Card>
 
       <Card title={t("study.map")}>
-        <p className="mn-fine left">{t("study.mapNote")}</p>
+        <p className="mn-fine left">{t("study.mapNote")} {t("stage.note")}</p>
         {map.map(s => (
           <div key={s.subject} className="mn-map-subject">
             <div className="mn-section-label">{t(`bank.subject.${s.subject}`)}</div>
@@ -103,11 +106,14 @@ export default function StudyPage({ onBack, onStart, onExam, onReview }) {
               {s.topics.map(x => (
                 <li key={x.objective}>
                   <span className="name">{objName(x.objective)}</span>
-                  <span className={`mn-status ${LEVEL_CLASS[x.level]}`}>{t(`study.level.${x.level}`)}</span>
+                  <span className={`mn-status ${STAGE_CLASS[x.stage] ?? LEVEL_CLASS[x.level]}`} title={t(`study.level.${x.level}`)}>{t(`stage.${x.stage}`)}</span>
                   <span className="acts">
+                    {x.stage === "not_started" && <button className="mn-link" onClick={() => onDiagnose(x.objective)}>{t("study.diagnose")}</button>}
+                    {x.stage === "not_started" && <button className="mn-link" onClick={() => onStart({ text: t("study.teachMe", { topic: objName(x.objective) }) })}>{t("study.learn")}</button>}
                     <button className="mn-link" onClick={() => onStart({ objective: x.objective })}>{t("study.testMe")}</button>
                     {x.level !== "not_assessed" && <button className="mn-link" onClick={() => reset(x.objective)}>{t("study.reset")}</button>}
                   </span>
+                  {x.stage !== "not_started" && <div className="mn-fine left">{t(`evidence.${x.next}`)}</div>}
                   {x.misconceptions.length > 0 && <div className="mn-fine left">{t("study.watch")}: {x.misconceptions.map(m => m.replace(/_/g, " ")).join(", ")}</div>}
                 </li>
               ))}
@@ -127,21 +133,18 @@ export default function StudyPage({ onBack, onStart, onExam, onReview }) {
         </Card>
       )}
 
-      <ExamsCard exams={exams} map={map} onChanged={load} onExam={onExam} fmtDate={fmtDate} />
+      <ExamsCard exams={exams} map={map} onChanged={load} onExam={onExam} onStart={onStart} fmtDate={fmtDate} objName={objName} />
       <ProfileCard profile={profile} onSaved={load} />
     </Page>
   );
 }
 
-function ExamsCard({ exams, map, onChanged, onExam, fmtDate }) {
+function ExamsCard({ exams, map, onChanged, onExam, onStart, fmtDate, objName }) {
   const { t } = useT();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [topics, setTopics] = useState([]);
   const [msg, setMsg] = useState(null);
-  const allTopics = ["math.linear_equations", "calc.basic_derivatives", "calc.product_rule", "calc.chain_rule", "ee.ohms_law",
-    "ee.series_circuits", "ee.voltage_divider", "logic.binary_to_decimal", "logic.decimal_to_binary", "logic.boolean_algebra",
-    "prog.loop_tracing", "prog.complexity"];
 
   const add = async (e) => {
     e.preventDefault();
@@ -157,8 +160,9 @@ function ExamsCard({ exams, map, onChanged, onExam, fmtDate }) {
         <ul className="mn-plan-list compact">
           {exams.map(e => (
             <li key={e.id}>
-              <div><b>{e.title}</b> · {fmtDate(e.exam_date)}{e.objectives.length > 0 && <div className="mn-fine left">{e.objectives.map(o => t(`obj.${o}`)).join(", ")}</div>}
-                {e.objectives.length > 0 && <Coverage objectives={e.objectives} map={map} />}</div>
+              <div><b>{e.title}</b> · {fmtDate(e.exam_date)}
+                {e.objectives.length > 0 && <Coverage objectives={e.objectives} map={map} />}
+                {e.readiness?.topics.length > 0 && <Readiness readiness={e.readiness} objName={objName} onStart={onStart} />}</div>
               <span className="acts">
                 {e.objectives.length > 0 && <Button variant="ghost" onClick={() => onExam(e.id)}>{t("study.mock")}</Button>}
                 <button className="mn-link" onClick={() => remove(e.id)}>{t("study.delete")}</button>
@@ -170,17 +174,54 @@ function ExamsCard({ exams, map, onChanged, onExam, fmtDate }) {
       <form onSubmit={add} className="mn-form">
         <Field label={t("study.examTitle")}><input style={inputStyle} value={title} maxLength={120} required onChange={e => setTitle(e.target.value)} placeholder={t("study.examTitlePh")} /></Field>
         <Field label={t("study.examDate")}><input style={inputStyle} type="date" value={date} required onChange={e => setDate(e.target.value)} /></Field>
-        <fieldset className="mn-checks">
-          <legend>{t("study.examTopics")}</legend>
-          {allTopics.map(id => (
-            <label key={id}><input type="checkbox" checked={topics.includes(id)}
-              onChange={e => setTopics(e.target.checked ? [...topics, id] : topics.filter(x => x !== id))} /> {t(`obj.${id}`)}</label>
-          ))}
-        </fieldset>
+        <TopicPicker map={map} chosen={topics} onChange={setTopics} legend={t("study.examTopics")} objName={objName} />
         {msg && <Notice kind="error">{msg}</Notice>}
         <Button type="submit">{t("study.examAdd")}</Button>
       </form>
     </Card>
+  );
+}
+
+// Every topic the bank can check, grouped by subject. The list comes from the server, so a new topic appears by itself.
+export function TopicPicker({ map, chosen, onChange, legend, objName }) {
+  const { t } = useT();
+  return (
+    <fieldset className="mn-checks grouped">
+      <legend>{legend}</legend>
+      {map.map(s => (
+        <div key={s.subject} className="mn-check-group">
+          <div className="mn-section-label">{t(`bank.subject.${s.subject}`)}</div>
+          {s.topics.map(x => (
+            <label key={x.objective}><input type="checkbox" checked={chosen.includes(x.objective)}
+              onChange={e => onChange(e.target.checked ? [...chosen, x.objective] : chosen.filter(id => id !== x.objective))} /> {objName(x.objective)}</label>
+          ))}
+        </div>
+      ))}
+    </fieldset>
+  );
+}
+
+// What the learner's marked answers show for each topic of an exam. Words, not a percentage, and never a predicted mark.
+function Readiness({ readiness, objName, onStart }) {
+  const { t } = useT();
+  const CLASS = { secure: "ok", forgetting: "hint", not_yet_retained: "info", guided_only: "hint", weak: "warn", not_tested: "" };
+  return (
+    <details className="mn-readiness">
+      <summary>{t("ready.title")}</summary>
+      <ul>
+        {readiness.topics.map(x => (
+          <li key={x.objective}>
+            <b>{objName(x.objective)}</b>: <span className={`mn-status ${CLASS[x.state]}`}>{t(`ready.state.${x.state}`)}</span>
+            {x.misconceptions.length > 0 && <div className="mn-fine left">{t("ready.mistake")}: {x.misconceptions.join("; ")}</div>}
+          </li>
+        ))}
+      </ul>
+      {readiness.priorities.length > 0 && (
+        <p className="mn-panel-text small"><b>{t("ready.first")}:</b>{" "}
+          {readiness.priorities.map((id, i) => <span key={id}>{i > 0 && ", "}<button className="mn-link" onClick={() => onStart({ objective: id })}>{objName(id)}</button></span>)}</p>
+      )}
+      <p className="mn-fine left">{t("ready.note")}</p>
+    </details>
   );
 }
 

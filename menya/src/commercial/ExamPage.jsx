@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/backend.js";
-import { useT } from "../i18n.js";
+import { useT, topicName } from "../i18n.js";
+import { TopicPicker } from "./StudyPage.jsx";
 import { Page, Card, Button, Notice, Loading } from "./ui.jsx";
 import Markdown from "../Markdown.jsx";
 
 // Timed practice exams from the verified question bank. The browser never receives the
 // answer keys: questions come from POST /exam/start and are marked by POST /exam/submit.
-const TOPICS = ["math.linear_equations", "calc.basic_derivatives", "calc.product_rule", "calc.chain_rule", "ee.ohms_law",
-  "ee.series_circuits", "ee.voltage_divider", "logic.binary_to_decimal", "logic.decimal_to_binary", "logic.boolean_algebra",
-  "prog.loop_tracing", "prog.complexity"];
 const VERDICT_CLASS = { correct: "ok", incorrect: "warn", unanswered: "hint" };
 const clock = s => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
 
-export default function ExamPage({ onBack, examId = null, count = 10, review = false, onStart }) {
+export default function ExamPage({ onBack, examId = null, count = 10, review = false, diagnostic = null, onStart }) {
   const { t } = useT();
   const [exam, setExam] = useState(null);         // { id, title, timeLimitSeconds, questions }
   const [results, setResults] = useState(null);
@@ -21,22 +19,22 @@ export default function ExamPage({ onBack, examId = null, count = 10, review = f
 
   const begin = async (body) => {
     setBusy(true); setError(null);
-    const r = await api(review ? "/review/start" : "/exam/start", { method: "POST", body });
+    const r = await api(diagnostic ? "/learn/diagnostic" : review ? "/review/start" : "/exam/start", { method: "POST", body });
     setBusy(false);
     if (r.ok) { setExam(r.data); setResults(null); }
     else setError(t(r.data?.error === "choose_topics" ? "exam.chooseTopics" : r.data?.error === "exam_daily_limit" ? "exam.dailyLimit"
       : r.data?.error === "nothing_to_review" ? "exam.nothingToReview" : "exam.error"));
   };
   // Opened from an exam in the plan: start straight away.
-  useEffect(() => { if (review) begin({}); else if (examId != null) begin({ examId, count }); }, [examId, review]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (diagnostic) begin({ objective: diagnostic }); else if (review) begin({}); else if (examId != null) begin({ examId, count }); }, [examId, review, diagnostic]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const title = review ? t("exam.reviewTitle") : exam?.title ?? t("exam.title");
+  const title = diagnostic ? `${t("diag.title")}: ${topicName(t, diagnostic)}` : review ? t("exam.reviewTitle") : exam?.title ?? t("exam.title");
   return (
-    <Page title={results ? t("exam.results") : title} subtitle={!exam && !results ? t("exam.sub") : null} onBack={onBack}>
+    <Page title={results ? t("exam.results") : title} subtitle={diagnostic && !results ? t("diag.sub") : !exam && !results ? t("exam.sub") : null} onBack={onBack}>
       {error && <Notice kind="error">{error}</Notice>}
       {results ? <Results results={results} onStart={onStart} onAgain={() => { setExam(null); setResults(null); }} />
         : exam ? <Runner exam={exam} onDone={setResults} />
-        : busy ? <Loading /> : review ? null : <Setup onBegin={begin} />}
+        : busy ? <Loading /> : review || diagnostic ? null : <Setup onBegin={begin} />}
     </Page>
   );
 }
@@ -47,10 +45,12 @@ function Setup({ onBegin }) {
   const [count, setCount] = useState(8);
   const [history, setHistory] = useState(null);
   const [exams, setExams] = useState([]);
+  const [map, setMap] = useState(null);       // the topics the bank can check, from the server
   useEffect(() => {
     api("/exam/history").then(r => setHistory(r.ok ? r.data.exams : []));
-    api("/learn/state").then(r => setExams(r.ok ? r.data.exams.filter(e => e.objectives.length) : []));
+    api("/learn/state").then(r => { setExams(r.ok ? r.data.exams.filter(e => e.objectives.length) : []); setMap(r.ok ? r.data.map : []); });
   }, []);
+  const titles = Object.fromEntries((map ?? []).flatMap(s => s.topics).map(x => [x.objective, x.title]));
   return (
     <>
       {exams.length > 0 && (
@@ -59,13 +59,8 @@ function Setup({ onBegin }) {
         </Card>
       )}
       <Card title={t("exam.pickTopics")}>
-        <fieldset className="mn-checks">
-          <legend className="mn-fine left">{t("exam.pickNote")}</legend>
-          {TOPICS.map(id => (
-            <label key={id}><input type="checkbox" checked={topics.includes(id)}
-              onChange={e => setTopics(e.target.checked ? [...topics, id] : topics.filter(x => x !== id))} /> {t(`obj.${id}`)}</label>
-          ))}
-        </fieldset>
+        {map ? <TopicPicker map={map} chosen={topics} onChange={setTopics} legend={t("exam.pickNote")} objName={id => topicName(t, id, titles[id])} />
+          : <p className="mn-fine left">{t("exam.loadTopics")}</p>}
         <div className="mn-row wrap">
           <label className="mn-fine left">{t("exam.count")}{" "}
             <select value={count} onChange={e => setCount(Number(e.target.value))}>{[5, 8, 12, 20].map(n => <option key={n} value={n}>{n}</option>)}</select>
@@ -122,7 +117,7 @@ function Runner({ exam, onDone }) {
         <span>{t("exam.questionOf", { n: i + 1, total: exam.questions.length })}</span>
         {timed && <span className={left < 60 ? "mn-status warn" : "mn-status"} aria-live="off">{left > 0 ? clock(left) : t("exam.timeUp")}</span>}
       </div>
-      <div className="mn-fine left">{t(`obj.${q.objective}`)}{q.retry && <> · <span className="mn-status hint">{t("exam.retry")}</span></>}</div>
+      <div className="mn-fine left">{topicName(t, q.objective)}{q.retry && <> · <span className="mn-status hint">{t("exam.retry")}</span></>}</div>
       <div className="mn-exam-q"><Markdown>{q.question}</Markdown></div>
       <label className="mn-fine left" htmlFor="mn-exam-answer">{t("exam.yourAnswer")}</label>
       <textarea id="mn-exam-answer" className="mn-exam-answer" value={answers[q.n] ?? ""} maxLength={2000}
@@ -147,24 +142,36 @@ function Runner({ exam, onDone }) {
 
 function Results({ results, onStart, onAgain }) {
   const { t } = useT();
-  const { score, results: items, byObjective } = results;
+  const { score, results: items, byObjective, previous, advice } = results;
   const avg = items.filter(r => r.seconds != null);
+  const hasMarks = score.marks != null;
+  const anyMethod = items.some(r => r.method && r.verdict !== "correct");
   return (
     <>
       <Card>
         <div className="mn-stat-row">
           <div className="mn-stat"><div className="v">{score.correct}/{score.total}</div><div className="l">{t("exam.correct")}</div></div>
+          {hasMarks && <div className="mn-stat"><div className="v">{score.awarded}/{score.marks}</div><div className="l">{t("exam.marksLabel")}</div></div>}
           <div className="mn-stat"><div className="v">{score.unanswered}</div><div className="l">{t("exam.unanswered")}</div></div>
           <div className="mn-stat"><div className="v">{clock(results.elapsedSeconds)}</div><div className="l">{t("exam.timeTaken")}</div></div>
         </div>
         {results.late && <Notice kind="info">{t("exam.late")}</Notice>}
+        {previous && <p className="mn-panel-text small">{t("exam.previous", { correct: previous.correct, total: previous.total })}{previous.marks != null && t("exam.previousMarks", { a: previous.awarded, m: previous.marks })}.</p>}
+        {advice && (
+          <Notice kind={advice.startAt ? "info" : "ok"}>
+            {advice.startAt ? t("diag.startAt", { topic: topicName(t, advice.startAt) }) : t("diag.allRight", { topic: topicName(t, advice.target) })}{" "}
+            {advice.startAt
+              ? <Button variant="ghost" onClick={() => onStart({ text: t("study.teachMe", { topic: topicName(t, advice.startAt) }) })}>{t("diag.learn", { topic: topicName(t, advice.startAt) })}</Button>
+              : <Button variant="ghost" onClick={() => onStart({ objective: advice.target })}>{t("diag.practise", { topic: topicName(t, advice.target) })}</Button>}
+          </Notice>
+        )}
         <p className="mn-fine left">{t(results.mode === "review" ? "exam.reviewCountsNote" : "exam.countsNote")}</p>
       </Card>
       <Card title={t("exam.revise")}>
         <ul className="mn-plan-list">
           {byObjective.map(o => (
             <li key={o.objective}>
-              <div><b>{t(`obj.${o.objective}`)}</b>: {o.correct}/{o.total}
+              <div><b>{topicName(t, o.objective)}</b>: {o.correct}/{o.total}{o.marks != null && <span className="mn-fine"> · {t("exam.marksOf", { a: o.awarded, m: o.marks })}</span>}
                 {o.misconceptions.length > 0 && <div className="mn-fine left">{t("exam.likelyCause")}: {o.misconceptions.join("; ")}</div>}</div>
               {o.revise ? <Button variant="ghost" onClick={() => onStart({ objective: o.objective })}>{t("exam.practise")}</Button>
                 : <span className="mn-status ok">{t("exam.allRight")}</span>}
@@ -178,14 +185,17 @@ function Results({ results, onStart, onAgain }) {
             <li key={r.n}>
               <Markdown>{r.question}</Markdown>
               <div><span className={`mn-status ${VERDICT_CLASS[r.verdict]}`}>{t(`exam.v.${r.verdict}`)}</span>
+                {r.marks != null && <span className="mn-fine"> · {t("exam.marksOf", { a: r.awarded, m: r.marks })}</span>}
                 {r.seconds != null && avg.length > 0 && <span className="mn-fine"> · {clock(r.seconds)}</span>}</div>
+              {r.method && r.verdict === "incorrect" && <div className="mn-fine left">{t("exam.method", r.method)}</div>}
               {r.given && <div className="mn-fine left">{t("exam.youWrote")}: {r.given}</div>}
               {r.verdict !== "correct" && <div className="mn-fine left">{t("exam.expected")}: <b>{r.correctAnswer}</b></div>}
               {r.misconception && <div className="mn-fine left">{t("exam.likelyCause")}: {r.misconception}</div>}
             </li>
           ))}
         </ol>
-        <Button onClick={onAgain}>{t("exam.another")}</Button>
+        {anyMethod && <p className="mn-fine left">{t("exam.methodNote")}</p>}
+        {!advice && <Button onClick={onAgain}>{t("exam.another")}</Button>}
       </Card>
     </>
   );

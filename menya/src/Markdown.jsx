@@ -5,6 +5,7 @@ import rehypeKatex from "rehype-katex";
 import { Check, Copy } from "lucide-react";
 import "katex/dist/katex.min.css";
 import { repairLatex } from "./latexRepair.js";
+import { prettyMath } from "./lib/learning.js";
 
 // Code blocks get a copy button that copies the code only.
 function CodeBlock({ node: _node, children, ...props }) {
@@ -33,7 +34,7 @@ const components = {
 function Markdown({ children }) {
   return (
     <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: "ignore" }]]} components={components}>
-      {repairLatex(children)}
+      {repairLatex(prettyMath(children))}
     </ReactMarkdown>
   );
 }

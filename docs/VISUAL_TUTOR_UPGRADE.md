@@ -2,7 +2,7 @@
 
 Written 9 November 2026. This describes what was built on top of the existing Menya, what was tested and how, and what is still not done.
 
-**Status: built and tested in the working copy. Not committed, not deployed, and not yet run against the production model.**
+**Status: deployed on 9 November 2026 (database, website, and server function version 23, from commit `bc44e3f` on branch `claude/visual-first-tutor`). Not yet evaluated against the production model or reviewed by fluent speakers and teachers.**
 
 ## 1. The existing architecture
 

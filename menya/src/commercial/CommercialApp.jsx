@@ -14,6 +14,7 @@ import ProgressPage from "./ProgressPage.jsx";
 import StudyPage from "./StudyPage.jsx";
 import ExamPage from "./ExamPage.jsx";
 import MaterialsPage from "./MaterialsPage.jsx";
+import NotebookPage from "./NotebookPage.jsx";
 import ProfilePage, { Avatar, displayName } from "./ProfilePage.jsx";
 import CoursesPage from "./CoursesPage.jsx";
 import HelpPage from "./HelpPage.jsx";
@@ -203,6 +204,7 @@ export default function CommercialApp() {
     [t("menu.courses"), () => setPage("courses")],
     [t("menu.savedNotes"), () => setPage("notes")],
     [t("menu.study"), () => setPage("study")],
+    [t("menu.notebook"), () => setPage("notebook")],
     [t("menu.exam"), () => { setExamFor(null); setPage("exam"); }],
     [t("menu.subscription"), () => setPage("pricing")],
     [t("menu.usage"), () => setPage("account")],
@@ -310,8 +312,10 @@ export default function CommercialApp() {
           {page === "progress" && <ProgressPage onBack={back} onReview={objective => { setReviewRequest({ objective, key: Date.now() }); back(); }} />}
           {page === "study" && <StudyPage onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }}
             onExam={(id, count) => { setExamFor({ id, count, key: Date.now() }); setPage("exam"); }}
-            onReview={() => { setExamFor({ review: true, key: Date.now() }); setPage("exam"); }} />}
-          {page === "exam" && <ExamPage key={examFor?.key ?? "new"} examId={examFor?.id ?? null} count={examFor?.count ?? 10} review={Boolean(examFor?.review)} onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }} />}
+            onReview={() => { setExamFor({ review: true, key: Date.now() }); setPage("exam"); }}
+            onDiagnose={objective => { setExamFor({ diagnostic: objective, key: Date.now() }); setPage("exam"); }} />}
+          {page === "notebook" && <NotebookPage onBack={back} onStudy={() => setPage("study")} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }} />}
+          {page === "exam" && <ExamPage key={examFor?.key ?? "new"} examId={examFor?.id ?? null} count={examFor?.count ?? 10} review={Boolean(examFor?.review)} diagnostic={examFor?.diagnostic ?? null} onBack={back} onStart={req => { setReviewRequest({ ...req, key: Date.now() }); back(); }} />}
           {page === "notes" && <MaterialsPage onBack={back} onAsk={draft => { setReviewRequest({ draft, key: Date.now() }); back(); }} />}
           {page === "account" && <AccountPage account={account} email={session.user.email} onBack={back} onPricing={() => setPage("pricing")} refresh={refresh} />}
           {page === "profile" && <ProfilePage user={session.user} account={account} onBack={back} onSubscription={() => setPage("account")} onSignOutEverywhere={() => signOut({ everywhere: true })} />}

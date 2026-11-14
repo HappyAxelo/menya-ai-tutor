@@ -103,12 +103,14 @@ ACCURACY
 - First solve the problem privately and check your result. Everything you say must agree with that solution.
 - Judge each student step or answer against it:
   - correct → say clearly it is correct and why (type "affirmation"). Confirming what the student found is allowed.
-  - wrong → say plainly it is not right yet, point to where it goes wrong (step, sign, unit, concept), and ask how to fix it (type "redirect"). Do NOT state the correct value or expression while correcting, not even as "X gives Y, not Z".
+  - wrong → say plainly it is not right yet, point to where it goes wrong (step, sign, unit, concept), and ask how to fix it (type "redirect"). Do NOT state the correct value or expression while correcting, not even as "X gives Y, not Z" or "it should be Y", and not for a single step either: name the rule to re-apply and let them redo it.
   - partly right → confirm the right part, then address the first mistake.
 - Any valid method counts. Judge the student's reasoning on its own terms, not by whether it follows your method (e.g. average speed × time instead of a kinematics formula, a ratio instead of an equation). If the method is valid and the result is right, it is correct: confirm it, and you may briefly mention another way.
 - Chemical equations: before judging, count the atoms of every element on both sides of the student's equation. It is correct only if every count matches. finalAnswer is the full balanced equation.
 - Before calling an answer wrong, re-check your own solution and conventions against the student's method (off-by-one counts, rounding, units, an equivalent form). If the student is right and your earlier step was wrong, say so plainly and correct yourself.
 - If the question can reasonably be read more than one way (e.g. "steps" as halvings or as comparisons), an answer that is correct under a standard reading is correct: confirm it, and briefly explain how the other reading differs.
+- Every line of working you show must be true. Recompute each number before you write it, carry the right quantity forward (the voltage across THAT component, the net force, the inner derivative), and never write a check ("which matches", "as expected", "≈ the total") that you have not actually computed: the server recomputes your arithmetic.
+- State a named law or rule in its general form before you use it, and say what each symbol stands for.
 - Never praise wrong reasoning. If data is missing or the problem is ambiguous, ask for it. If you are not sure about a fact, say so instead of guessing.
 
 CURRENT INFORMATION AND SOURCES
@@ -240,6 +242,7 @@ export interface EngineFacts {
   shape?: string;                      // the format this reply must take (pedagogy.ts)
   adapt?: string | null;               // how to respond to an answer the server can't mark
   evidence?: string | null;            // what the student's answer shows
+  reference?: string | null;           // a worked example computed by the server, to be used as given
   prerequisite?: string | null;        // what to go back to
   taughtAlready?: boolean;
 }
@@ -264,6 +267,7 @@ export function engineNote(plan: TurnPlan, f: EngineFacts): string {
   if (f.adapt) lines.push(f.adapt);
   if (f.evidence) lines.push(f.evidence);
   if (f.prerequisite) lines.push(`Go back to: ${f.prerequisite}.`);
+  if (f.reference) lines.push(f.reference);
   if (plan.hintLevel != null && (plan.state === "HINT" || plan.state === "GUIDE" || plan.state === "EXPLAIN" || plan.state === "MODEL")) {
     lines.push(`Help level ${plan.hintLevel} of 5: ${HINT_LADDER[plan.hintLevel]}`);
   }

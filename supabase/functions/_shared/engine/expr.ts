@@ -120,7 +120,7 @@ export function parseExpression(src: string): Node | null {
 export function evaluate(n: Node, vars: Record<string, number>): number {
   switch (n.k) {
     case "num": return n.v;
-    case "var": return n.name in vars ? vars[n.name] : NaN;
+    case "var": return n.name in vars ? vars[n.name] : n.name === "e" ? Math.E : NaN;   // e^(2x) is exp(2x)
     case "neg": return -evaluate(n.a, vars);
     case "fn": return FUNCS[n.name](evaluate(n.a, vars));
     case "bin": {
@@ -150,7 +150,7 @@ export function rng(seed: number) {
 export function equivalent(a: string, b: string, points = 24): boolean | null {
   const na = parseExpression(a), nb = parseExpression(b);
   if (!na || !nb) return null;
-  const names = [...new Set([...variables(na), ...variables(nb)])];
+  const names = [...new Set([...variables(na), ...variables(nb)])].filter(v => v !== "e");   // e is Euler's number
   const r = rng(12345);
   let compared = 0;
   for (let i = 0; i < points * 3 && compared < points; i++) {
@@ -167,7 +167,9 @@ export function equivalent(a: string, b: string, points = 24): boolean | null {
 export function finalExpression(text: string): string {
   const line = text.trim().split(/\n/).filter(Boolean).pop() ?? "";
   const rhs = line.split(/[=:]/).pop()!; // "My answer: ...", "f'(x) = ..."
-  return rhs.replace(/[.;,]\s*$/, "").replace(/^(so|then|therefore|answer:?)\s+/i, "").trim();
+  // "So the answer is 6x + 5" -> "6x + 5": words leading up to the result are not part of it.
+  return rhs.replace(/[.;,]\s*$/, "").replace(/^.*\b(?:answer is|result is|derivative is|integral is|we get|i get|i got|gives|is)\s+(?=\S)/i, "")
+    .replace(/^(so|then|therefore|answer:?)\s+/i, "").trim();
 }
 
 // ---------------- Boolean algebra (digital logic) ----------------

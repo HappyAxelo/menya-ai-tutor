@@ -797,3 +797,56 @@ button.mn-rs-cat { cursor: pointer; }
 .mn-rs-cite { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; font-size: 13px; }
 .mn-rs-cite p { margin: 4px 0 8px; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .mn-rs-tabs button[role=tab] { padding: 8px 8px; font-size: 13px; } .mn-rs .mn-rs-q { font-size: 19px; } }
+
+/* ---------- Menya 5: stages, notebook, readiness, simulation ---------- */
+.mn-stages ol { list-style: none; display: flex; gap: 4px; margin: 10px 0 4px; padding: 0; }
+.mn-stages li { flex: 1; min-width: 0; font-size: 11.5px; color: var(--faint); text-align: center; }
+.mn-stages li .dot { display: block; height: 6px; border-radius: 3px; background: var(--border-strong); margin-bottom: 5px; }
+.mn-stages li.reached { color: var(--text-2); }
+.mn-stages li.reached .dot { background: var(--accent); }
+.mn-stages li[aria-current="step"] { font-weight: 600; color: var(--text); }
+.mn-stages .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mn-stages .mn-fine { margin-top: 4px; }
+.mn-stages.compact ol { margin-top: 6px; max-width: 420px; }
+.mn-topic-strip { margin-top: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; font-size: 13px; }
+.mn-topic-strip + .mn-mastery-line { display: none; }
+.mn-unverified { margin: 6px 0 0; padding-left: 18px; font-family: var(--font-mono); font-size: 12.5px; }
+.mn-filter-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.mn-note-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.mn-note-head .mn-panel-title { margin-bottom: 2px; }
+.mn-note-head .mn-fine { margin-top: 0; }
+.mn-note-mistakes { margin-top: 12px; }
+.mn-note-mistakes ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+.mn-formula { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.mn-formula .mn-fine { margin-top: 0; }
+.mn-formula-recall { font-size: 15px; margin: 4px 0 10px; }
+.mn-formula-body { margin-top: 12px; }
+.mn-formula-line { font-family: var(--font-mono); font-size: 15px; padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); overflow-x: auto; white-space: pre-wrap; }
+.mn-formula-body dl { margin: 12px 0 0; font-size: 14px; line-height: 1.6; }
+.mn-formula-body dt { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-top: 10px; }
+.mn-formula-body dd { margin: 2px 0 0; }
+.mn-symbols { list-style: none; margin: 0; padding: 0; }
+.mn-symbols b { font-family: var(--font-mono); font-weight: 600; margin-right: 6px; }
+.mn-unit { color: var(--muted); }
+.mn-readiness { margin-top: 6px; font-size: 14px; }
+.mn-readiness summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.mn-readiness ul { list-style: none; margin: 8px 0; padding: 0; line-height: 1.7; }
+.mn-checks.grouped { display: block; }
+.mn-check-group { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.mn-check-group .mn-section-label { flex-basis: 100%; margin: 8px 0 2px; }
+.mn-lab svg { width: 100%; height: auto; display: block; }
+.mn-lab svg text { font-size: 11px; fill: var(--muted); font-family: var(--font); }
+.mn-lab svg .grid { stroke: var(--border); stroke-width: 1; }
+.mn-lab svg .axis { stroke: var(--border-strong); stroke-width: 1.5; }
+.mn-lab svg .path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; }
+.mn-lab svg .mark { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.mn-lab svg .land { fill: var(--accent); }
+.mn-lab-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 10px 0 14px; font-size: 13.5px; }
+.mn-lab-controls label { display: grid; gap: 4px; }
+.mn-lab-controls input[type="range"] { width: 100%; accent-color: var(--primary); }
+.mn-lab .mn-stat .l { font-size: 11.5px; }
+@media (max-width: 560px) {
+  .mn-note-head { flex-direction: column; }
+  .mn-map > li { grid-template-columns: 1fr; }
+  .mn-stages li { font-size: 10.5px; }
+}

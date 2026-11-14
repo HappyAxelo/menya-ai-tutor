@@ -1,6 +1,6 @@
 import { Suspense, lazy, useState } from "react";
 import { Lightbulb, Eye, ListOrdered, PencilLine, MessageSquareText, ClipboardCheck, ChevronRight } from "lucide-react";
-import { parseLesson, splitSteps } from "../../../supabase/functions/_shared/lessonFormat.ts";
+import { parseLesson, splitSteps, unfoldSteps } from "../../../supabase/functions/_shared/lessonFormat.ts";
 import { useT } from "../i18n.js";
 import VisualExplanation from "./VisualExplanation.jsx";
 
@@ -9,11 +9,12 @@ const Text = ({ children }) => <Suspense fallback={<p style={{ whiteSpace: "pre-
 
 const ICONS = { idea: Lightbulb, see: Eye, example: ListOrdered, try: PencilLine, feedback: MessageSquareText, check: ClipboardCheck };
 
-// A worked example, one step at a time, so the student can think before reading on.
+// A worked example as a numbered list: every step on its own line, all visible at once (the owner's choice,
+// 14 November 2026). Starting `shown` at 1 instead brings back one-step-at-a-time reveal with its buttons.
 function StepByStepExample({ body }) {
   const { t } = useT();
   const parts = splitSteps(body);
-  const [shown, setShown] = useState(1);
+  const [shown, setShown] = useState(Number.MAX_SAFE_INTEGER);
   if (!parts) return <Text>{body}</Text>;
   const { lead, steps, tail } = parts;
   const finished = shown >= steps.length;
@@ -58,7 +59,8 @@ export function LessonSections({ lesson, diagram, settled }) {
             <section className={`mn-lesson-part ${asks ? "ask" : ""} part-${s.id}`}>
               <h3><span className="mn-lesson-n" aria-hidden="true">{number}</span><Icon size={15} aria-hidden="true" />{t(`lesson.${s.id}`)}</h3>
               {s.id === "see" && picture}
-              {s.id === "example" && settled ? <StepByStepExample body={s.body} /> : <Text>{s.body}</Text>}
+              {/* Every step of a worked example sits on its own line, also while the reply is still appearing. */}
+              {s.id === "example" ? (settled ? <StepByStepExample body={s.body} /> : <Text>{unfoldSteps(s.body)}</Text>) : <Text>{s.body}</Text>}
             </section>
           </div>
         );

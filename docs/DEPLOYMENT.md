@@ -109,7 +109,10 @@ cd menya && VITE_SUPABASE_URL=http://localhost:54321 VITE_SUPABASE_ANON_KEY=loca
 
   Sign-in is emulated: in the browser console set the session for a seeded user (learner
   `00000000-0000-4000-8000-000000000001`, admin `…0002`) under `localStorage["sb-localhost-auth-token"]`.
-  Model calls are real if `GROQ_API_KEY` is in `menya/.env`.
+  Model calls are real if `GROQ_API_KEY` is in `menya/.env`. To look at the interface without a key,
+  start the backend with `MENYA_DEMO_MODEL=1` (canned replies; `supabase/dev/demo-backend.env` and
+  `demo-web.env` hold these settings for `node --env-file`). If the web app is not on port 5173, set
+  `APP_ORIGIN` for the backend.
 - **Tests**: `cd supabase && npm test` (51 tests, real Postgres via PGlite, mocked providers).
 - **Tutoring evaluation** (live, costs tokens): `cd menya && npm run eval` (see EVALUATION.md).
 

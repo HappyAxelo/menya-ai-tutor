@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LOCALES } from "../src/locales.js";
+import { PENDING_TRANSLATION } from "../src/locales5.js";
 import { uiLanguage, translate, greetingKey, greeting } from "../src/i18n.js";
 import { availableActions } from "../src/lib/chat.js";
 
@@ -37,9 +38,12 @@ test("translate fills in values and falls back to English, then the key", () => 
 
 for (const lang of Object.keys(LOCALES).filter(l => l !== "en")) {
   test(`${lang} translates every interface string`, () => {
+    // Nothing may be missing by accident. Strings waiting for a fluent translator are declared in
+    // locales5.js and show in English until then; the declared list must match what is missing exactly.
     const missing = Object.keys(LOCALES.en).filter(k => !(k in LOCALES[lang]));
-    assert.deepEqual(missing, []);
+    assert.deepEqual(missing.sort(), [...(PENDING_TRANSLATION[lang] ?? [])].sort());
     for (const [k, v] of Object.entries(LOCALES.en)) {
+      if (missing.includes(k)) continue;
       assert.equal(Array.isArray(LOCALES[lang][k]), Array.isArray(v), `${k} keeps its shape`);
       if (typeof v === "string") {
         const vars = s => (s.match(/\{\w+\}/g) || []).sort().join();

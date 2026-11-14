@@ -4,6 +4,8 @@ Stated plainly so nobody overclaims. Updated 9 November 2026.
 
 **The visual-first teaching upgrade has its own list of what is unverified: see `VISUAL_TUTOR_UPGRADE.md`, section 9. In particular it has not yet been run against the production model or read by fluent speakers.**
 
+**Menya 5 (university topics, arithmetic check, stages, notebook, diagnostic, exam marks) has its own list in `MENYA5.md`, section 4. It is built and tested locally but not deployed, and not yet run against the production model. Where the list below says practice exams cover 12 topics and are marked right or wrong only, that describes the live site, not that branch.**
+
 ## Not implemented
 
 - **Course materials: word search only.** Learners can add their own notes (*My notes*); the tutor

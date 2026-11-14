@@ -2,8 +2,9 @@
 // Pure functions over the learner's verified data (mastery records and attempts);
 // nothing here calls a model, so every number shown to a learner can be traced
 // back to answers the server marked itself.
-import { OBJECTIVES, generateItem, markItem, misconceptionText, objective, questionKey, type Item } from "./engine/bank.ts";
-import { estimate, isMastered, type ObjectiveRecord } from "./engine/mastery.ts";
+import { OBJECTIVES, TEMPLATES, generateItem, markItem, misconceptionText, objective, questionKey, workingFound, type Item } from "./engine/bank.ts";
+import { estimate, isMastered, nextEvidence, stageOf, supportLevel, type ObjectiveRecord, type Stage } from "./engine/mastery.ts";
+import { formulaCard, type FormulaCard } from "./engine/formulas.ts";
 
 const DAY = 864e5;
 
@@ -30,6 +31,10 @@ export function levelOf(r: ObjectiveRecord | undefined): Level {
 export interface MapEntry {
   objective: string; title: string; level: Level; estimate: number | null; independent: number;
   misconceptions: string[]; nextReview: string | null; due: boolean;
+  stage: Stage;                 // exposure → understanding → application → retention → mastery
+  next: string;                 // the evidence the next stage needs
+  support: 1 | 2 | 3;           // strong guidance · guided independence · independent mastery, for this topic only
+  prerequisites: string[];
 }
 
 export function knowledgeMap(records: ObjectiveRecord[], now: number): { subject: string; topics: MapEntry[] }[] {
@@ -43,6 +48,7 @@ export function knowledgeMap(records: ObjectiveRecord[], now: number): { subject
       objective: o.id, title: o.title, level: levelOf(r), estimate: r ? Math.round(estimate(r).mean * 100) / 100 : null,
       independent: r?.independent_correct ?? 0, misconceptions: Object.keys(r?.misconceptions ?? {}),
       nextReview: r?.next_review_at ?? null, due: Boolean(r?.next_review_at && Date.parse(r.next_review_at) <= now),
+      stage: stageOf(r), next: nextEvidence(r), support: supportLevel(r), prerequisites: o.prerequisites,
     });
   }
   return subjects;
@@ -212,6 +218,21 @@ export type ExamVerdict = "correct" | "incorrect" | "unanswered";
 export interface ExamResultItem {
   n: number; objective: string; question: string; given: string; verdict: ExamVerdict;
   correctAnswer: string; misconception: string | null; misconceptionId: string | null; seconds: number | null;
+  marks: number;                // marks available: harder questions carry more
+  awarded: number;              // full marks for a correct answer; method marks for correct working with a wrong answer
+  method: { found: number; total: number } | null;   // intermediate results found in the working (null: this question has none to look for)
+}
+
+// Marks per question follow its difficulty (2, 3 or 4). A wrong final answer can still earn up to
+// marks − 1 for working: each intermediate result of the reference solution that appears in what the
+// student wrote counts. Only numbers are recognised, so written reasoning without them earns nothing.
+export function awardMarks(item: Item, given: string, correct: boolean): { marks: number; awarded: number; method: { found: number; total: number } | null } {
+  const marks = item.difficulty + 1;
+  const w = workingFound(item, given);
+  const method = w.total ? w : null;
+  if (correct) return { marks, awarded: marks, method };
+  if (!given || !method) return { marks, awarded: 0, method };
+  return { marks, awarded: Math.min(marks - 1, Math.floor(((marks - 1) * w.found) / w.total)), method };
 }
 
 export function markMockExam(items: ExamItem[], answers: Record<string, string>, seconds: Record<string, number> = {}) {
@@ -226,18 +247,21 @@ export function markMockExam(items: ExamItem[], answers: Record<string, string>,
       mis = misconceptionText(stored, m.misconception);
     }
     const s = Number(seconds[it.n]);
-    return { n: it.n, objective: it.objective, question: it.question, given, verdict, correctAnswer: it.answer,
+    const credit = awardMarks(stored, given, verdict === "correct");
+    return { ...credit, n: it.n, objective: it.objective, question: it.question, given, verdict, correctAnswer: it.answer,
              misconception: mis, misconceptionId: misId, seconds: Number.isFinite(s) && s >= 0 ? Math.round(Math.min(s, 14400)) : null };
   });
   const byObjective = [...new Set(items.map(i => i.objective))].map(id => {
     const rs = results.filter(r => r.objective === id);
     const correct = rs.filter(r => r.verdict === "correct").length;
     return { objective: id, correct, total: rs.length, revise: correct < rs.length,
+             marks: rs.reduce((n, r) => n + r.marks, 0), awarded: rs.reduce((n, r) => n + r.awarded, 0),
              misconceptions: [...new Set(rs.map(r => r.misconception).filter(Boolean))] as string[] };
   });
   const correct = results.filter(r => r.verdict === "correct").length;
   return { results, byObjective, score: { correct, total: items.length,
-    unanswered: results.filter(r => r.verdict === "unanswered").length } };
+    unanswered: results.filter(r => r.verdict === "unanswered").length,
+    marks: results.reduce((n, r) => n + r.marks, 0), awarded: results.reduce((n, r) => n + r.awarded, 0) } };
 }
 
 // ---------------- Review Today ----------------
@@ -261,4 +285,103 @@ export function buildReviewSet(retries: { objective_id: string; template_id: str
                               item => isFresh(item) && !seen.has(questionKey(item.question)));
   for (const f of fresh) items.push({ ...f, n: items.length + 1 });
   return items;
+}
+
+// ---------------- Prerequisite diagnostic ----------------
+// Before a topic is taught: one unseen question on each thing it depends on (earliest first), then
+// the topic itself. Two to five questions, untimed. The first one missed is where teaching starts.
+export function prerequisiteChain(objectiveId: string): string[] {
+  const out: string[] = [];
+  const visit = (id: string) => {
+    for (const p of objective(id)?.prerequisites ?? []) if (!out.includes(p)) { visit(p); if (!out.includes(p)) out.push(p); }
+  };
+  visit(objectiveId);
+  return out;
+}
+
+export function buildDiagnostic(objectiveId: string, random: () => number, isFresh: (item: Item) => boolean = () => true): ExamItem[] {
+  if (!objective(objectiveId)) return [];
+  const chain = prerequisiteChain(objectiveId).slice(-4);
+  // With nothing to depend on, two questions on the topic itself still show where the learner stands.
+  const ids = chain.length ? [...chain, objectiveId] : [objectiveId, objectiveId];
+  const items: ExamItem[] = [], seen = new Set<number>();
+  for (const id of ids) {
+    for (let tryNo = 0; tryNo < 30; tryNo++) {
+      const item = generateItem(id, Math.floor(random() * 2 ** 31));
+      if (!item) break;
+      const key = questionKey(item.question);
+      if (seen.has(key) || (tryNo < 15 && !isFresh(item))) continue;
+      seen.add(key);
+      items.push({ n: items.length + 1, objective: id, templateId: item.templateId, question: item.question, answer: item.answer, seed: item.seed });
+      break;
+    }
+  }
+  return items;
+}
+
+// Where to start after a diagnostic: the earliest topic in the chain with a question missed.
+export function diagnosticAdvice(target: string, results: ExamResultItem[]): { target: string; startAt: string | null; secure: string[] } {
+  const order = [...prerequisiteChain(target), target];
+  const missed = new Set(results.filter(r => r.verdict !== "correct").map(r => r.objective));
+  const tested = new Set(results.map(r => r.objective));
+  return { target, startAt: order.find(id => missed.has(id)) ?? null, secure: order.filter(id => tested.has(id) && !missed.has(id)) };
+}
+
+// ---------------- Exam readiness ----------------
+// A statement of evidence per topic, never a percentage and never a prediction of the mark.
+export type ReadinessState = "secure" | "forgetting" | "not_yet_retained" | "guided_only" | "weak" | "not_tested";
+export interface TopicReadiness {
+  objective: string; title: string; stage: Stage; state: ReadinessState;
+  independent: number; incorrect: number; misconceptions: string[];
+}
+const misconceptionTexts = (objectiveId: string, ids: string[]) =>
+  ids.map(id => TEMPLATES.filter(t => t.objective === objectiveId).map(t => t.misconceptions[id]).find(Boolean) ?? id.replace(/_/g, " "));
+
+export function topicReadiness(objectiveId: string, r: ObjectiveRecord | undefined, now: number): TopicReadiness {
+  const stage = stageOf(r), mean = r ? estimate(r).mean : 0;
+  const overdue = Boolean(r?.next_review_at && now - Date.parse(r.next_review_at) > 7 * DAY);
+  let state: ReadinessState;
+  if (!r || stage === "not_started") state = "not_tested";
+  else if (mean < 0.5 && r.incorrect >= 2) state = "weak";
+  else if (stage === "exposure") state = r.incorrect ? "weak" : "not_tested";
+  else if (stage === "understanding") state = "guided_only";
+  else if (stage === "application") state = "not_yet_retained";
+  else state = overdue ? "forgetting" : "secure";
+  return { objective: objectiveId, title: objective(objectiveId)?.title ?? objectiveId, stage, state,
+           independent: r?.independent_correct ?? 0, incorrect: r?.incorrect ?? 0,
+           misconceptions: misconceptionTexts(objectiveId, Object.keys(r?.misconceptions ?? {})) };
+}
+
+export function examReadiness(objectiveIds: string[], records: ObjectiveRecord[], now: number) {
+  const byId = new Map(records.map(r => [r.objective_id, r]));
+  const topics = objectiveIds.filter(id => objective(id)).map(id => topicReadiness(id, byId.get(id), now));
+  const order: ReadinessState[] = ["weak", "guided_only", "not_tested", "forgetting", "not_yet_retained", "secure"];
+  // What to work on first: the weakest evidence, not the newest topic.
+  const priorities = [...topics].filter(t => t.state !== "secure").sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state)).slice(0, 3).map(t => t.objective);
+  return { topics, secure: topics.filter(t => t.state === "secure").length, total: topics.length, priorities };
+}
+
+// ---------------- Revision notebook ----------------
+// One page per topic the learner has met: the formula card, the stage reached, the mistakes the
+// server has seen them make, and when the topic is next due. Built from marked answers only.
+export interface NotebookEntry {
+  objective: string; title: string; subject: string; stage: Stage; next: string; card: FormulaCard | null;
+  mistakes: { text: string; times: number }[]; due: boolean; nextReview: string | null; lastSeen: string | null;
+  forgotten: boolean;           // answered right before, then wrong again: worth revisiting sooner
+}
+
+export function notebook(state: LearningState, now: number): NotebookEntry[] {
+  const records = new Map(state.objectives.map(r => [r.objective_id, r]));
+  const wanted = new Set<string>([...records.keys(), ...state.exams.flatMap(e => e.objectives)]);
+  return OBJECTIVES.filter(o => wanted.has(o.id)).map(o => {
+    const r = records.get(o.id);
+    const ids = Object.keys(r?.misconceptions ?? {});
+    const texts = misconceptionTexts(o.id, ids);
+    return {
+      objective: o.id, title: o.title, subject: o.subject, stage: stageOf(r), next: nextEvidence(r), card: formulaCard(o.id),
+      mistakes: ids.map((id, i) => ({ text: texts[i], times: Number(r!.misconceptions[id]) })).sort((a, b) => b.times - a.times),
+      due: Boolean(r?.next_review_at && Date.parse(r.next_review_at) <= now), nextReview: r?.next_review_at ?? null, lastSeen: r?.last_seen_at ?? null,
+      forgotten: Boolean(r && r.review_streak === 0 && r.incorrect > 0 && r.independent_correct + r.guided_correct > 0),
+    };
+  });
 }
