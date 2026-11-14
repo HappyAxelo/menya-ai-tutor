@@ -79,7 +79,7 @@ export const STEM_TEMPLATES: Template[] = [
       return {
         question: `Differentiate f(x) = ${a}x^${n} + ${b}x + ${c}`, answer,
         rubric: "Power rule on each term: d/dx(a·xⁿ) = a·n·xⁿ⁻¹; the derivative of b·x is b; the derivative of a constant is 0.",
-        steps: [`d/dx(${a}x^${n}) = ${a}·${n}·x^${n - 1}`, `d/dx(${b}x) = ${b}`, `d/dx(${c}) = 0`],
+        steps: [`d/dx(${a}x^${n}) = ${a}·${n}·x^${n - 1} = ${a * n}${power(n - 1)}`, `d/dx(${b}x) = ${b}`, `d/dx(${c}) = 0`, `f'(x) = ${answer}`],
         mark(text) {
           const student = finalExpression(text);
           const ok = equivalent(student, answer);
@@ -105,7 +105,7 @@ export const STEM_TEMPLATES: Template[] = [
       return {
         question: `Evaluate the definite integral of f(x) = ${lead}${power(n)} + ${b} from x = 0 to x = ${k}.`, answer: String(value),
         rubric: "Raise each power by one and divide by the new power, then evaluate the antiderivative at the upper limit minus the lower limit.",
-        steps: [`F(x) = ${coef(c)}x^${n + 1} + ${b}x`, `F(${k}) − F(0)`], working: [c * k ** (n + 1), b * k],
+        steps: [`F(x) = ${coef(c)}x^${n + 1} + ${b}x`, `F(${k}) = ${c}·${k}^${n + 1} + ${b}·${k} = ${c * k ** (n + 1)} + ${b * k} = ${value}`, `F(0) = 0`, `F(${k}) − F(0) = ${value}`], working: [c * k ** (n + 1), b * k],
         mark: text => numericMark(plainNumber(text), value, { not_divided: lead * k ** (n + 1) + b * k, substituted_without_integrating: lead * k ** n }, 0.005),
       };
     },
@@ -151,7 +151,7 @@ export const STEM_TEMPLATES: Template[] = [
       return {
         question: `A quantity y(t) obeys dy/dt = −${k}·y with y(0) = ${y0}. Find y(${T}). Give 3 significant figures.`, answer: String(round(value, 3)),
         rubric: "Separate variables: dy/y = −k dt, so y = y(0)·e^(−kt); substitute t and evaluate.",
-        steps: ["dy/y = −k dt", "ln y = −kt + c", `y = ${y0}·e^(−${k}t)`, `y(${T}) = ${y0}·e^(−${kT})`], working: [round(Math.exp(-kT), 3)],
+        steps: ["dy/y = −k dt", "ln y = −kt + c", `y = ${y0}·e^(−${k}t)`, `y(${T}) = ${y0}·e^(−${kT}) = ${y0} × ${round(Math.exp(-kT), 4)} = ${round(value, 3)}`], working: [round(Math.exp(-kT), 3)],
         mark: text => numericMark(plainNumber(text), value, { linear_change: y0 * (1 - kT), sign_reversed: y0 * Math.exp(kT), initial_value_dropped: Math.exp(-kT) }, 0.006),
       };
     },
@@ -171,7 +171,7 @@ export const STEM_TEMPLATES: Template[] = [
       return {
         question: `Find the determinant of the 2×2 matrix with first row (${a}, ${b}) and second row (${c}, ${d}).`, answer: String(det),
         rubric: "det = ad − bc: the product of the main diagonal minus the product of the other diagonal.",
-        steps: [`ad = ${a * d}`, `bc = ${b * c}`, "det = ad − bc"], working: [a * d, b * c],
+        steps: [`ad = ${a}·${d} = ${a * d}`, `bc = ${b}·${c} = ${b * c}`, `det = ad − bc = ${a * d} − (${b * c}) = ${det}`], working: [a * d, b * c],
         mark: text => numericMark(lastNumber(text), det, { added_products: a * d + b * c, wrong_pairs: a * b - c * d, order_reversed: b * c - a * d }, 0),
       };
     },
@@ -219,7 +219,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `Two machines work independently. During a shift the first fails with probability ${p} and the second with probability ${q}. What is the probability that at least one of them fails?`,
         answer: String(round(value, 3)),
         rubric: "\"At least one\" is the complement of \"neither\": 1 − (1 − p)(1 − q). Independence lets the two no-failure probabilities multiply.",
-        steps: [`P(neither) = ${round(1 - p, 2)} × ${round(1 - q, 2)}`, "P(at least one) = 1 − P(neither)"], working: [round(neither, 3)],
+        steps: [`P(neither) = ${round(1 - p, 2)} × ${round(1 - q, 2)} = ${round(neither, 4)}`, `P(at least one) = 1 − ${round(neither, 4)} = ${round(value, 4)}`], working: [round(neither, 3)],
         mark: text => numericMark(lastValue(text), value, { probabilities_added: p + q, both_instead: p * q, complement_of_both: 1 - p * q }, 0, nearProbability),
       };
     },
@@ -238,7 +238,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `Each of ${n} independent trials succeeds with probability ${p}. What is the probability of exactly ${k} success${k === 1 ? "" : "es"}? Give 3 significant figures.`,
         answer: String(round(value, 4)),
         rubric: "P(X = k) = C(n, k)·pᵏ·(1 − p)ⁿ⁻ᵏ: the number of arrangements times the probability of one arrangement.",
-        steps: [`C(${n}, ${k}) = ${ways}`, `p^${k}·(1 − p)^${n - k}`, "multiply"], working: [ways],
+        steps: [`C(${n}, ${k}) = ${ways}`, `${p}^${k} × ${round(1 - p, 2)}^${n - k} = ${Number(one.toPrecision(4))}`, `P(X = ${k}) = ${ways} × ${Number(one.toPrecision(4))} = ${Number(value.toPrecision(4))}`], working: [ways],
         mark: text => numericMark(lastValue(text), value, { arrangements_ignored: one, failures_ignored: ways * p ** k }, 0, nearProbability),
       };
     },
@@ -281,7 +281,7 @@ export const STEM_TEMPLATES: Template[] = [
       return {
         question: `Find the modulus of the complex number z = ${a} ${signed(b)}i.`, answer: String(h),
         rubric: "|z| = √(a² + b²): the distance of the point (a, b) from the origin of the complex plane.",
-        steps: [`a² + b² = ${x * x} + ${y * y}`, `|z| = √${h * h}`], working: [h * h],
+        steps: [`a² + b² = ${x * x} + ${y * y} = ${h * h}`, `|z| = √${h * h} = ${h}`], working: [h * h],
         mark: text => numericMark(lastNumber(text.replace(/√\s*\d+/g, "")) ?? lastNumber(text), h, { parts_added: x + y, root_not_taken: h * h }, 0),
       };
     },
@@ -302,7 +302,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `A ${m} kg crate on a horizontal floor is pushed with a horizontal force of ${F} N. A friction force of ${f} N opposes the motion. What is the crate's acceleration? Give the unit.`,
         answer: `${a} m/s²`,
         rubric: "Draw the forces, find the net force along the motion (applied minus friction), then a = F_net / m, in m/s².",
-        steps: [`F_net = ${F} − ${f} = ${F - f} N`, `a = ${F - f} / ${m}`], working: [F - f],
+        steps: [`F_net = ${F} − ${f} = ${F - f} N`, `a = F_net / m = ${F - f} / ${m} = ${a} m/s²`], working: [F - f],
         mark: text => numericMark(plainNumber(text), a, { friction_ignored: F / m, friction_added: (F + f) / m, multiplied_by_mass: (F - f) * m }),
       };
     },
@@ -327,7 +327,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `A ball is launched from level ground at ${v} m/s at ${deg}° above the horizontal. Ignore air resistance and take g = 9.8 m/s². Find ${what}. Give 3 significant figures and the unit.`,
         answer: `${round(value, 2)} ${kind === "time" ? "s" : "m"}`,
         rubric: "Split the launch velocity into horizontal (v·cos θ, constant) and vertical (v·sin θ, changed by g) parts; treat the two directions separately.",
-        steps: [`v_y = ${v}·sin ${deg}° = ${round(vy, 2)} m/s`, `v_x = ${v}·cos ${deg}° = ${round(v * Math.cos(th), 2)} m/s`, "apply the constant-acceleration equations vertically"],
+        steps: [`v_y = ${v}·sin ${deg}° = ${round(vy, 2)} m/s`, `v_x = ${v}·cos ${deg}° = ${round(v * Math.cos(th), 2)} m/s`, kind === "range" ? `R = v²·sin(2θ)/g = ${v}²·sin ${2 * deg}°/9.8 = ${round(value, 2)} m` : kind === "height" ? `H = v_y²/(2g) = ${round(vy, 2)}²/19.6 = ${round(value, 2)} m` : `T = 2·v_y/g = 2 × ${round(vy, 2)}/9.8 = ${round(value, 2)} s`],
         working: [round(vy, 2)],
         mark: text => numericMark(plainNumber(text), value, wrongs, 0.012),
       };
@@ -345,11 +345,11 @@ export const STEM_TEMPLATES: Template[] = [
       const v = round(f * lambda, 2);
       return findSpeed ? {
         question: `A wave has frequency ${f} Hz and wavelength ${lambda} m. What is its speed? Give the unit.`, answer: `${v} m/s`,
-        rubric: "v = f·λ: each second f wavelengths pass, each of length λ.", steps: ["v = f·λ", `v = ${f} × ${lambda}`],
+        rubric: "v = f·λ: each second f wavelengths pass, each of length λ.", steps: ["v = f·λ", `v = ${f} × ${lambda} = ${v} m/s`],
         mark: text => numericMark(plainNumber(text), v, { divided_instead: f / lambda }),
       } : {
         question: `A wave travels at ${v} m/s with frequency ${f} Hz. What is its wavelength? Give the unit.`, answer: `${lambda} m`,
-        rubric: "Rearrange v = f·λ to λ = v / f.", steps: ["λ = v / f", `λ = ${v} / ${f}`],
+        rubric: "Rearrange v = f·λ to λ = v / f.", steps: ["λ = v / f", `λ = ${v} / ${f} = ${lambda} m`],
         mark: text => numericMark(plainNumber(text), lambda, { multiplied_instead: v * f, ratio_inverted: f / v }),
       };
     },
@@ -367,7 +367,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `The magnetic flux through each turn of a ${N}-turn coil changes uniformly by ${dPhi} mWb in ${dt} ms. What is the magnitude of the induced emf? Give the unit.`,
         answer: `${round(emf, 3)} V`,
         rubric: "Faraday's law: |emf| = N·ΔΦ/Δt, with ΔΦ in webers and Δt in seconds.",
-        steps: [`ΔΦ = ${dPhi} × 10⁻³ Wb`, `Δt = ${dt} × 10⁻³ s`, "|emf| = N·ΔΦ/Δt"], working: [round(dPhi / dt, 4)],
+        steps: [`ΔΦ = ${dPhi} mWb = ${dPhi / 1000} Wb`, `Δt = ${dt} ms = ${dt / 1000} s`, `|emf| = N·ΔΦ/Δt = ${N} × ${dPhi / 1000} / ${dt / 1000} = ${round(emf, 3)} V`], working: [round(dPhi / dt, 4)],
         mark: text => numericMark(lastQuantity(dropUnitPowers(text), "V|volts?"), emf, { turns_ignored: dPhi / dt, milli_not_converted: emf * 1000 }),
       };
     },
@@ -411,7 +411,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `A silicon diode (forward voltage 0.7 V) is forward biased in series with a ${R} Ω resistor across a ${V} V supply. What current flows? Answer in mA.`,
         answer: `${round(mA, 2)} mA`,
         rubric: "The resistor has the supply voltage minus the diode drop across it: I = (V − 0.7)/R, then convert to mA.",
-        steps: [`V_R = ${V} − 0.7 = ${round(V - 0.7, 1)} V`, `I = ${round(V - 0.7, 1)}/${R} A`], working: [round(V - 0.7, 1)],
+        steps: [`V_R = ${V} − 0.7 = ${round(V - 0.7, 1)} V`, `I = ${round(V - 0.7, 1)}/${R} = ${round((V - 0.7) / R, 6)} A = ${round(mA, 2)} mA`], working: [round(V - 0.7, 1)],
         mark: text => numericMark(milliamps(text), mA, { drop_ignored: (V / R) * 1000, drop_added: ((V + 0.7) / R) * 1000 }, 0.015),
       };
     },
@@ -432,7 +432,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `A signal contains sinusoidal components at ${list[0]} kHz, ${list[1]} kHz and ${list[2]} kHz. What is the minimum sampling rate that avoids aliasing (the Nyquist rate)? Answer in kHz.`,
         answer: `${round(2 * hi, 2)} kHz`,
         rubric: "The sampling rate must be at least twice the highest frequency present; lower components don't matter.",
-        steps: [`highest component = ${hi} kHz`, "f_s = 2 × highest"], working: [hi],
+        steps: [`highest component = ${hi} kHz`, `f_s = 2 × ${hi} kHz = ${round(2 * hi, 2)} kHz`], working: [hi],
         mark: text => numericMark(hz(text), 2000 * hi, { equal_to_highest: 1000 * hi, lowest_used: 2000 * lo, components_summed: 1000 * sum }, 0.005),
       };
     },
@@ -450,7 +450,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `A unity negative-feedback loop has forward transfer function G(s) = ${K}/(${tau}s + 1). The reference input is a step of size ${A}. What is the steady-state value of the output?`,
         answer: String(round(y, 3)),
         rubric: "Closed loop: T(s) = G/(1 + G). For a step, the steady-state output is the step size times T(0) = K/(1 + K) (final value theorem); the time constant doesn't affect it.",
-        steps: [`G(0) = ${K}`, `T(0) = ${K}/(1 + ${K}) = ${round(K / (1 + K), 3)}`, `y_ss = ${A} × T(0)`], working: [round(K / (1 + K), 3)],
+        steps: [`G(0) = ${K}`, `T(0) = ${K}/(1 + ${K}) = ${round(K / (1 + K), 4)}`, `y_ss = ${A} × ${round(K / (1 + K), 4)} = ${round(y, 3)}`], working: [round(K / (1 + K), 3)],
         mark: text => numericMark(lastValue(text), y, { open_loop_gain: A * K, error_given: A / (1 + K) }, 0.006),
       };
     },
@@ -499,7 +499,7 @@ export const STEM_TEMPLATES: Template[] = [
         question: `Binary search runs on a sorted array of ${n} elements. Each step examines the middle element of the remaining range and discards half of it. In the worst case, how many elements are examined before the search ends?`,
         answer: String(steps),
         rubric: "Each step halves the range, so the worst case is the number of times n can be halved down to 1, plus the final element: ⌊log₂ n⌋ + 1.",
-        steps: [`⌊log₂ ${n}⌋ = ${steps - 1}`, "add 1 for the last element"], working: [steps - 1],
+        steps: [`⌊log₂ ${n}⌋ = ${steps - 1}`, `steps = ${steps - 1} + 1 = ${steps}`], working: [steps - 1],
         mark: text => numericMark(lastNumber(text.replace(/log\s*_?2/gi, "log")), steps, { linear_scan: n, halved_once: n / 2, last_step_missing: steps - 1 }, 0),
       };
     },

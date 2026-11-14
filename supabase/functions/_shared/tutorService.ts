@@ -405,6 +405,16 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     const lesson = parseLesson(message);
     return formatLesson({ intro: lesson.intro, sections: lesson.sections.filter(x => x.id !== "example") });
   };
+  // The lesson with every sentence that states the answer removed, if enough teaching is left and nothing gives it away.
+  const withoutAnswer = (message: string, finalAnswer: string | null | undefined): string | null => {
+    if (!finalAnswer) return null;
+    const lesson = parseLesson(message);
+    if (!lesson.sections.length) return null;
+    const keep = (text: string) => text.split(/\n/).map(line => line.split(/(?<=[.;!?])\s+/)
+      .filter(sentence => !revealsAnswer(sentence, finalAnswer, studentTexts)).join(" ")).filter(l => l.trim()).join("\n");
+    const out = formatLesson({ intro: keep(lesson.intro), sections: lesson.sections.map(x => ({ ...x, body: x.id === "example" && guardText(message) !== message ? x.body : keep(x.body) })).filter(x => x.body.trim()) });
+    return !revealsAnswer(guardText(out), finalAnswer, studentTexts) && checkTeachingOrder(out, shape, Boolean(reference)).ok ? out : null;
+  };
   const assessmentBefore = prevMeta.lastEvidence as string | undefined;
 
   const userContent = presented ? presentRequest(presented.item, presented.kind, lang)
@@ -594,8 +604,13 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
           } catch { /* fall through to the safe message */ }
           const stillLeaks = !rewritten || revealsAnswer(guardText(rewritten.message), reply.finalAnswer, studentTexts);
           log({ event: "answer_leak", state: plan.state, standIn: stillLeaks });
+          // A lesson that still gives the answer away keeps its teaching: only the sentences that state the answer go.
+          // Replacing a whole lesson with a one-line question undid the teaching (seen live, 14 November 2026).
+          const redacted = stillLeaks && shape.foundation ? withoutAnswer(rewritten?.message ?? reply.message, reply.finalAnswer) : null;
+          if (redacted) log({ event: "answer_redacted", state: plan.state });
           const finalReply: TutorReply = stillLeaks
-            ? { ...reply, type: "question", hintLevel: null, message: fallbackFor(reply.language, attemptsNow === 0 && session.hints_used === 0 && !newProblem, struggling) }
+            ? { ...reply, type: redacted ? reply.type : "question", hintLevel: null,
+                message: redacted ?? fallbackFor(reply.language, attemptsNow === 0 && session.hints_used === 0 && !newProblem, struggling) }
             : { ...rewritten!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty };
           served = { candidate, reply: finalReply, inputTokens, outputTokens, latencyMs, cost, rewrite: true, cachedTokens };
         }
@@ -637,7 +652,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
 
         // Teach before asking: a reply that questions the student before teaching gets one rewrite.
         if (shape.foundation && !served.rewrite && !presented) {
-          const order = checkTeachingOrder(served.reply.message, shape);
+          const order = checkTeachingOrder(served.reply.message, shape, Boolean(reference));
           if (!order.ok) {
             log({ event: "teach_first", problems: order.problems, state: plan.state });
             if (remaining() >= MIN_CALL_MS) try {
@@ -649,7 +664,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
               served.cachedTokens += res4.cachedInputTokens ?? 0;
               const c4 = estimateCostUsd(candidate.config, res4);
               served.cost = served.cost != null && c4 != null ? served.cost + c4 : served.cost;
-              if (taught && checkTeachingOrder(taught.message, shape).ok && (answerMayShow || !revealsAnswer(guardText(taught.message), served.reply.finalAnswer, studentTexts))) {
+              if (taught && checkTeachingOrder(taught.message, shape, Boolean(reference)).ok && (answerMayShow || !revealsAnswer(guardText(taught.message), served.reply.finalAnswer, studentTexts))) {
                 served.reply = { ...taught, finalAnswer: served.reply.finalAnswer, difficulty: served.reply.difficulty, diagram: taught.diagram ?? served.reply.diagram };
               }
             } catch { /* the first reply stands */ }
@@ -688,7 +703,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             const res8 = await again(USE_REFERENCE_REQUEST + "\n" + referenceExampleNote(reference)); spend(res8);
             const redo = parseTutorJson(res8.text);
             if (redo && usesReference(redo.message) && (answerMayShow || !revealsAnswer(guardText(redo.message), served.reply.finalAnswer, studentTexts))
-                && (!shape.foundation || checkTeachingOrder(redo.message, shape).ok)) { served.reply = keep(redo); exampleState = "checked"; }
+                && (!shape.foundation || checkTeachingOrder(redo.message, shape, Boolean(reference)).ok)) { served.reply = keep(redo); exampleState = "checked"; }
           } catch { /* handled below */ }
           // Still its own example. Models get this kind of arithmetic wrong often enough that the server's
           // example goes in instead. It is written in English, so only an English lesson gets it; in other
@@ -729,7 +744,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
               if (redone && recheck && kept && recheck.problems.length < arithmetic.problems.length
                   && (exampleState !== "checked" || usesReference(redone.message))
                   && (answerMayShow || !revealsAnswer(guardText(redone.message), served.reply.finalAnswer, studentTexts))
-                  && (!shape.foundation || checkTeachingOrder(redone.message, shape).ok)
+                  && (!shape.foundation || checkTeachingOrder(redone.message, shape, Boolean(reference)).ok)
                   && !(isAttempt && judgedWrongNow && statesCorrection(redone.message, input.message ?? ""))) {
                 served.reply = keep(redone); arithmetic = recheck;
               }
@@ -793,6 +808,15 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   let citation: ReturnType<typeof checkCitations> | null = null;
   if (!presented) {
     reply.message = polishReply(reply.message);
+    // With a multiple-choice check attached, the server writes the last section itself: models asked their own
+    // question beside the check, or described the check wrongly (seen live, 14 November 2026). English only, like the check.
+    // A reply that isn't a lesson has nowhere to show the check, so it isn't offered (nor kept on the server).
+    if (quiz && !parseLesson(reply.message).sections.length) quiz = null;
+    if (quiz) {
+      const lesson = parseLesson(reply.message);
+      const line = "Answer the check below without looking back at the worked example. Then use the same steps on your own problem.";
+      reply.message = formatLesson({ intro: lesson.intro, sections: [...lesson.sections.filter(x => x.id !== "try" && x.id !== "check"), { id: "try", body: line }] });
+    }
     citation = checkCitations(reply.message, citable, { researched: researchDecision.tier !== "none", studentText: studentTexts.join(" ") });
     reply.message = citation.message;
     if (citation && failureCount(citation.failures)) log({ event: "citation_removed", ...citation.failures });

@@ -154,7 +154,8 @@ const wordsIn = (s: string) => (s.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length;
 const withoutCode = (s: string) => s.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
 export interface TeachingCheck { ok: boolean; problems: string[] }
 
-export function checkTeachingOrder(message: string, s: LessonShape): TeachingCheck {
+// fullLesson: the lesson has a checked worked example to show, so a few lines in its place are not enough.
+export function checkTeachingOrder(message: string, s: LessonShape, fullLesson = false): TeachingCheck {
   const problems: string[] = [];
   if (!s.foundation) return { ok: true, problems };
   const text = withoutCode(message);
@@ -171,14 +172,17 @@ export function checkTeachingOrder(message: string, s: LessonShape): TeachingChe
     // A reply without sections still has to explain first.
     const before = firstQuestion >= 0 ? text.slice(0, firstQuestion) : text;
     if (firstQuestion >= 0 && wordsIn(before) < 25) problems.push("asks_before_teaching");
+    // A full lesson (idea, worked example...) was asked for and a few lines came back (seen live, 14 November 2026).
+    else if (fullLesson && s.format === "lesson" && s.sections.includes("example") && wordsIn(text) < 80) problems.push("no_lesson");
   }
   if (((asking || text).match(QUESTION) ?? []).length > 2) problems.push("too_many_questions");
   return { ok: problems.length === 0, problems };
 }
 
 // A short note for the one rewrite a reply gets if it broke that rule.
-export const teachFirstRequest = (problems: string[]) =>
-  `[TEACH FIRST] Your last reply ${problems.includes("too_little_teaching") || problems.includes("asks_before_teaching") ? "asked the student something before teaching enough for them to answer it" : "asked questions while it was still teaching"}. Rewrite it: explain the idea and show how it works first, using the sections you were given, and ask only ONE question, at the very end in @@try. Don't reveal the final answer. Same language, same JSON format.`;
+export const teachFirstRequest = (problems: string[]) => problems.includes("no_lesson")
+  ? `[TEACH FIRST] Your last reply was a short answer, but this needs the full lesson. Rewrite it in the sections you were given, in order, each starting with its marker: explain the idea, then the worked example step by step on a different case, and only then the last section. Don't reveal the final answer to the student's own problem. Same language, same JSON format.`
+  : `[TEACH FIRST] Your last reply ${problems.includes("too_little_teaching") || problems.includes("asks_before_teaching") ? "asked the student something before teaching enough for them to answer it" : "asked questions while it was still teaching"}. Rewrite it: explain the idea and show how it works first, using the sections you were given, and ask only ONE question, at the very end in @@try. Don't reveal the final answer. Same language, same JSON format.`;
 
 // ---------- What the student's answer is evidence of ----------
 export type Evidence = "understands" | "possible_guess" | "memorised" | "misconception" | "missing_prerequisite" | "cannot_apply" | "unclear";

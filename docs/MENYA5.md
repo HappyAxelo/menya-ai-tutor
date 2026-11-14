@@ -180,3 +180,22 @@ The owner asked for the lesson to look like a worked textbook page. Deployed the
 The worked example and the check are never the student's own problem (a generated problem whose numbers all appear in the student's message is skipped).
 
 Limits: the check exists for 25 of 31 question types (not the chain rule, decimal to binary, Boolean simplification, Big-O, matrix products or complex products, where the wrong options aren't numbers or expressions the template can name). A right pick counts as practice evidence only, at low weight, because a pick can be a guess. Not in other languages yet, because the problems are written in English.
+
+## 11. Second run against the production model (14 November 2026, server version 30)
+
+All 20 topics, four turns each: 80 real replies (the script waited out 28 "busy" moments). Every reply is in `MENYA5_EVAL_RESULTS_RUN2.md`.
+
+**What worked:** 18 of 20 first replies were full lessons; the named law or rule was stated where the topic has one; no reply to a wrong answer gave the corrected step away; after a wrong answer every topic changed approach; "I don't know" got help every time; "Give me a harder problem" served a checked bank problem in all 20 topics. The arithmetic check recomputed 37 lines and found no real error. Where the AI wrote its own worked example on a bank topic it used the server's numbers.
+
+**What failed, and what changed (server version 31)**
+
+| Seen | Change |
+|---|---|
+| Big-O: the lesson stated the answer, so after a failed rewrite the whole lesson was replaced by a vague one-line question. | A lesson that still gives the answer away now keeps its teaching: only the sentences that state the answer are removed. The one-line stand-in is used only if too little teaching would be left. |
+| Sampling: a three-line answer instead of the lesson layout, ending with a question. | On a bank topic, a reply of a few lines when a full lesson was asked for is sent back once for the full lesson. |
+| Differentiation and Newton: the AI asked its own question beside the multiple-choice check, or described the check wrongly ("for the 12 V circuit", "select the net force"). | With a check attached, the server writes the last section itself: "Answer the check below without looking back at the worked example. Then use the same steps on your own problem." |
+| Diode: a correct conversion ("0.0019545 A × 1000 = 1.95 mA") was flagged as not confirmed. | Conversions between unit prefixes (A to mA, Ω to kΩ) are recognised. |
+| Diode: a section containing only the word "null". | Dropped. |
+| Integration: the server's own worked example ended "F(2) − F(0)" and then "44", with nothing in between. | Every computed step in the server's examples now ends in its value (16 question types). |
+
+Not changed: the AI's own "check" steps are sometimes empty ("which matches the slope of the tangent"); where the server's example is used, the check is the server's.

@@ -30,7 +30,8 @@ export function parseLesson(message: string): ParsedLesson {
     if (current) current.lines.push(line); else intro.push(line);
   }
   close();
-  return { intro: intro.join("\n").trim(), sections: sections.filter(s => s.body) };
+  // Models sometimes fill a section they had nothing for with "null" (seen live, 14 November 2026).
+  return { intro: intro.join("\n").trim(), sections: sections.filter(s => s.body && !/^(?:null|none|n\/a|undefined|-)$/i.test(s.body.trim())) };
 }
 
 // The same text with no markers: for copying, exporting and reading aloud.

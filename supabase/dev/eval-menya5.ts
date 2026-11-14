@@ -111,10 +111,11 @@ for (const topic of TOPICS.filter(t => (only == null ? t.n >= from && t.n <= to 
   out.push(`## ${topic.n}. ${topic.area}: ${topic.title}`, ``);
   turns.forEach((t, i) => {
     const a = arithmetic[i];
-    out.push(`**Student:** ${t.said}`, ``, `**Menya** (${t.status === 200 ? `${t.body.engine?.state}, ${t.body.engine?.format}${t.body.diagram ? `, picture: ${t.body.diagram.kind}` : ""}` : `failed ${t.status}`}):`, ``,
+    const extras = t.status === 200 ? [t.body.lab && `interactive: ${t.body.lab.kind}`, t.body.quiz && `multiple choice: ${t.body.quiz.options.length} options`, t.body.accuracy?.example && `worked example: ${t.body.accuracy.example}`].filter(Boolean).join(", ") : "";
+    out.push(`**Student:** ${t.said}`, ``, `**Menya** (${t.status === 200 ? `${t.body.engine?.state}, ${t.body.engine?.format}${t.body.diagram ? `, picture: ${t.body.diagram.kind}` : ""}${extras ? `, ${extras}` : ""}` : `failed ${t.status}`}):`, ``,
       ...stripLessonMarkers(t.message).split("\n").map(l => `> ${l}`), ``,
       `Server checks: ${a.checked} arithmetic line(s) recomputed${a.problems.length ? `, **${a.problems.length} do not hold**: ${a.problems.map(p => `«${p.statement}»`).join("; ")}` : ""}` +
-      `${t.body.accuracy?.unverified?.length ? `; shown to the student as not confirmed` : ""}; pipeline events: ${t.body.events.filter((e: string) => /arithmetic|correction|teach_first|answer_recheck/.test(e)).join(", ") || "none"}.`, ``);
+      `${t.body.accuracy?.unverified?.length ? `; shown to the student as not confirmed` : ""}; pipeline events: ${t.body.events.filter((e: string) => /arithmetic|correction|teach_first|answer_recheck|answer_leak|answer_redacted|reference_example/.test(e)).join(", ") || "none"}.`, ``);
   });
 }
 out.splice(6, 0, ...summary, ``);

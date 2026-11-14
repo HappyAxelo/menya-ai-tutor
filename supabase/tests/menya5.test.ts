@@ -630,7 +630,8 @@ describe("worked examples computed by the server", () => {
     assert.match(example, /^1\. Identify what we know\nA [\d.]+ V battery is connected to a \d+ Ω resistor in series with a parallel pair/);
     assert.match(example, /\n2\. Find R_parallel\nR_parallel = [\s\S]*\n5\. Find V_parallel\nV_parallel = [\d.]+ − [\d.]+·\d+ = [\d.]+ V\n6\. [\s\S]*\n7\. Result\n[\d.]+ A$/, "a title for each step, the equation on its own line");
     assert.ok(!message.includes("4.29"), "the model's wrong working is gone");
-    assert.match(message, /@@idea[\s\S]*@@try\nWhat is the combined resistance/, "the rest of the lesson is untouched");
+    assert.match(message, /^@@idea\nA circuit is like water[\s\S]*@@example\n/, "the rest of the lesson is untouched");
+    assert.match(message, /@@try\nAnswer the check below without looking back at the worked example\. Then use the same steps on your own problem\.$/, "with a check attached, the server writes the last section");
     assert.deepEqual((res.body as any).accuracy.unverified, []);
     assert.equal((res.body as any).accuracy.example, "checked");
     assert.equal(groq.calls.length, 1, "nothing left for the arithmetic check to send back");
@@ -815,4 +816,45 @@ test("the worked example and the check are never the student's own problem", asy
     assert.doesNotMatch(note, /Problem: Differentiate f\(x\) = 3x\^2 \+ 5x \+ 4$/m);
     if ((res.body as any).quiz) assert.notEqual((res.body as any).quiz.question, "Differentiate f(x) = 3x^2 + 5x + 4");
   }
+});
+
+describe("fixes from the live evaluation of 14 November 2026", () => {
+  test("a section the model filled with 'null' is dropped", () => {
+    assert.deepEqual(parseLesson("@@idea\nCurrent is shared.\n@@see\nnull\n@@try\nWhat is R?").sections.map(s => s.id), ["idea", "try"]);
+  });
+
+  test("a unit conversion is not flagged; a wrong one still is", () => {
+    assert.deepEqual(checkArithmetic("Convert to milliamps: 0.0019545 A × 1000 = 1.95 mA").problems, []);
+    assert.deepEqual(checkArithmetic("4.3 V / 2.2 kΩ = 1.95 mA").problems, []);
+    assert.equal(checkArithmetic("4.3 V / 2.2 kΩ = 2.95 mA").problems.length, 1);
+  });
+
+  test("a lesson that still states the answer after its rewrite keeps its teaching, without the answer", async () => {
+    const u = await createUser(db);
+    const lesson = (tail: string) => `@@idea\nBig-O describes how the number of steps grows as the input grows. A single loop over n items does n steps, so its cost grows in step with n.\n@@example\n1. Identify what we know\nTwo loops in a row each run n times.\n2. Count the steps\nn + n = 2n, which is O(n).\n@@try\n${tail}`;
+    const leaky = lesson("For your nested loops the answer is O(n^2). How many steps for n = 3?");
+    const groq = scripted([reply(leaky, { finalAnswer: "O(n^2)" }), reply(leaky, { finalAnswer: "O(n^2)" })]);
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: async () => {} }, u, ask("Explain Big-O: what is the time complexity of two nested loops that each run n times?"));
+    const message = (res.body.reply as any).message as string;
+    assert.match(message, /@@idea\nBig-O describes/, "the teaching is kept");
+    assert.doesNotMatch(message, /O\(n\^2\)/, "the answer is gone");
+    assert.match(message, /How many steps for n = 3\?/, "and the question that didn't give it away stays");
+    assert.doesNotMatch(message, /Which idea or formula links/);
+  });
+
+  test("on a bank topic, a few lines instead of the lesson are sent back once for the full lesson", async () => {
+    const u = await createUser(db);
+    const short = "The Nyquist rate is twice the highest frequency present. Your highest is 3.5 kHz, so the rate is at least twice that. What is that value?";
+    const groq = scripted([reply(short), reply(RIGHT_LESSON)]);
+    await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: async () => {} }, u, ask("What sampling rate do I need for a signal with components at 1.2 kHz and 3.5 kHz? Explain the Nyquist rate."));
+    assert.ok(groq.calls.some(c => /\[TEACH FIRST\] Your last reply was a short answer, but this needs the full lesson/.test(String(c.messages.at(-1)!.content))));
+  });
+
+  test("a plain reply gets no check, and none is left open on the server", async () => {
+    const u = await createUser(db);
+    const groq = scripted([reply("Kirchhoff's current law: what flows into a junction flows out of it. The voltage law: the voltages round a loop add up to zero. That covers it for now, and there is plenty more to say about how each one is applied in a real circuit with several loops.")]);
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: groq.provider }, sleep: async () => {} }, u, ask(KIRCHHOFF));
+    assert.equal((res.body as any).quiz, null);
+    assert.equal((await db.query<any>("select count(*)::int n from public.session_items where session_id = $1", [res.body.sessionId])).rows[0].n, 0);
+  });
 });

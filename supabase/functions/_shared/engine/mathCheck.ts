@@ -144,7 +144,10 @@ export function checkArithmetic(message: string): ArithmeticCheck {
         if (a == null || b == null) continue;
         checked++;
         if (unclear) continue;
-        if (!agree(a, b, filled[i], filled[i + 1], signs[i] !== "=")) {
+        // Writing a number in another prefix (A to mA, Ω to kΩ) multiplies it by a power of 1000 on purpose.
+        const ratio = Math.abs(a / b), conversion = /\d\s*(?:m|k|M|µ|u)(?:A|V|Ω|W|J|s|Hz|Wb|m|g)\b|\bk?m\/s/.test(statement)
+          && [1e3, 1e6, 1e-3, 1e-6].some(p => Math.abs(ratio / p - 1) < 0.02);
+        if (!conversion && !agree(a, b, filled[i], filled[i + 1], signs[i] !== "=")) {
           problems.push({ statement: statement.trim().slice(0, 200), left: pieces[i], right: pieces[i + 1], leftValue: a, rightValue: b });
         }
       }
