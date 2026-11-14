@@ -368,6 +368,17 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     const given = numbersIn(reference.question.replace(/\b[A-Za-z]_?\d\b/g, " ")), result = numbersIn(reference.answer);
     return given.every(present) && (matchesAnswer(body, reference.answer) || (result.length > 0 && result.every(present)));
   };
+  // What the answer-leak guard reads. The server's own worked example is a different problem with different
+  // givens: a value in it that happens to equal the student's answer ("1 A") gives nothing away, and counting
+  // it as a leak replaced a whole lesson with a stand-in question (seen live, 14 November 2026).
+  const guardText = (message: string) => {
+    // In an English lesson the example section always ends up being the server's (it is swapped in below
+    // if the model wrote its own), so it is left out of the check from the start.
+    const english = /^english$/i.test(lang ?? session!.language ?? "English");
+    if (!reference || !(usesReference(message) || english)) return message;
+    const lesson = parseLesson(message);
+    return formatLesson({ intro: lesson.intro, sections: lesson.sections.filter(x => x.id !== "example") });
+  };
   const assessmentBefore = prevMeta.lastEvidence as string | undefined;
 
   const userContent = presented ? presentRequest(presented.item, presented.kind, lang)
@@ -542,7 +553,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         // (x(2 sin x + x cos x) as 2x·sin x + x²·cos x); a solve still needs matchesAnswer below.
         const confirmsAttempt = isAttempt && !newProblem && reply.solved && reply.type === "affirmation";
         answerMayShow = earnedSolution || confirmsAttempt;
-        if (!earnedSolution && !confirmsAttempt && revealsAnswer(reply.message, reply.finalAnswer, studentTexts)) {
+        if (!earnedSolution && !confirmsAttempt && revealsAnswer(guardText(reply.message), reply.finalAnswer, studentTexts)) {
           let rewritten: TutorReply | null = null;
           // No time left for a rewrite: the safe message below is sent instead.
           if (remaining() >= MIN_CALL_MS) try {
@@ -555,7 +566,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             const c2 = estimateCostUsd(candidate.config, res2);
             cost = cost != null && c2 != null ? cost + c2 : cost;
           } catch { /* fall through to the safe message */ }
-          const stillLeaks = !rewritten || revealsAnswer(rewritten.message, reply.finalAnswer, studentTexts);
+          const stillLeaks = !rewritten || revealsAnswer(guardText(rewritten.message), reply.finalAnswer, studentTexts);
+          log({ event: "answer_leak", state: plan.state, standIn: stillLeaks });
           const finalReply: TutorReply = stillLeaks
             ? { ...reply, type: "question", hintLevel: null, message: fallbackFor(reply.language, attemptsNow === 0 && session.hints_used === 0 && !newProblem, struggling) }
             : { ...rewritten!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty };
@@ -583,7 +595,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             cost = cost != null && c3 != null ? cost + c3 : cost;
           } catch { /* handled below */ }
           log({ event: "answer_recheck", reason: unbalanced ? "unbalanced_equation" : verifiedWrong ? "verified_wrong" : "rejected_right", changed: second?.type !== reply.type });
-          const usable = second && !revealsAnswer(second.message, reply.finalAnswer, studentTexts) &&
+          const usable = second && !revealsAnswer(guardText(second.message), reply.finalAnswer, studentTexts) &&
             !(verifiedWrong && (second.solved || second.type === "affirmation"));
           if (usable) {
             served = { candidate, reply: { ...second!, finalAnswer: reply.finalAnswer, difficulty: reply.difficulty },
@@ -611,7 +623,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
               served.cachedTokens += res4.cachedInputTokens ?? 0;
               const c4 = estimateCostUsd(candidate.config, res4);
               served.cost = served.cost != null && c4 != null ? served.cost + c4 : served.cost;
-              if (taught && checkTeachingOrder(taught.message, shape).ok && (answerMayShow || !revealsAnswer(taught.message, served.reply.finalAnswer, studentTexts))) {
+              if (taught && checkTeachingOrder(taught.message, shape).ok && (answerMayShow || !revealsAnswer(guardText(taught.message), served.reply.finalAnswer, studentTexts))) {
                 served.reply = { ...taught, finalAnswer: served.reply.finalAnswer, difficulty: served.reply.difficulty, diagram: taught.diagram ?? served.reply.diagram };
               }
             } catch { /* the first reply stands */ }
@@ -635,7 +647,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
           log({ event: "correction_leak", state: plan.state });
           let fixed: TutorReply | null = null;
           if (remaining() >= MIN_CALL_MS) try { const res6 = await again(CORRECTION_REQUEST); spend(res6); fixed = parseTutorJson(res6.text); } catch { /* the safe message below */ }
-          const usable = fixed && !statesCorrection(fixed.message, input.message ?? "") && !revealsAnswer(fixed.message, served.reply.finalAnswer, studentTexts);
+          const usable = fixed && !statesCorrection(fixed.message, input.message ?? "") && !revealsAnswer(guardText(fixed.message), served.reply.finalAnswer, studentTexts);
           served.reply = usable ? keep(fixed!)
             : { ...served.reply, type: "redirect", solved: false, progressSummary: null, message: NOT_YET_FALLBACK[served.reply.language] ?? NOT_YET_FALLBACK.English };
           served.rewrite = true;
@@ -649,7 +661,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
           if (remaining() >= MIN_CALL_MS) try {
             const res8 = await again(USE_REFERENCE_REQUEST + "\n" + referenceExampleNote(reference)); spend(res8);
             const redo = parseTutorJson(res8.text);
-            if (redo && usesReference(redo.message) && (answerMayShow || !revealsAnswer(redo.message, served.reply.finalAnswer, studentTexts))
+            if (redo && usesReference(redo.message) && (answerMayShow || !revealsAnswer(guardText(redo.message), served.reply.finalAnswer, studentTexts))
                 && (!shape.foundation || checkTeachingOrder(redo.message, shape).ok)) { served.reply = keep(redo); exampleState = "checked"; }
           } catch { /* handled below */ }
           // Still its own example. Models get this kind of arithmetic wrong often enough that the server's
@@ -659,11 +671,19 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
             const lesson = parseLesson(served.reply.message);
             if (lesson.sections.some(x => x.id === "example")) {
               const swapped = formatLesson({ intro: lesson.intro, sections: lesson.sections.map(x => (x.id === "example" ? { ...x, body: composeExample(reference) } : x)) });
-              if (answerMayShow || !revealsAnswer(swapped, served.reply.finalAnswer, studentTexts)) {
+              if (answerMayShow || !revealsAnswer(guardText(swapped), served.reply.finalAnswer, studentTexts)) {
                 served.reply = { ...served.reply, message: swapped }; exampleState = "checked";
                 log({ event: "reference_example_inserted", objective: objectiveId });
               }
             }
+          }
+          // The model's own example stayed (another language, or no example section), so it was never checked
+          // for the student's answer: check the whole reply now.
+          if (exampleState !== "checked" && !answerMayShow && revealsAnswer(served.reply.message, served.reply.finalAnswer, studentTexts)) {
+            log({ event: "answer_leak", state: plan.state, standIn: true, where: "example" });
+            served.reply = { ...served.reply, type: "question", hintLevel: null,
+              message: fallbackFor(served.reply.language, attemptsNow === 0 && session.hints_used === 0 && !newProblem, struggling) };
+            served.rewrite = true;
           }
         }
 
@@ -682,7 +702,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
               const kept = redone ? sectionsOf(served.reply.message).every(id => sectionsOf(redone.message).includes(id)) : false;
               if (redone && recheck && kept && recheck.problems.length < arithmetic.problems.length
                   && (exampleState !== "checked" || usesReference(redone.message))
-                  && (answerMayShow || !revealsAnswer(redone.message, served.reply.finalAnswer, studentTexts))
+                  && (answerMayShow || !revealsAnswer(guardText(redone.message), served.reply.finalAnswer, studentTexts))
                   && (!shape.foundation || checkTeachingOrder(redone.message, shape).ok)
                   && !(isAttempt && judgedWrongNow && statesCorrection(redone.message, input.message ?? ""))) {
                 served.reply = keep(redone); arithmetic = recheck;

@@ -695,3 +695,29 @@ test("the worked example from the owner's screenshot is split into one step per 
   assert.deepEqual(splitSteps(l.sections[0].body)!.steps,
     ["We know 3x + 5 = 14, we need x.", "Subtract 5 from both sides: 3x = 9.", "Divide by 3: x = 3.", "Check: 3·3 + 5 = 14."]);
 });
+
+test("a value in the server's own example that equals the student's answer is not treated as a leak", async () => {
+  const u = await createUser(db);
+  // An obedient model whose private answer for the student's problem happens to be the example's result.
+  const calls: ChatRequest[] = [];
+  const provider: ModelProvider = {
+    name: "groq",
+    async chat(_config, req) {
+      calls.push(req);
+      const note = req.messages.map(m => String(m.content)).find(c => c.includes("[CHECKED EXAMPLE]")) ?? "";
+      const problem = /Problem: (.*)/.exec(note)?.[1] ?? "", steps = (/Steps: (.*)/.exec(note)?.[1] ?? "").split(/\s{2}(?=\d+\. )/), result = /Result: (.*)/.exec(note)?.[1] ?? "";
+      const message = `@@idea\nCharge is conserved, so the current into a junction equals the current out of it. Energy is conserved, so the voltages round a loop add up to zero. Those are Kirchhoff's laws.\n@@example\n${problem}\n${steps.join("\n")}\nSo the result is ${result}.\n@@try\nWhat is the combined resistance of the two parallel branches in your circuit?`;
+      return { text: reply(message, { finalAnswer: result }), inputTokens: 900, outputTokens: 300, latencyMs: 10, ttftMs: null };
+    },
+    async health() { return { ok: true }; },
+  };
+  const res = await handleTutor({ repo: pgRepo(db), providers: { groq: provider }, sleep: async () => {} }, u, ask(KIRCHHOFF));
+  assert.equal(calls.length, 1, "no rewrite was asked for");
+  assert.match((res.body.reply as any).message, /@@example[\s\S]*So the result is/, "the lesson reached the student whole");
+  assert.equal((res.body as any).accuracy.example, "checked");
+  // Outside the example the guard still works.
+  const v = await createUser(db);
+  const leaky = scripted([reply("@@idea\nKirchhoff's current law says the currents into a junction add up to the current out, and the voltage law says the voltages round a loop add up to zero, so the answer is 2 A.\n@@try\nWhat is the total resistance?", { finalAnswer: "2 A" })]);
+  const out = await handleTutor({ repo: pgRepo(db), providers: { groq: leaky.provider }, sleep: async () => {} }, v, ask(KIRCHHOFF));
+  assert.doesNotMatch((out.body.reply as any).message, /answer is 2 A/);
+});
