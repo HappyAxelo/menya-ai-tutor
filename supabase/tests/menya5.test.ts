@@ -858,3 +858,27 @@ describe("fixes from the live evaluation of 14 November 2026", () => {
     assert.equal((await db.query<any>("select count(*)::int n from public.session_items where session_id = $1", [res.body.sessionId])).rows[0].n, 0);
   });
 });
+
+
+describe("a conversation left empty by a busy AI", () => {
+  test("its first real message is a new problem and gets the full lesson, not feedback on an answer", async () => {
+    const u = await createUser(db);
+    // The first request finds the AI busy: no reply, and no empty conversation is left behind.
+    const busy: ModelProvider = { name: "groq", async chat() { const { ProviderError } = await import("../functions/_shared/providers.ts"); throw new ProviderError("rate_limited", "groq", 429, 3_600_000); }, async health() { return { ok: true }; } };
+    const failed = await handleTutor({ repo: pgRepo(db), providers: { groq: busy }, sleep: async () => {} }, u, ask("teach me quadratic equation"));
+    assert.equal(failed.status, 503);
+    assert.equal((await db.query<any>("select count(*)::int n from public.tutoring_sessions where user_id = $1", [u])).rows[0].n, 0, "the empty conversation is removed");
+    // An empty conversation that already exists (left by older code) is treated as a new start.
+    const empty = await pgRepo(db).createSession(u, null, "teach me quadratic equation", "English");
+    const m = obedient();
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: m.provider }, sleep: async () => {} }, u, ask("teach me algebra", { sessionId: empty.id }));
+    assert.equal((res.body as any).engine.format, "lesson", "idea, see how it works, worked example, try it yourself");
+    assert.match(m.calls[0].messages.map(x => String(x.content)).join("\n"), /@@idea[\s\S]*@@see[\s\S]*@@example[\s\S]*@@try/);
+  });
+
+  test("'teach me ...' in the middle of a conversation is a request to be taught", async () => {
+    const { classifyRequest } = await import("../functions/_shared/engine/state.ts");
+    for (const t of ["teach me algebra", "Teach me integration please", "help me understand vectors", "I want to learn probability"]) assert.equal(classifyRequest(t), "concept", t);
+    assert.equal(classifyRequest("teach me how to solve 2x + 3 = 7"), "problem", "values to work with still make it a problem");
+  });
+});

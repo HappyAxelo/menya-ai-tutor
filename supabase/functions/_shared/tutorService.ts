@@ -249,6 +249,9 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
 
   const lang = followStudent ? (detected ?? session.language) : input.language;
   const history = await repo.loadMessages(session.id, ent.context_turns * 2);
+  // A conversation has begun only once it has messages. One left empty by a reply that never came (the AI was busy)
+  // is still a new problem: treating its first message as an answer skipped the lesson (seen live, 14 November 2026).
+  const started = Boolean(input.sessionId) && history.length > 0;
   const rememberedAnswer = input.sessionId ? await repo.getSessionAnswer(session.id) : null;
   // The student's own words (a checked answer is stored under meta.text).
   const studentTexts = history.filter(m => m.role === "user")
@@ -257,7 +260,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   // "I don't know" and a question about an idea aren't attempts at the problem.
   const requestKind = input.action === "message" && input.message ? classifyRequest(input.message) : "other";
   const struggling = input.action === "message" && isStruggling(input.message ?? "");
-  const isAttempt = input.action === "check" || input.action === "quiz" || (input.action === "message" && Boolean(input.sessionId) && !struggling && requestKind !== "concept");
+  const isAttempt = input.action === "check" || input.action === "quiz" || (input.action === "message" && started && !struggling && requestKind !== "concept");
   if (input.action === "message" || input.action === "check" || input.action === "quiz") studentTexts.push(input.message!);
   const studentEquation = isAttempt ? checkEquation(input.message ?? "") : null;
   const newProblem = input.action === "practice" || input.action === "verify" || input.action === "review" || input.action === "test";
@@ -270,7 +273,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const sessionItem = input.sessionId ? await repo.getSessionItem(session.id) : null;
   let objectiveId: string | null = sessionItem?.item.objective ?? session.objective ?? null;
   // A new conversation that names a bank topic ("Kirchhoff's laws") gets that topic's checked practice from the start.
-  if (!objectiveId && !input.sessionId && input.action === "message") objectiveId = objectiveFromText(input.message ?? "");
+  if (!objectiveId && !started && input.action === "message") objectiveId = objectiveFromText(input.message ?? "");
   if (input.action === "review") objectiveId = input.objective ?? (await repo.dueReviews(userId, new Date(now()), 1))[0] ?? objectiveId;
 
   // What the server can verify itself: a bank item (deterministic marking), an
@@ -312,7 +315,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const prerequisiteVisited = prevMeta.prerequisiteVisited === true;
   const guidedSuccessBefore = Number(prevRecord?.guided_correct ?? 0) > 0;
   const plan = decideTurn({
-    mode, action: input.action as EngineAction, stuck: input.stuck ?? null, newProblem: !input.sessionId,
+    mode, action: input.action as EngineAction, stuck: input.stuck ?? null, newProblem: !started,
     attempts: attemptsNow, hintsUsed: session.hints_used, verdict: checked, misconception: serverMisconception,
     previous: { state: prevMeta.state ?? null, hintLevel: Number.isInteger(prevMeta.engineHint) ? prevMeta.engineHint : null,
                 misconception: prevMis, sameMisconceptionCount: repeats,
@@ -502,10 +505,10 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     repo.getLearnerProfile(userId).catch(() => null),
     input.action === "message" && input.message ? repo.searchMaterials(userId, input.message, 4).catch(() => []) : Promise.resolve([]),
     // Their marked answers: at the start of a conversation and whenever teaching changes approach.
-    !input.sessionId || struggling || plan.state === "EXPLAIN" || plan.state === "MODEL" || plan.state === "HINT"
+    !started || struggling || plan.state === "EXPLAIN" || plan.state === "MODEL" || plan.state === "HINT"
       ? repo.learnerMemory(userId).catch(() => []) : Promise.resolve([]),
     // How much help this learner has needed lately, at the start of a conversation.
-    !input.sessionId ? repo.teachingSignals(userId).catch(() => ({})) : Promise.resolve({}),
+    !started ? repo.teachingSignals(userId).catch(() => ({})) : Promise.resolve({}),
   ]);
   const signals = signalsNote(teachingCounts as Record<string, number>);
   const prerequisites = objectiveId ? objectiveInfo(objectiveId)?.prerequisites ?? [] : [];
@@ -777,6 +780,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   }
 
   if (!served) {
+    // A conversation this request created and couldn't answer is removed, so it doesn't sit empty in the history.
+    if (!input.sessionId) await repo.deleteEmptySession(userId, session.id).catch(() => {});
     await repo.releaseQuota(userId, input.requestId);
     await repo.recordUsage({
       request_id: input.requestId, user_id: userId, org_id: ent.org_id, plan_id: ent.plan_id,

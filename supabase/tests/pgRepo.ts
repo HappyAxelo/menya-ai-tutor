@@ -67,6 +67,9 @@ export function pgRepo(db: PGlite): Repo {
     async createSession(userId, orgId, title, language) {
       return one("insert into public.tutoring_sessions (user_id, org_id, title, language) values ($1, $2, $3, $4) returning *", [userId, orgId, title, language]);
     },
+    async deleteEmptySession(userId, sessionId) {
+      await db.query("delete from public.tutoring_sessions s where s.id = $1 and s.user_id = $2 and not exists (select 1 from public.tutoring_messages m where m.session_id = s.id)", [sessionId, userId]);
+    },
     async loadMessages(sessionId, limit) {
       const rows = (await db.query<any>("select role, content, meta from public.tutoring_messages where session_id = $1 order by id desc limit $2", [sessionId, limit])).rows;
       return rows.reverse();

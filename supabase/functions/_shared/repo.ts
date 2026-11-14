@@ -101,6 +101,8 @@ export interface Repo extends ResearchStore {
   recordUsage(record: UsageRecord): Promise<void>;
   getSession(userId: string, sessionId: string): Promise<Session | null>;
   createSession(userId: string, orgId: string | null, title: string, language: string | null): Promise<Session>;
+  // Removes a conversation only if it has no messages (one created by a request that got no reply).
+  deleteEmptySession(userId: string, sessionId: string): Promise<void>;
   loadMessages(sessionId: string, limit: number): Promise<StoredMessage[]>;
   // Returns the new messages' ids, in order.
   appendMessages(sessionId: string, userId: string, messages: StoredMessage[]): Promise<number[]>;
@@ -186,6 +188,10 @@ export function supabaseRepo(sb: SupabaseClient): Repo {
       const rows = check(await sb.from("tutoring_sessions")
         .insert({ user_id: userId, org_id: orgId, title, language }).select("*"), "create_session");
       return rows[0];
+    },
+    async deleteEmptySession(userId, sessionId) {
+      const rows = check(await sb.from("tutoring_messages").select("id").eq("session_id", sessionId).limit(1), "count_messages") as any[];
+      if (!rows.length) check(await sb.from("tutoring_sessions").delete().eq("id", sessionId).eq("user_id", userId), "delete_empty_session");
     },
     async loadMessages(sessionId, limit) {
       const rows = check(await sb.from("tutoring_messages").select("role, content, meta")

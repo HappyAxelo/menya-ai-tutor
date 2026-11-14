@@ -205,3 +205,9 @@ Not changed: the AI's own "check" steps are sometimes empty ("which matches the 
 The run stopped after topic 2 because the free Groq tier's daily allowance was used up (the provider asked to wait 23 minutes). The two topics it reached show every part working with the real model: an interactive visual (tangent, area), a four-option multiple-choice check, the server's checked worked example (swapped in where the model ignored it), and the server-written last line. Results: `MENYA5_EVAL_RESULTS_RUN3_PARTIAL.md`.
 
 **The evaluation and the live site share one free allowance.** A full 20-topic run uses most of a day's tokens, and while it is exhausted students also see "Menya is very busy". Run the rest at a quiet time (from the `supabase` folder: `FROM=3 node dev/eval-menya5.ts`, in PowerShell `$env:FROM = "3"` first), or after moving to a paid tier.
+
+## 13. A lesson that came back as two parts (14 November 2026, server version 32)
+
+The owner asked "teach me algebra" and got only "About your answer" and "Try it yourself". Cause: an earlier question in that conversation ("teach me quadratic equation") had found the AI busy, because the evaluation runs had used the free daily allowance. The server had already created the conversation, left it empty, and the next message went into it. The server treated any message in an existing conversation as an answer to the problem, so it gave feedback instead of a lesson. This was in the code before Menya 5; the busy period made it visible.
+
+Fixed: a conversation with no messages yet is treated as a new start, so its first message gets the full lesson; a conversation created by a request that got no reply is removed; and "teach me…", "help me understand…", "I want to learn…" are treated as requests to be taught at any point in a conversation.

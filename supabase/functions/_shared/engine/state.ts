@@ -233,7 +233,7 @@ export function classifyRequest(text: string): RequestKind {
   const t = text.trim();
   if (!t) return "other";
   if (/\d\s*[-+*/=^×÷]|[-+*/=^×÷]\s*\d|\b\d+(\.\d+)?\s*(v|a|w|hz|kg|g|m|s|km|cm|mm|n|j|mol|ohms?|Ω|m\/s)\b|```|\b(solve|calculate|compute|evaluate|simplify|factori[sz]e|differentiate|integrate|prove|balance|find the (value|derivative|integral|area|sum|roots?)|write (a|the|me a) (program|function|code|script)|r[ée]soudre|calculer|hesabu|kokotoa|bara)\b/i.test(t)) return "problem";
-  if (/^(what(?:'s| is| are| does| do)\b|who (is|was)\b|why\b|how (does|do|did|is|are|can)\b(?! i (solve|calculate|find|compute))|explain\b|describe\b|define\b|tell me (about|how|why|what)\b|i (don'?t|do not|dont) (understand|get)\b.+|help me understand\b|can you explain\b|could you explain\b|(the )?(difference|relationship) between\b|meaning of\b|qu'est[- ]ce\b|c'est quoi\b|pourquoi\b|comment fonctionne\b|explique[zr]?\b|ni nini\b|nini\b|eleza\b|kwa nini\b|sobanur\w*\b|ni iki\b|kuki\b)/i.test(t)) return "concept";
+  if (/^(teach me\b|help me (?:learn|understand|with)\b|i (?:want|need|would like) to (?:learn|understand|study)\b|can you teach\b|what(?:'s| is| are| does| do)\b|who (is|was)\b|why\b|how (does|do|did|is|are|can)\b(?! i (solve|calculate|find|compute))|explain\b|describe\b|define\b|tell me (about|how|why|what)\b|i (don'?t|do not|dont) (understand|get)\b.+|help me understand\b|can you explain\b|could you explain\b|(the )?(difference|relationship) between\b|meaning of\b|qu'est[- ]ce\b|c'est quoi\b|pourquoi\b|comment fonctionne\b|explique[zr]?\b|ni nini\b|nini\b|eleza\b|kwa nini\b|sobanur\w*\b|ni iki\b|kuki\b)/i.test(t)) return "concept";
   return "other";
 }
 
