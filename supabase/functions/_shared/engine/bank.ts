@@ -4,8 +4,8 @@
 // mastery check can't be wrong because a model invented a bad answer key.
 // Each template also recognises the wrong answers that common misconceptions
 // produce, which gives a diagnosis with evidence instead of a guess.
-import { booleanEquivalent, equivalent, finalExpression } from "./expr.ts";
-import { int, lastNumber, lastQuantity, numericMark, pick, rng, round, type Item, type Marking, type Objective, type Template } from "./bankKit.ts";
+import { booleanEquivalent, equivalent, exprProbe, finalExpression } from "./expr.ts";
+import { int, lastNumber, lastQuantity, numericMark, numericProbe, pick, rng, round, type Item, type Marking, type Objective, type Template } from "./bankKit.ts";
 import { STEM_OBJECTIVES, STEM_TEMPLATES } from "./bankStem.ts";
 export { lastNumber, lastQuantity, workingFound } from "./bankKit.ts";
 export type { Item, Marking, Objective, Subject, Template, Verdict } from "./bankKit.ts";
@@ -303,4 +303,47 @@ export function questionKey(question: string): number {
   let h = 2166136261;
   for (let i = 0; i < question.length; i++) h = Math.imul(h ^ question.charCodeAt(i), 16777619);
   return (h >>> 1) & 0x7fffffff;
+}
+
+// ---------------- Multiple choice ----------------
+// The options for a "Test your understanding" check: the reference answer and the answers the template's
+// misconceptions produce (each wrong option is a real, named mistake). Every option is marked by the
+// template itself before it is offered: the right one must mark correct, every other one incorrect.
+// Null when the template can't supply at least two meaningful wrong options.
+const shuffle = <T,>(xs: T[], random: () => number) => { const a = [...xs]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+export function multipleChoice(item: Item, random: () => number): string[] | null {
+  const t = TEMPLATES.find(x => x.id === item.templateId);
+  if (!t) return null;
+  const verdict = (text: string) => { try { return t.mark(item, text).verdict; } catch { return "unreadable"; } };
+  if (verdict(item.answer) !== "correct") return null;
+  numericProbe.on = true; numericProbe.answer = null; numericProbe.wrong = null; exprProbe.exprs = [];
+  try { t.mark(item, "x^7 + 123457"); } catch { /* only the probes matter */ }
+  const captured = { answer: numericProbe.answer, wrong: numericProbe.wrong, exprs: exprProbe.exprs };
+  numericProbe.on = false; numericProbe.answer = null; numericProbe.wrong = null; exprProbe.exprs = null;
+
+  const wrong: string[] = [];
+  const add = (text: string | null) => {
+    if (!text || wrong.length >= 3) return;
+    const key = text.replace(/\s+/g, "").toLowerCase();
+    if (key === item.answer.replace(/\s+/g, "").toLowerCase() || wrong.some(w => w.replace(/\s+/g, "").toLowerCase() === key)) return;
+    if (verdict(text) === "incorrect") wrong.push(text);
+  };
+  if (captured.wrong && captured.answer != null) {
+    const m = /^(.*?)(-?\d+(?:\.\d+)?)(.*)$/s.exec(item.answer);
+    if (!m) return null;
+    const shown = Number(m[2]), scale = captured.answer !== 0 ? shown / captured.answer : 1;
+    const probability = shown > 0 && shown < 1 && !/[a-zA-Z]/.test(m[3]);
+    const fmt = (v: number) => {
+      if (!Number.isFinite(v) || (probability && (v <= 0 || v >= 1))) return null;
+      const r = Number.isInteger(v) ? v : Math.abs(v) >= 100 ? Math.round(v * 10) / 10 : Number(v.toPrecision(3));
+      return `${m[1]}${r}${m[3]}`;
+    };
+    for (const v of Object.values(captured.wrong)) add(fmt(v * scale));          // named mistakes first
+    for (const v of [shown * 2, shown / 2, shown * 10, shown / 10, shown + 1]) add(fmt(v));
+  } else if (captured.exprs?.length) {
+    for (const e of captured.exprs) if (equivalent(e, item.answer) === false) add(e);
+  } else return null;
+  if (wrong.length < 2) return null;
+  return shuffle([item.answer, ...wrong], random);
 }

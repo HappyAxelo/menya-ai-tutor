@@ -41,3 +41,21 @@ test("a reopened conversation still shows which line was not confirmed", () => {
   assert.deepEqual(m.unverified, ["I_a + I_b ≈ I_total"]);
   assert.equal(historyToMessages([{ role: "assistant", id: 2, content: "x", meta: {} }])[0].unverified, null);
 });
+
+test("worked-example equations are typeset; anything uncertain stays plain text", async () => {
+  const { plainToTex, isEquationLine, splitStep } = await import("../src/lib/mathTex.js");
+  const katex = (await import("katex")).default;
+  const lines = ["R_parallel = 10·15/(10 + 15) = 6 Ω", "R_p = R2·R3/(R2 + R3)", "I_total = 8/16 = 0.5 A", "Δ = b² − 4ac = (−8)² − 4(2)(6) = 16", "x = (8 ± 4)/4",
+    "x₁ = (8 + 4)/4 = 3", "2(3)² − 8(3) + 6 = 18 − 24 + 6 = 0", "d/dx(5x^4) = 5·4·x^3", "v_y = 20·sin 30° = 10 m/s", "a = F_net/m = 10 N / 5 kg = 2 m/s²", "|z| = √(3² + 4²) = 5"];
+  for (const l of lines) {
+    assert.ok(isEquationLine(l), l);
+    assert.doesNotThrow(() => katex.renderToString(plainToTex(l), { throwOnError: true, strict: "ignore" }), l);
+  }
+  assert.equal(plainToTex("x = (8 ± 4)/4"), String.raw`x = \frac{8 \pm 4}{4}`);
+  assert.equal(plainToTex("R_parallel = 10·15/(10 + 15) = 6 Ω"), String.raw`R_{\text{parallel}} = \frac{10\cdot 15}{10 + 15} = 6\,\Omega`);
+  for (const l of ["So the result is 1.2 A.", "Check: if t=1, g(1)=6", "We know 3x + 5 = 14, we need x."]) assert.equal(isEquationLine(l), false, l);
+  assert.equal(plainToTex(String.raw`\href{x}{y} = 1`), null, "TeX from a reply is never passed through");
+  assert.deepEqual(splitStep("Calculate the discriminant\nIt tells how many roots there are.\nΔ = b² − 4ac = 16"),
+    { title: "Calculate the discriminant", parts: [{ type: "text", value: "It tells how many roots there are." }, { type: "math", value: "Δ = b² − 4ac = 16" }] });
+  assert.deepEqual(splitStep("Combine the resistors: R_p = 12 Ω. This is one resistor now.").parts.map(p => p.type), ["math", "text"]);
+});

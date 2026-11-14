@@ -21,7 +21,7 @@
 export type EngineState = "TEACH" | "PREREQ" | "DIAGNOSE" | "GUIDE" | "HINT" | "EXPLAIN" | "MODEL" | "PRACTISE" | "VERIFY" | "REVIEW" | "MASTERED";
 export type Mode = "learn" | "explain";
 export type StuckReason = "start" | "step" | "mistake" | "concept";
-export type EngineAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck" | "another" | "smaller" | "similar" | "test";
+export type EngineAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck" | "another" | "smaller" | "similar" | "test" | "quiz";
 export type CheckedVerdict = "correct" | "incorrect" | "unreadable" | "unknown";
 
 export const HINT_LADDER: Record<number, string> = {

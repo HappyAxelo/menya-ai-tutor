@@ -850,3 +850,56 @@ button.mn-rs-cat { cursor: pointer; }
   .mn-map > li { grid-template-columns: 1fr; }
   .mn-stages li { font-size: 10.5px; }
 }
+
+/* ---------- Worked example, laid out like a textbook ---------- */
+.mn-worked ol { list-style: none; margin: 6px 0 0 !important; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.mn-worked li { margin: 0; }
+.mn-worked h4 { display: flex; gap: 6px; align-items: baseline; margin: 0 0 4px; font-size: 15px; font-weight: 650; color: var(--text); }
+.mn-worked h4 p { margin: 0; display: inline; }
+.mn-worked h4 .n { flex: none; }
+.mn-worked li > p, .mn-worked li > div > p { margin: 2px 0; }
+.mn-eq { margin: 8px 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; text-align: center; }
+.mn-eq .katex-display { margin: 0; }
+.mn-eq .katex { font-size: 1.08em; }
+.mn-eq.plain { font-family: var(--font-mono); font-size: 14px; }
+
+/* ---------- Test your understanding ---------- */
+.mn-quiz { margin-top: 12px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); font-weight: 400; }
+.mn-quiz h3 { margin: 0 0 4px; font-size: 15px; color: var(--text); }
+.mn-quiz-lead { margin: 0 0 8px; color: var(--text-2); font-weight: 400 !important; }
+.mn-quiz-q { font-weight: 500; margin-bottom: 10px; }
+.mn-quiz-options { display: grid; gap: 8px; margin-bottom: 12px; }
+.mn-quiz-opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); cursor: pointer; font-weight: 400 !important; }
+.mn-quiz-opt:hover { border-color: var(--accent); }
+.mn-quiz-opt.chosen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.mn-quiz-opt.right { border-color: var(--success); background: var(--success-soft); }
+.mn-quiz-opt.wrong { border-color: var(--danger); background: var(--danger-soft); }
+.mn-quiz-opt input { accent-color: var(--primary); margin: 0; flex: none; }
+.mn-quiz-mark { margin-left: auto; font-size: 12.5px; font-weight: 600; }
+.mn-quiz-opt.right .mn-quiz-mark { color: var(--success); }
+.mn-quiz-opt.wrong .mn-quiz-mark { color: var(--danger); }
+
+/* ---------- See how it works: interactive visuals ---------- */
+.mn-lab { margin: 4px 0 6px; }
+.mn-lab svg .wire { fill: none; stroke: var(--text-2); stroke-width: 2; stroke-linejoin: round; }
+.mn-lab svg .part { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.mn-lab svg .gap { fill: var(--surface); stroke: none; }
+.mn-lab svg .cell { stroke: var(--text); stroke-width: 3; }
+.mn-lab svg .cell.long { stroke-width: 2; }
+.mn-lab svg .node { fill: var(--accent); }
+.mn-lab svg .lbl { font-size: 12px; fill: var(--text); font-weight: 600; }
+.mn-lab svg .val { font-size: 12px; fill: var(--accent); }
+.mn-lab svg .cur { font-size: 13px; fill: var(--accent); font-weight: 600; }
+.mn-lab svg .curve { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+.mn-lab svg .tangent { stroke: var(--warn); stroke-width: 2; }
+.mn-lab svg .secant { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.mn-lab svg .dot { fill: var(--warn); }
+.mn-lab svg .dot2 { fill: var(--muted); }
+.mn-lab svg .bar { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 0.6; }
+.mn-lab svg .limit { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.mn-lab svg .push { stroke: var(--accent); stroke-width: 3; }
+.mn-lab svg .fric { stroke: var(--danger); stroke-width: 3; }
+.mn-lab svg .head { fill: var(--text-2); }
+.mn-lab svg .span { stroke: var(--text-2); stroke-width: 1.5; }
+.mn-lab-rules { list-style: none; margin: 4px 0 6px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-family: var(--font-mono); font-size: 13px; line-height: 1.7; overflow-x: auto; }
+.mn-lab-rules li.ok span { color: var(--success); font-weight: 700; }

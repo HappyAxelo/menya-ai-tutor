@@ -145,13 +145,14 @@ function useReveal(text, animate) {
 
 function UserMessage({ msg }) {
   const { t } = useT();
-  if (msg.control && msg.control !== "check") {
+  if (msg.control && msg.control !== "check" && msg.control !== "quiz") {
     return <div className="mn-msg user"><div className="mn-user-action">{msg.control === "stuck" ? msg.content : t(`action.${msg.control}`)}</div></div>;
   }
   return (
     <div className="mn-msg user">
       <div className="mn-user-bubble" dir="auto">
         {msg.control === "check" && <span className="mn-user-label"><ClipboardCheck size={13} />{t("action.check")}</span>}
+        {msg.control === "quiz" && <span className="mn-user-label"><ClipboardCheck size={13} />{t("quiz.myAnswer")}</span>}
         {msg.content}
         {msg.attachments?.length > 0 && (
           <span className="mn-user-files">
@@ -222,7 +223,7 @@ function ResearchSources({ research, onPlans }) {
   );
 }
 
-function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisabled, onFeedback }) {
+function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisabled, onFeedback, onQuiz, busy }) {
   const { t } = useT();
   const shown = useReveal(msg.content, animate);
   const done = shown === msg.content;
@@ -251,7 +252,7 @@ function AssistantMessage({ msg, animate, showTags, onRetry, onPlans, retryDisab
         {msg.engine?.item && <div className="mn-item-label"><Target size={13} aria-hidden="true" />{t(`engine.item.${msg.engine.item.kind}`)}</div>}
         <div className="mn-content" dir="auto">
           {plain ? <p>{shown}</p>
-            : isLesson ? <LessonSections lesson={lesson} diagram={msg.diagram} settled={done} />
+            : isLesson ? <LessonSections lesson={lesson} diagram={msg.diagram} settled={done} lab={msg.lab} quiz={msg.quiz} quizResult={msg.quizResult} onQuiz={onQuiz} busy={busy} />
             : <Suspense fallback={<p style={{ whiteSpace: "pre-wrap" }}>{shown}</p>}><Markdown>{shown}</Markdown></Suspense>}
         </div>
         {done && (
@@ -528,12 +529,12 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
   // One path for every learner action: a typed message, an answer to check, or a button.
   const runAction = useCallback(async (action, text = "", { retry = false, stuck = null, objective = null, attachments = null } = {}) => {
     if (loading || !online) return;
-    if ((action === "message" || action === "check") && !text.trim() && !attachments?.length) return;
+    if ((action === "message" || action === "check" || action === "quiz") && !text.trim() && !attachments?.length) return;
     loadMarkdown();
     const research = action === "message" && (retry ? retry === "research" : researchNext);
     setLoading(true); setLoadingKind(research ? "research" : action);
     const userMsg = action === "message" ? { role: "user", content: text, attachments: attachments?.map(a => ({ name: a.name, kind: a.kind })) }
-      : { role: "user", control: action, content: action === "check" ? text : action === "stuck" ? t(`stuck.${stuck}`) : ACTION_LABELS[action] };
+      : { role: "user", control: action, content: action === "check" || action === "quiz" ? text : action === "stuck" ? t(`stuck.${stuck}`) : ACTION_LABELS[action] };
     setMessages(prev => {
       const base = retry && prev.at(-1)?.type === "error" ? prev.slice(0, -1) : prev;
       return retry ? base : [...base, userMsg];
@@ -543,7 +544,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
     const prefs = { learnerLevel: settings.level === "auto" ? undefined : settings.level, style: settings.style };
     const lang = language !== "auto" ? language : lastLanguage;
     try {
-      let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null, researchView = null, unverified = null, firstOnTopic = false, exampleChecked = false;
+      let parsed, advanced = false, engineView = null, diagram = null, pictureNote = null, researchView = null, unverified = null, firstOnTopic = false, exampleChecked = false, lab = null, quiz = null;
       if (client) {
         const r = await client.act(action, { text, language, ...prefs, mode, stuck: stuck ?? undefined, objective: objective ?? undefined, research,
           attachments: attachments?.map(({ name, kind, text: body }) => ({ name, kind, text: body })) });
@@ -551,7 +552,12 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
           const message = errorText(t, r.error, r.message, { seconds: r.retryAfter ?? 30 });
           throw Object.assign(new Error(message), { limit: r.isLimit ? r : null, retryable: r.retryable });
         }
-        parsed = r.reply; advanced = r.advanced; engineView = r.engine; diagram = r.diagram; pictureNote = r.pictureNote; researchView = r.research; unverified = r.unverified; exampleChecked = r.exampleChecked;
+        parsed = r.reply; advanced = r.advanced; engineView = r.engine; diagram = r.diagram; pictureNote = r.pictureNote; researchView = r.research; unverified = r.unverified; exampleChecked = r.exampleChecked; lab = r.lab; quiz = r.quiz;
+        // The multiple-choice card shows how the choice was marked (right or not yet) beside the option.
+        if (action === "quiz") {
+          const verdict = r.engine?.verified ?? null;
+          setMessages(prev => { const at = prev.findLastIndex(m => m.role === "assistant" && m.quiz); return at < 0 ? prev : prev.map((m, i) => (i === at ? { ...m, quizResult: { choice: text, verdict } } : m)); });
+        }
         // The first reply on a topic says where the learner stands on it; after that only when an answer was marked.
         firstOnTopic = Boolean(r.engine?.objective && r.engine.objective.id !== engine?.objective?.id);
         setHintsUsed(r.hintsUsed ?? 0);
@@ -575,7 +581,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
         content: parsed.message, type: action === "hint" ? "hint" : parsed.type, hintLevel: parsed.hintLevel,
         conceptsDetected: parsed.conceptsDetected, misconceptionDetected: parsed.misconceptionDetected,
         progressSummary: parsed.progressSummary, solved: parsed.solved === true, advanced, messageId: parsed.messageId ?? null,
-        engine: client ? engineView : null, diagram, pictureNote, research: researchView, unverified, exampleChecked,
+        engine: client ? engineView : null, diagram, pictureNote, research: researchView, unverified, exampleChecked, lab, quiz,
         counted: action === "hint", showTopic: firstOnTopic,
       });
     } catch (err) {
@@ -867,7 +873,7 @@ export default function AITutor({ client = null, guest = false, headerExtras = n
                 ? <UserMessage key={i} msg={msg} />
                 : <AssistantMessage key={i} msg={msg} animate={settings.animate && i === animateIndex} showTags={settings.showTags}
                     onRetry={retry} onPlans={openPlans} retryDisabled={loading || !online}
-                    onFeedback={client?.feedback} />)}
+                    onFeedback={client?.feedback}  onQuiz={choice => runAction("quiz", choice)} busy={loading || !online} />)}
             </div>
 
             <ActionBar actions={actions} onAction={(id, reason) => runAction(id, "", { stuck: reason })} />

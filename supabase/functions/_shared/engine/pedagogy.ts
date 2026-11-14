@@ -119,18 +119,24 @@ export function suggestVisual(text: string): VisualSuggestion | null {
 const SECTION_TEXT: Record<SectionId, string> = {
   idea: "@@idea: A familiar comparison from daily life first, then a one-sentence definition. Two to four short sentences. At most one new technical word, explained where it appears.",
   see: "@@see: Explain the picture: what the student is looking at, how the parts connect, the one thing to notice, and how that answers their question. Two to four short sentences that still make sense if the picture can't be shown. Name the parts in words.",
-  example: "@@example: A worked example with DIFFERENT numbers or a different case from the student's own problem. Write it as a numbered list: 1. what we know and what we need; then each step with the reason for it; last step: how to check the result.",
+  example: "@@example: A worked example with DIFFERENT numbers or a different case from the student's own problem, as numbered steps laid out like a textbook. Each step: a first line with the number and a short title of three to six words (\"2. Calculate the discriminant\"); then one sentence saying why this step; then each equation on a line of its own, nothing else on that line, written in plain Unicode (x², a/b, ·, √, Δ, subscripts as R_1 or R_total). Step 1 is \"Identify what we know\" (the given values, one per line, and what we need). The last step is \"Check\": substitute the result back and show the computed numbers agreeing.",
   try: "@@try: Exactly ONE question, the only question in the reply. It tests the one thing just taught, can be answered from what was just shown, and needs nothing new. Ask for recognition first; application once they have shown recognition. For a problem of their own, ask them to do its first step, not the whole thing.",
   feedback: "@@feedback: About the student's last answer, respectfully: what was right, then the missing or wrong idea. Short.",
   check: "@@check: One short independent exercise on a different case, to do without help.",
 };
 
-export function shapeNote(s: LessonShape, picture: { offered: boolean; tablesOnly: boolean }): string {
+// lab: a description of the interactive visual the app shows in "See how it works" (labs.ts).
+// quiz: the app shows a checked multiple-choice question after the lesson, so @@try only points to it.
+export function shapeNote(s: LessonShape, picture: { offered: boolean; tablesOnly: boolean; lab?: string | null; quiz?: boolean }): string {
   if (s.format === "plain" || (!s.sections.length && s.format !== "brief")) return "";
   if (s.format === "brief") return "Format: a short direct answer. No sections, no lesson, no follow-up question unless one is really useful.";
-  const sections = s.sections.filter(id => id !== "see" || picture.offered);
+  const sections = s.sections.filter(id => id !== "see" || picture.offered || picture.lab);
   const lines = [`Format: write the message in these sections, in this order, each starting on its own line with its marker (for example @@idea) followed by a line break, nothing before the first marker and no dash after a marker. In a worked example put every numbered step on its own line. Keep it short: students read this on a phone.`];
-  for (const id of sections) lines.push(SECTION_TEXT[id]);
+  for (const id of sections) {
+    if (id === "see" && picture.lab) lines.push(`@@see: The app shows an interactive ${picture.lab}. It starts at the worked example's numbers. In two to four short sentences: what each part of it shows, the one relationship to watch, and one thing to change with a slider and what will happen. Don't repeat the worked example's arithmetic.`);
+    else if (id === "try" && picture.quiz) lines.push("@@try: ONE short sentence and no question mark: tell the student to answer the multiple-choice check the app shows right below (a new problem of the same kind), then to use the same steps on their own problem.");
+    else lines.push(SECTION_TEXT[id]);
+  }
   if (s.foundation) lines.push("Teach before you ask: nothing in the reply may be a question until the @@try section.");
   return lines.join("\n");
 }
@@ -331,5 +337,12 @@ export function asksForProblem(text: string): "practice" | "test" | null {
 // The checked example written out by the server itself, for when the model would not use it:
 // the problem, the method in a sentence, every computed step on its own line, and the result.
 export function composeExample(example: { question: string; steps: string[]; answer: string; rubric: string }): string {
-  return [example.question, "", example.rubric, "", ...example.steps.map((s, i) => `${i + 1}. ${s}`), `${example.steps.length + 1}. Result: ${example.answer}`].join("\n");
+  // A step "R_total = 3 + 12 = 15 Ω" becomes a titled step with its equation on its own line.
+  const titled = example.steps.map((s, i) => {
+    const eq = /^\s*([^=]{1,24}?)\s*=\s*\S/.exec(s);
+    const lhs = eq?.[1].trim();
+    const title = !lhs ? s : /^d\/dx\((.+)\)$/.exec(lhs) ? `Differentiate ${/^d\/dx\((.+)\)$/.exec(lhs)![1]}` : `Find ${lhs}`;
+    return lhs ? `${i + 2}. ${title}\n${s}` : `${i + 2}. ${title}`;
+  });
+  return [`1. Identify what we know\n${example.question}\n${example.rubric}`, ...titled, `${example.steps.length + 2}. Result\n${example.answer}`].join("\n");
 }

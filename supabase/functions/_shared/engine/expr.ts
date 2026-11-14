@@ -147,7 +147,11 @@ export function rng(seed: number) {
 }
 
 // True when both expressions agree (relative tolerance) at random points. Null if either can't be read.
+// While switched on, records every expression an answer is compared with (multiple-choice options, bank.ts).
+export const exprProbe: { exprs: string[] | null } = { exprs: null };
+
 export function equivalent(a: string, b: string, points = 24): boolean | null {
+  if (exprProbe.exprs) exprProbe.exprs.push(b);
   const na = parseExpression(a), nb = parseExpression(b);
   if (!na || !nb) return null;
   const names = [...new Set([...variables(na), ...variables(nb)])].filter(v => v !== "e");   // e is Euler's number

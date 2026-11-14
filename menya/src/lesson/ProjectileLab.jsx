@@ -8,10 +8,11 @@ import { projectile } from "../lib/learning.js";
 const W = 520, H = 230, PAD = { l: 44, r: 14, t: 14, b: 32 };
 const fmt = (v) => (v >= 100 ? v.toFixed(0) : v.toFixed(v >= 10 ? 1 : 2));
 
-export default function ProjectileLab() {
+// v0, angle0: where it starts (a lesson's worked example); the notebook uses the defaults.
+export default function ProjectileLab({ v0 = 20, angle0 = 45 }) {
   const { t } = useT();
-  const [v, setV] = useState(20);
-  const [angle, setAngle] = useState(45);
+  const [v, setV] = useState(Math.min(40, Math.max(5, v0)));
+  const [angle, setAngle] = useState(Math.min(85, Math.max(5, angle0)));
   const [g, setG] = useState(9.8);
   const p = projectile(v, angle, g);
   // The axes stay fixed for a given gravity, so a change in speed or angle visibly changes the path.

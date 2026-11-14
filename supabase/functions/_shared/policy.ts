@@ -303,8 +303,8 @@ export function problemNote({ hintsUsed, attempts, practice }: { hintsUsed: numb
 
 // Learner actions besides typing a message. Each becomes an app message
 // (English, in brackets) that the model answers in the learner's language.
-export type TutorAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck" | "another" | "smaller" | "similar" | "test";
-export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "diagram", "example", "check", "practice", "summary", "verify", "review", "stuck", "another", "smaller", "similar", "test"];
+export type TutorAction = "message" | "hint" | "simpler" | "diagram" | "example" | "check" | "practice" | "summary" | "verify" | "review" | "stuck" | "another" | "smaller" | "similar" | "test" | "quiz";
+export const TUTOR_ACTIONS: TutorAction[] = ["message", "hint", "simpler", "diagram", "example", "check", "practice", "summary", "verify", "review", "stuck", "another", "smaller", "similar", "test", "quiz"];
 export const STUCK_REASONS = ["start", "step", "mistake", "concept"] as const;
 
 export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, language?: string | null, studentText?: string): string {
@@ -322,6 +322,8 @@ export function actionRequest(action: Exclude<TutorAction, "message" | "hint">, 
       return `[SHOW IT AS A PICTURE] The student wants to see your last point drawn. Draw it in the diagram field and explain the picture in one or two short sentences, ending with one question that uses it. Do not move further toward the answer. Reply in ${lang}.`;
     case "example":
       return `[WORKED EXAMPLE] The student wants to see the method. Fully work through a SIMILAR problem with different numbers or values (type "explanation"), showing each step briefly. Choose values whose result is DIFFERENT from the answer to the student's problem. Do not solve the student's own problem and do not use its numbers. Finish by asking them to apply the same steps to their problem. Reply in ${lang}.`;
+    case "quiz":
+      return `[MULTIPLE-CHOICE CHECK] The student chose «${studentText}» in the multiple-choice check shown after your lesson. That check is a new problem of the same kind, not the student's own problem. The [TUTOR ENGINE] note says whether the server marked the choice right. If right: say in one or two sentences why it is right, then ask them to use the same steps on the first step of their own problem. If not: say plainly it isn't right yet, name the likely slip without saying which option is right, explain that step another way, and ask them to look at the options again. Reply in ${lang}.`;
     case "check":
       return `[CHECK MY ANSWER] The student asks you to check this answer to the current problem: «${studentText}». Compare it with your verified solution. Say clearly whether it is correct, partly correct or not yet right, and why. If it is not right, point to the first mistake without giving the correct value. Set solved only if it is fully correct. Reply in ${lang}.`;
     case "practice":

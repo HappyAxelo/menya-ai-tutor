@@ -31,6 +31,7 @@ export interface Item {
   // Intermediate values a correct working passes through. Finding them in a student's working earns
   // method marks in an exam even when the final answer is wrong. Private, like the answer.
   working?: number[];
+  quiz?: boolean;                  // shown as a multiple-choice check after a lesson (only that action is marked against it)
 }
 
 export interface Template {
@@ -88,7 +89,11 @@ export function lastValue(text: string): number | null {
 
 export const close = (a: number, b: number, rel = 0.01) => Math.abs(a - b) <= rel * Math.max(1, Math.abs(b));
 
+// While switched on, records the reference value and the misconception values a numeric template marks against.
+export const numericProbe: { on: boolean; answer: number | null; wrong: Record<string, number> | null } = { on: false, answer: null, wrong: null };
+
 export function numericMark(value: number | null, answer: number, wrong: Record<string, number>, rel = 0.01, cmp: (a: number, b: number, rel: number) => boolean = close): Marking {
+  if (numericProbe.on && numericProbe.wrong == null) { numericProbe.answer = answer; numericProbe.wrong = wrong; }
   if (value == null) return { verdict: "unreadable", misconception: null, note: "no number found in the answer" };
   if (cmp(value, answer, rel)) return { verdict: "correct", misconception: null, note: `${value} matches the reference` };
   for (const [id, v] of Object.entries(wrong)) {

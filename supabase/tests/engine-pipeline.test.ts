@@ -71,8 +71,8 @@ describe("tutoring engine in the pipeline", () => {
     assert.match((res.body.reply as any).message, new RegExp(`${V} V`));
     assert.doesNotMatch(JSON.stringify(res.body), new RegExp(it.answer.replace(".", "\\.")), "the answer key is not in the response");
     const served = (await db.query<any>("select * from public.served_items where user_id = $1", [u])).rows;
-    // Two problems have been shown: the checked worked example in the lesson, and this practice problem.
-    assert.equal(served.length, 2);
+    // Three problems have been shown: the lesson's checked worked example, its multiple-choice check, and this practice problem.
+    assert.equal(served.length, 3);
     assert.ok(served.some(row => row.seed === questionKey(it.question)), "recorded by question text");
   });
 

@@ -117,7 +117,7 @@ export function backendTutorClient() {
              hintsUsed: r.data.hintsUsed, problem: r.data.problem ?? null, engine: r.data.engine ?? null,
              diagram: r.data.diagram ?? null, pictureNote: r.data.pictureNote ?? null, research: r.data.research ?? null,
              unverified: r.data.accuracy?.unverified?.length ? r.data.accuracy.unverified : null,
-             exampleChecked: r.data.accuracy?.example === "checked" };
+             exampleChecked: r.data.accuracy?.example === "checked", lab: r.data.lab ?? null, quiz: r.data.quiz ?? null };
   };
   return {
     // action: message | hint | simpler | diagram | example | check | practice | summary | verify | review | stuck

@@ -166,3 +166,17 @@ The first live question on the deployed site showed the model **ignoring the ser
 Worked-example steps are now shown all at once, each on its own line (the owner's choice), instead of one at a time behind a button.
 
 Version 29 also stops the answer-leak guard from reading the server's own example as the student's answer (a value such as "1 A" in the example had replaced a whole lesson with a stand-in question). Checked on the live site afterwards: the Kirchhoff lesson used the server's example (30 V, 3 Ω, 20 Ω and 30 Ω: 12 Ω, 15 Ω, 2 A, 24 V, 1.2 A), named both laws, showed six steps on separate lines and carried the "computed by Menya" label. That is one question, not an evaluation: the 20-topic run is still to do.
+
+## 10. Lesson layout like a textbook (14 November 2026, owner's request)
+
+The owner asked for the lesson to look like a worked textbook page. Deployed the same day.
+
+| Part | Now |
+|---|---|
+| See how it works | On a bank topic, an **interactive visual** that starts at the worked example's numbers: a circuit with sliders that shows every current and voltage and checks Kirchhoff's two laws live (Ohm's law, series, voltage divider, Kirchhoff); a secant line turning into the tangent (derivatives); rectangles filling the area under a curve (integrals); a block with force arrows (Newton's second law); a moving wave (v = f·λ); the projectile launch. Computed in the browser, so it doesn't use the picture allowance. Other topics keep the drawn picture. |
+| Worked example | Numbered steps with a bold title ("2. Find R_parallel"), the sentence explaining the step, and each equation typeset and centred on its own line. Plain-text maths from the reply is converted for display; a line that can't be converted with confidence stays plain text. |
+| Try it yourself | On a bank topic, in English: **"Test your understanding"**, a new problem of the same kind with three or four options and a "Check answer" button. The wrong options are the answers the topic's named mistakes produce (for Kirchhoff, the series-drop mistake seen on the live site). The browser never knows which option is right: the server marks the choice and the next reply explains. A wrong choice can be changed and checked again; a right one closes the check. Typed work on the student's own problem is never marked against it. |
+
+The worked example and the check are never the student's own problem (a generated problem whose numbers all appear in the student's message is skipped).
+
+Limits: the check exists for 25 of 31 question types (not the chain rule, decimal to binary, Boolean simplification, Big-O, matrix products or complex products, where the wrong options aren't numbers or expressions the template can name). A right pick counts as practice evidence only, at low weight, because a pick can be a guess. Not in other languages yet, because the problems are written in English.

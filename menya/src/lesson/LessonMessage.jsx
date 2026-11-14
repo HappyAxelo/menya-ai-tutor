@@ -1,71 +1,67 @@
-import { Suspense, lazy, useState } from "react";
-import { Lightbulb, Eye, ListOrdered, PencilLine, MessageSquareText, ClipboardCheck, ChevronRight } from "lucide-react";
-import { parseLesson, splitSteps, unfoldSteps } from "../../../supabase/functions/_shared/lessonFormat.ts";
+import { Suspense, lazy } from "react";
+import { Lightbulb, Eye, ListOrdered, PencilLine, MessageSquareText, ClipboardCheck } from "lucide-react";
+import { parseLesson, unfoldSteps } from "../../../supabase/functions/_shared/lessonFormat.ts";
 import { useT } from "../i18n.js";
 import VisualExplanation from "./VisualExplanation.jsx";
 
+// The maths renderer, the worked-example layout, the interactive visuals and the multiple-choice card are
+// separate downloads, fetched once a reply has arrived, so the first screen stays light.
 const Markdown = lazy(() => import("../Markdown.jsx"));
+const WorkedExample = lazy(() => import("./WorkedExample.jsx"));
+const QuizCard = lazy(() => import("./QuizCard.jsx"));
+const LabView = lazy(() => import("./LabView.jsx"));
 const Text = ({ children }) => <Suspense fallback={<p style={{ whiteSpace: "pre-wrap" }}>{children}</p>}><Markdown>{children}</Markdown></Suspense>;
 
 const ICONS = { idea: Lightbulb, see: Eye, example: ListOrdered, try: PencilLine, feedback: MessageSquareText, check: ClipboardCheck };
 
-// A worked example as a numbered list: every step on its own line, all visible at once (the owner's choice,
-// 14 November 2026). Starting `shown` at 1 instead brings back one-step-at-a-time reveal with its buttons.
-function StepByStepExample({ body }) {
-  const { t } = useT();
-  const parts = splitSteps(body);
-  const [shown, setShown] = useState(Number.MAX_SAFE_INTEGER);
-  if (!parts) return <Text>{body}</Text>;
-  const { lead, steps, tail } = parts;
-  const finished = shown >= steps.length;
-  return (
-    <div className="mn-steps">
-      {lead && <Text>{lead}</Text>}
-      <ol>
-        {steps.slice(0, shown).map((s, i) => <li key={i}><span className="mn-step-n" aria-hidden="true">{i + 1}</span><div><Text>{s}</Text></div></li>)}
-      </ol>
-      {!finished && (
-        <div className="mn-step-actions">
-          <button type="button" className="mn-btn outline" onClick={() => setShown(n => n + 1)}><ChevronRight size={15} aria-hidden="true" />{t("lesson.nextStep", { n: shown + 1, total: steps.length })}</button>
-          <button type="button" className="mn-link" onClick={() => setShown(steps.length)}>{t("lesson.showAll")}</button>
-        </div>
-      )}
-      {finished && tail && <Text>{tail}</Text>}
-    </div>
-  );
-}
-
 // The student's part of the lesson stands apart from the explanation.
 const QUESTION_SECTIONS = new Set(["try", "check"]);
 
-export function LessonSections({ lesson, diagram, settled }) {
+// lab: an interactive visual for "See how it works" (it replaces a drawn picture there).
+// quiz: a checked multiple-choice question, shown after "Try it yourself"; onQuiz sends the choice.
+export function LessonSections({ lesson, diagram, settled, lab = null, quiz = null, quizResult = null, onQuiz = null, busy = false }) {
   const { t } = useT();
-  const hasSee = lesson.sections.some(s => s.id === "see");
-  const picture = settled && diagram ? <VisualExplanation diagram={diagram} /> : null;
+  // A lesson with a lab always shows "See how it works", even if the reply left that section out.
+  let sections = lesson.sections;
+  if (lab && !sections.some(s => s.id === "see")) {
+    const at = sections.findIndex(s => s.id === "example" || QUESTION_SECTIONS.has(s.id));
+    sections = at < 0 ? [...sections, { id: "see", body: "" }] : [...sections.slice(0, at), { id: "see", body: "" }, ...sections.slice(at)];
+  }
+  const hasSee = sections.some(s => s.id === "see");
+  const visual = !settled ? null
+    : lab ? <Suspense fallback={null}><LabView lab={lab} /></Suspense>
+    : diagram ? <VisualExplanation diagram={diagram} /> : null;
+  const quizCard = settled && quiz && onQuiz
+    ? <Suspense fallback={null}><QuizCard quiz={quiz} result={quizResult} busy={busy} onAnswer={onQuiz} /></Suspense> : null;
+  const hasTry = sections.some(s => s.id === "try");
   // Numbers follow the sections actually present, because not every lesson needs all of them.
   let number = 0;
   return (
     <div className="mn-lesson">
       {lesson.intro && <Text>{lesson.intro}</Text>}
-      {lesson.sections.map((s, i) => {
+      {sections.map((s, i) => {
         const Icon = ICONS[s.id];
         const asks = QUESTION_SECTIONS.has(s.id);
         // With no explanation section to sit in, the picture goes before the first question.
-        const pictureHere = s.id === "see" || (!hasSee && asks && !lesson.sections.slice(0, i).some(x => QUESTION_SECTIONS.has(x.id)));
+        const visualHere = s.id === "see" || (!hasSee && asks && !sections.slice(0, i).some(x => QUESTION_SECTIONS.has(x.id)));
         number += 1;
         return (
           <div key={`${s.id}-${i}`}>
-            {pictureHere && s.id !== "see" && picture}
+            {visualHere && s.id !== "see" && visual}
             <section className={`mn-lesson-part ${asks ? "ask" : ""} part-${s.id}`}>
               <h3><span className="mn-lesson-n" aria-hidden="true">{number}</span><Icon size={15} aria-hidden="true" />{t(`lesson.${s.id}`)}</h3>
-              {s.id === "see" && picture}
+              {s.id === "see" && visual}
               {/* Every step of a worked example sits on its own line, also while the reply is still appearing. */}
-              {s.id === "example" ? (settled ? <StepByStepExample body={s.body} /> : <Text>{unfoldSteps(s.body)}</Text>) : <Text>{s.body}</Text>}
+              {s.id === "example"
+                ? (settled ? <Suspense fallback={<Text>{unfoldSteps(s.body)}</Text>}><WorkedExample body={s.body} /></Suspense> : <Text>{unfoldSteps(s.body)}</Text>)
+                : s.body ? <Text>{s.body}</Text> : null}
+              {s.id === "try" && quizCard}
             </section>
           </div>
         );
       })}
-      {!lesson.sections.some(s => s.id === "see" || QUESTION_SECTIONS.has(s.id)) && picture}
+      {!sections.some(s => s.id === "see" || QUESTION_SECTIONS.has(s.id)) && visual}
+      {!hasTry && quizCard}
     </div>
   );
 }

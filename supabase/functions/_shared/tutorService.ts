@@ -12,6 +12,7 @@ import {
 } from "./policy.ts";
 import { matchesAnswer, revealsAnswer, statesAnswer, statesCorrection } from "./answerGuard.ts";
 import { arithmeticRequest, checkArithmetic } from "./engine/mathCheck.ts";
+import { LAB_DESCRIPTION, labFor } from "./engine/labs.ts";
 import { formatLesson, parseLesson } from "./lessonFormat.ts";
 import { checkEquation } from "./chemistry.ts";
 import { asksForPicture, renderDiagram, type Diagram } from "./diagram.ts";
@@ -27,7 +28,7 @@ import { asksForAnswer, classifyRequest, decideTurn, isStruggling, isUnexplained
 import { decideResearch, keywordsFrom, scrubPersonal, type ResearchDecision } from "./research/select.ts";
 import { runResearch, type ResearchDeps, type ResearchResult } from "./research/pipeline.ts";
 import { checkCitations, dropUnsourcedClaims, earlierSourcesNote, failureCount, notCheckedLine, NO_RESEARCH_NOTE, RESEARCH_LIMIT_NOTE, researchNote, toPublicSource, type PublicSource } from "./research/citations.ts";
-import { generateItem, markItem, questionKey, misconceptionText, objective as objectiveInfo, OBJECTIVE_IDS, type Item } from "./engine/bank.ts";
+import { generateItem, markItem, multipleChoice, questionKey, misconceptionText, objective as objectiveInfo, OBJECTIVE_IDS, type Item } from "./engine/bank.ts";
 import { emptyRecord, estimate, evidenceKind, nextEvidence, stageOf, supportLevel, update as updateMastery } from "./engine/mastery.ts";
 
 export interface TutorInput {
@@ -138,7 +139,7 @@ export function validateInput(raw: unknown, maxChars: number): TutorInput | stri
     attachments = attachments.filter(a => a.text).map(a => a.text.length <= each ? a
       : { ...a, text: `${a.text.slice(0, each)}\n[... the rest of this file (${a.text.length - each} characters) was not included]` });
   }
-  if (action === "message" || action === "check") {
+  if (action === "message" || action === "check" || action === "quiz") {
     if (typeof b.message !== "string" || (!b.message.trim() && !attachments.length)) return "empty_message";
     if (b.message.length > maxChars) return "message_too_long";
   }
@@ -229,6 +230,10 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     return { status: 409, body: { error: "session_limit", message: "This session is at its length limit. Start a new problem to continue.",
                                   limit: ent.max_session_turns, upgrade_to: NEXT_PLAN[ent.plan_id] ?? null } };
   }
+  // A multiple-choice answer needs a multiple-choice check that is still open.
+  if (input.action === "quiz" && !(await repo.getSessionItem(session.id))?.item.quiz) {
+    return { status: 409, body: { error: "quiz_closed", message: "This check has already been answered. Ask for a new problem to try another." } };
+  }
   if (input.action === "hint" && session.hints_used >= 3) {
     return { status: 409, body: { error: "hint_limit", message: "All 3 hints for this problem have been used." } };
   }
@@ -252,11 +257,11 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   // "I don't know" and a question about an idea aren't attempts at the problem.
   const requestKind = input.action === "message" && input.message ? classifyRequest(input.message) : "other";
   const struggling = input.action === "message" && isStruggling(input.message ?? "");
-  const isAttempt = input.action === "check" || (input.action === "message" && Boolean(input.sessionId) && !struggling && requestKind !== "concept");
-  if (input.action === "message" || input.action === "check") studentTexts.push(input.message!);
+  const isAttempt = input.action === "check" || input.action === "quiz" || (input.action === "message" && Boolean(input.sessionId) && !struggling && requestKind !== "concept");
+  if (input.action === "message" || input.action === "check" || input.action === "quiz") studentTexts.push(input.message!);
   const studentEquation = isAttempt ? checkEquation(input.message ?? "") : null;
   const newProblem = input.action === "practice" || input.action === "verify" || input.action === "review" || input.action === "test";
-  const attemptsNow = newProblem ? 0 : session.attempts + (isAttempt ? 1 : 0);
+  const attemptsNow = newProblem ? 0 : session.attempts + (isAttempt && input.action !== "quiz" ? 1 : 0);   // a check on another problem isn't an attempt at this one
 
   // ---------------- Tutoring engine: decide this turn's teaching move ----------------
   const prevMeta = ([...history].reverse().find(m => m.role === "assistant")?.meta ?? {}) as Record<string, any>;
@@ -270,11 +275,13 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
 
   // What the server can verify itself: a bank item (deterministic marking), an
   // unbalanced equation, or the remembered verified answer.
-  const marking = isAttempt && sessionItem ? markItem(sessionItem.item, input.message!) : null;
+  // An open multiple-choice check is marked only when it is what the student answered: typed work is about their own problem.
+  const itemInPlay = sessionItem && (!sessionItem.item.quiz || input.action === "quiz") ? sessionItem : null;
+  const marking = isAttempt && itemInPlay ? markItem(itemInPlay.item, input.message!) : null;
   let checked: CheckedVerdict = "unknown", verificationNote: string | null = null, serverMisconception: string | null = null;
   if (marking) {
     checked = marking.verdict;
-    serverMisconception = misconceptionText(sessionItem!.item, marking.misconception);
+    serverMisconception = misconceptionText(itemInPlay!.item, marking.misconception);
     verificationNote = serverMisconception ? `the result is what you get if one ${serverMisconception}` : null;
   } else if (isAttempt && studentEquation && !studentEquation.balanced) {
     checked = "incorrect"; verificationNote = "the chemical equation is not balanced";
@@ -286,7 +293,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const repeats = serverMisconception && prevMis === serverMisconception ? Number(prevMeta.misconceptionCount ?? 1) : 0;
 
   // Does this question need published evidence? Rules only; nothing is searched for a homework problem.
-  const researchDecision: ResearchDecision = deps.research && input.action === "message" && input.message && !sessionItem
+  const researchDecision: ResearchDecision = deps.research && input.action === "message" && input.message && !itemInPlay
     ? decideResearch(input.message, { explicit: input.research === true, isProblem: requestKind === "problem" })
     : { tier: "none", subject: "general", recent: false, connectors: [], reason: "not a typed question" };
   const researchAllowance = researchDecision.tier !== "none" ? await repo.researchAllowance(userId, ent.plan_id).catch(() => ({ limit: 0, used: 0 })) : null;
@@ -296,7 +303,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const evidenceObjective = objectiveId && (checked === "correct" || checked === "incorrect") ? objectiveId : null;
   const prevRecord = evidenceObjective ? (await repo.getObjectiveRecord(userId, evidenceObjective)) ?? emptyRecord(evidenceObjective) : null;
   const newRecord = prevRecord ? updateMastery(prevRecord, {
-    kind: evidenceKind(sessionItem?.kind ?? null), verdict: checked as "correct" | "incorrect", hintsUsed: session.hints_used,
+    kind: evidenceKind(itemInPlay?.kind ?? null), verdict: checked as "correct" | "incorrect", hintsUsed: session.hints_used,
     unexplained, misconception: marking?.misconception ?? null, at: now() }) : null;
 
   // Where this learner stands on this topic (marked answers only): it sets how much support the reply gives.
@@ -312,7 +319,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
                 struggleCount: Number(prevMeta.struggleCount ?? 0), questionStreak: Number(prevMeta.questionStreak ?? 0), wrongStreak: wrongStreakBefore, prerequisiteVisited },
     requestKind: researchDecision.tier !== "none" && researchLeft ? "research" : requestKind, struggling,
     askedForAnswer: input.action === "message" && asksForAnswer(input.message ?? ""), unexplained,
-    itemKind: sessionItem?.kind ?? null,
+    itemKind: itemInPlay?.kind ?? null,
     masteredNow: Boolean(newRecord && newRecord.status === "mastered" && prevRecord!.status !== "mastered"),
     objectiveKnown: Boolean(objectiveId && generateItem(objectiveId, 1)),
     attempted: isAttempt, guidedSuccessBefore,
@@ -332,12 +339,19 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
     if (presented) await repo.setSessionItem(session.id, userId, presented);
   }
   // A checked worked example for this topic, when the lesson is going to contain one (decided below, used in the engine note).
+  // The worked example and the multiple-choice check must never be the student's own problem: that would
+  // hand them its solution. A generated problem whose numbers all appear in what the student wrote is skipped.
+  const ownNumbers = numbersIn(studentTexts.join(" "));
+  const isOwnProblem = (item: Item) => {
+    const n = numbersIn(item.question.replace(/\b[A-Za-z]_?\d\b/g, " "));
+    return n.length > 0 && n.every(v => ownNumbers.some(o => Math.abs(o - v) < 1e-9));
+  };
   const pickReference = async (): Promise<Item | null> => {
     if (!objectiveId || presented) return null;
     for (let k = 0; k < 6; k++) {
       const item = generateItem(objectiveId, Math.floor(Math.random() * 2 ** 31));
       // Not the problem being answered, and not one already shown: once explained it can't serve as an unseen check.
-      if (item && item.answer !== sessionItem?.item.answer && await repo.markServed(userId, item.templateId, questionKey(item.question), "practice")) return item;
+      if (item && item.answer !== sessionItem?.item.answer && !isOwnProblem(item) && await repo.markServed(userId, item.templateId, questionKey(item.question), "practice")) return item;
     }
     return null;
   };
@@ -350,14 +364,26 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const suggestion = suggestVisual(topicText) ?? suggestVisual(`${session.title ?? ""} ${studentTexts.join(" ")}`);
   const intent = input.action === "message" ? detectIntent(input.message ?? "", requestKind) : null;
   // Tables cost nothing to make and aren't pictures, so they stay available when today's pictures are used up.
-  const offerDiagram = canDraw && !presented && (asksDiagram || shape.visual !== "none");
+  // A worked example from the bank brings its own interactive visual (labs.ts), which replaces a drawn picture.
+  const reference = shape.sections.includes("example") ? await pickReference() : null;
+  const lab = reference ? labFor(reference) : null;
+  const offerDiagram = canDraw && !presented && !(lab && !asksDiagram) && (asksDiagram || shape.visual !== "none");
   const tableKinds = (suggestion?.kinds ?? []).filter(k => TABLE_KINDS.includes(k));
   const tablesOnly = !canDraw && !asksDiagram && !presented && shape.visual !== "none" && tableKinds.length > 0;
   const visualKinds: DiagramKind[] = tablesOnly ? tableKinds
     : asksDiagram && !suggestion ? [...DIAGRAM_KINDS]
     : [...new Set<DiagramKind>([...(suggestion?.kinds ?? ["graph", "flowchart", "bars", "array"]), "flow", "compare"])];
   const adapts = isAttempt && checked === "unknown" && !plan.presentItem;
-  const reference = shape.sections.includes("example") ? await pickReference() : null;
+  // "Test your understanding": a checked multiple-choice question on a new problem of the same kind. Written in
+  // English, so only for English lessons; never while a problem of the bank is being answered.
+  let quiz: { item: Item; options: string[] } | null = null;
+  if (reference && shape.sections.includes("try") && /^english$/i.test(lang ?? session.language ?? "English") && !(sessionItem && !sessionItem.item.quiz)) {
+    for (let k = 0; k < 6 && !quiz; k++) {
+      const item = generateItem(reference.objective, Math.floor(Math.random() * 2 ** 31));
+      const options = item && item.question !== reference.question && !isOwnProblem(item) ? multipleChoice(item, Math.random) : null;
+      if (item && options && await repo.markServed(userId, item.templateId, questionKey(item.question), "practice")) quiz = { item, options };
+    }
+  }
   // Does the reply's worked example end in the checked result (as an expression, or all of its numbers)?
   const usesReference = (message: string) => {
     if (!reference) return true;
@@ -388,12 +414,12 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const engineMessage = presented ? null : engineNote(plan, {
     mode, modeChanged, verified: checked, verificationNote, unexplained,
     misconception: serverMisconception, objectiveTitle: objectiveId ? objectiveInfo(objectiveId)?.title ?? null : null,
-    shape: [shapeNote(shape, { offered: offerDiagram || tablesOnly, tablesOnly }),
+    shape: [shapeNote(shape, { offered: offerDiagram || tablesOnly, tablesOnly, lab: lab ? LAB_DESCRIPTION[lab.kind] : null, quiz: Boolean(quiz) }),
             subjectNote(teachingSubject(topicText, objectiveId ? objectiveInfo(objectiveId)?.subject ?? null : null), shape.format) ?? "",
             topicRecord && shape.format !== "brief" && shape.format !== "plain" ? SUPPORT_NOTE[supportLevel(topicRecord)] : "",
             intent === "exam" ? "The student is preparing for an exam: finish with the kind of question an exam would ask." : ""].filter(Boolean).join("\n"),
     adapt: adapts ? ADAPT_NOTE : null,
-    evidence: EVIDENCE_NOTE[classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: sessionItem?.kind ?? null, guidedSuccessBefore,
+    evidence: EVIDENCE_NOTE[classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: itemInPlay?.kind ?? null, guidedSuccessBefore,
       assessment: null })] ?? (assessmentBefore ? EVIDENCE_NOTE[assessmentBefore as keyof typeof EVIDENCE_NOTE] ?? null : null),
     prerequisite: plan.state === "PREREQ" ? (typeof prevMeta.prerequisiteGap === "string" ? prevMeta.prerequisiteGap
       : (objectiveId ? (objectiveInfo(objectiveId)?.prerequisites ?? []).map(p => objectiveInfo(p)?.title ?? p).join(", ") : "") || null) : null,
@@ -546,7 +572,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
 
         // Answer-leak guard (earned worked solutions are exempt)
         if (presented) reply.finalAnswer = presented.item.answer;
-        else if (sessionItem) reply.finalAnswer = sessionItem.item.answer;
+        else if (itemInPlay) reply.finalAnswer = itemInPlay.item.answer;
         const earnedSolution = (plan.revealAllowed && ent.worked_solutions) ||
           (reply.type === "worked_solution" && ent.worked_solutions && !newProblem && (session.hints_used >= 3 || attemptsNow >= 2 || session.solved));
         // Confirming a student's own correct attempt may restate it in another form
@@ -789,7 +815,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   const rec = reconcile(checked, serverMisconception, reply.assessment ?? null, reply.type);
 
   // A solve counts only if the model says so AND the student's own text contains the verified answer.
-  const itemSolved = Boolean(marking && marking.verdict === "correct" && !unexplained);
+  // A multiple-choice pick has no working to show: right closes the check (its evidence still counts little, as a pick can be a guess).
+  const itemSolved = Boolean(marking && marking.verdict === "correct" && (!unexplained || input.action === "quiz"));
   const verifiedSolve = !newProblem && !session.solved && isAnswerAction(input.action) && !(studentEquation && !studentEquation.balanced) &&
     (itemSolved || (reply.solved && matchesAnswer(input.message ?? "", reply.finalAnswer)));
   const userMeta: Record<string, unknown> =
@@ -797,6 +824,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       ? { display: input.message, attachments: input.attachments.map(a => ({ name: a.name, kind: a.kind, chars: a.text.length })) } : {})
     : input.action === "hint" ? { control: "hint", level: session.hints_used + 1 }
     : input.action === "check" ? { control: "check", text: input.message }
+    : input.action === "quiz" ? { control: "quiz", text: input.message }
     : input.action === "stuck" ? { control: "stuck", reason: input.stuck }
     : { control: input.action };
   // The engine's view of this turn, kept with the reply so the next turn can adapt
@@ -844,7 +872,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   }
   const visualView = diagram ? { svg: diagram.svg, alt: diagram.alt, kind: diagram.kind ?? null, title: diagram.title ?? "", table: diagram.table ?? null, ...(diagram.frames ? { frames: diagram.frames } : {}) } : null;
   // How the student's answer reads, from the server's facts first and the model's reading second.
-  const evidence = isAttempt ? classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: sessionItem?.kind ?? null, guidedSuccessBefore, assessment: reply.assessment ?? null }) : null;
+  const evidence = isAttempt ? classifyEvidence({ verified: checked, unexplained, misconception: serverMisconception, itemKind: itemInPlay?.kind ?? null, guidedSuccessBefore, assessment: reply.assessment ?? null }) : null;
   const judgedWrong = isAttempt && (checked === "incorrect" || (checked === "unknown" && reply.assessment?.verdict === "incorrect" && reply.assessment.confidence >= 0.6));
   const judgedRight = checked === "correct" || (isAttempt && reply.assessment?.verdict === "correct");
   const wrongStreak = judgedRight || newProblem ? 0 : judgedWrong ? Number(prevMeta.wrongStreak ?? 0) + 1 : Number(prevMeta.wrongStreak ?? 0);
@@ -865,6 +893,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       ...(verifiedSolve ? { solved: true } : {}),
       ...(progressSummaryOk(reply, verifiedSolve) ? { summary: reply.progressSummary } : {}),
       ...(visualView ? { diagram: visualView } : {}),
+      ...(lab ? { lab } : {}), ...(quiz ? { quiz: { question: quiz.item.question, options: quiz.options } } : {}),
       ...(accuracy?.unverified.length ? { unverified: accuracy.unverified } : {}),
       ...(accuracy?.example === "checked" ? { exampleChecked: true } : {}),
       format: shape.format,
@@ -890,12 +919,14 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   if (newRecord && evidenceObjective) {
     await repo.saveObjectiveRecord(userId, newRecord);
     await repo.recordAttempt({
-      user_id: userId, session_id: session.id, objective_id: evidenceObjective, template_id: sessionItem?.item.templateId ?? null,
-      seed: sessionItem?.item.seed ?? null, kind: evidenceKind(sessionItem?.kind ?? null), verdict: checked as "correct" | "incorrect",
+      user_id: userId, session_id: session.id, objective_id: evidenceObjective, template_id: itemInPlay?.item.templateId ?? null,
+      seed: itemInPlay?.item.seed ?? null, kind: evidenceKind(itemInPlay?.kind ?? null), verdict: checked as "correct" | "incorrect",
       misconception: marking?.misconception ?? null, hints_used: session.hints_used, unexplained,
     });
   }
   if (itemSolved) await repo.setSessionItem(session.id, userId, null);
+  // The new multiple-choice check is kept with its answer on the server; the browser gets the options only.
+  if (quiz) await repo.setSessionItem(session.id, userId, { kind: "practice", item: { ...quiz.item, quiz: true } });
   if (verifiedSolve) {
     await repo.recordLearningEvent({
       user_id: userId, session_id: session.id, kind: session.practice ? "practice_solved" : "problem_solved",
@@ -905,7 +936,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
   // What happened in this turn, for the next teaching decision and for evaluating Menya. No text is stored.
   await repo.recordTeachingEvents(teachingEvents({
     format: shape.format, action: input.action as EngineAction, state: plan.state, isAttempt, visualKind: visualView?.kind ?? null, misconception: storedMisconception,
-    verified: checked, itemKind: sessionItem?.kind ?? null, masteryChanged: Boolean(newRecord && prevRecord && newRecord.status !== prevRecord.status), hadTeaching: prevMeta.taught === true,
+    verified: checked, itemKind: itemInPlay?.kind ?? null, masteryChanged: Boolean(newRecord && prevRecord && newRecord.status !== prevRecord.status), hadTeaching: prevMeta.taught === true,
   }).map(e => ({ user_id: userId, session_id: session!.id, objective_id: sessionObjective, kind: e.kind, visual_kind: e.visual_kind ?? null, language: reply.language || null, level: teachingLevel }))).catch(err => {
     log({ event: "teaching_events_failed", message: err instanceof Error ? err.message : String(err) });
   });
@@ -933,6 +964,8 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
       sessionId: session.id,
       hintsUsed,
       diagram: visualView,
+      lab,
+      quiz: quiz ? { question: quiz.item.question, options: quiz.options } : null,
       // Numbers in the reply the server recomputed; "unverified" lists lines that did not hold even after a rewrite.
       accuracy,
       // The learner asked for a picture and none came: why, so the app can say so plainly.
@@ -947,7 +980,7 @@ export async function handleTutor(deps: TutorDeps, userId: string, rawInput: unk
         // Which of the five stages this learner has evidence for on this topic, and the support level it gives.
         topic: sessionObjective && objectiveInfo(sessionObjective) ? { stage: stageOf(stageRecord), next: nextEvidence(stageRecord), support: supportLevel(stageRecord),
           practice: Boolean(generateItem(sessionObjective, 1)), prerequisites: objectiveInfo(sessionObjective)!.prerequisites } : null,
-        item: presented ? { kind: presented.kind } : sessionItem && !itemSolved ? { kind: sessionItem.kind } : null,
+        item: presented ? { kind: presented.kind } : sessionItem && !sessionItem.item.quiz && !itemSolved ? { kind: sessionItem.kind } : null,
         mastery: newRecord ? { status: newRecord.status, estimate: Math.round(estimate(newRecord).mean * 100) / 100,
                                independent: newRecord.independent_correct, nextReview: newRecord.next_review_at } : null,
       },

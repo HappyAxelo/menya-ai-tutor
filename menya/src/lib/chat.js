@@ -9,6 +9,7 @@ export const ACTION_LABELS = {
   diagram: "Asked to see it as a picture",
   example: "Asked for a worked example",
   check: "Check my answer",
+  quiz: "Answered the check",
   practice: "Asked for a similar practice question",
   summary: "Asked for a summary",
   verify: "Asked for a problem to solve alone",
@@ -58,7 +59,7 @@ export function historyToMessages(rows) {
         ? { role: "user", content: r.meta.display ?? "", attachments: r.meta.attachments.map(a => ({ name: a.name, kind: a.kind })) }
         : { role: "user", content: r.content };
       if (control === "stuck") return { role: "user", control, content: STUCK_LABELS[r.meta.reason] ?? "I'm stuck" };
-      return { role: "user", control, content: control === "check" ? String(r.meta.text ?? "") : ACTION_LABELS[control] ?? "Action" };
+      return { role: "user", control, content: control === "check" || control === "quiz" ? String(r.meta.text ?? "") : ACTION_LABELS[control] ?? "Action" };
     }
     return {
       role: "assistant", messageId: r.id ?? null, content: r.content, type: r.meta?.type ?? "question", hintLevel: r.meta?.hintLevel ?? null,
@@ -66,6 +67,7 @@ export function historyToMessages(rows) {
       misconceptionDetected: r.meta?.misconception ?? null, progressSummary: r.meta?.summary ?? null,
       solved: r.meta?.solved === true, diagram: r.meta?.diagram ?? null, research: r.meta?.research ?? null,
       unverified: Array.isArray(r.meta?.unverified) ? r.meta.unverified : null, exampleChecked: r.meta?.exampleChecked === true,
+      lab: r.meta?.lab ?? null, quiz: r.meta?.quiz ?? null,
     };
   });
 }

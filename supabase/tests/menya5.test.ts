@@ -612,9 +612,9 @@ describe("worked examples computed by the server", () => {
     assert.deepEqual((res.body as any).accuracy, { checked: (res.body as any).accuracy.checked, unverified: [], example: "checked" });
     assert.ok((res.body as any).accuracy.checked >= 3, "and its lines were recomputed too");
     assert.deepEqual((res.body as any).engine.topic, { stage: "not_started", next: "learn", support: 1, practice: true, prerequisites: ["ee.ohms_law", "ee.series_circuits"] });
-    // The example's problem can no longer be served as an "unseen" check.
+    // The example's problem and the multiple-choice problem can no longer be served as "unseen" checks.
     const served = (await db.query<any>("select kind from public.served_items where user_id = $1", [u])).rows;
-    assert.deepEqual(served.map(r => r.kind), ["practice"]);
+    assert.deepEqual(served.map(r => r.kind), ["practice", "practice"]);
     const saved = (await db.query<any>("select meta from public.tutoring_messages where user_id = $1 and role = 'assistant'", [u])).rows[0].meta;
     assert.equal(saved.exampleChecked, true);
   });
@@ -627,8 +627,8 @@ describe("worked examples computed by the server", () => {
     assert.match(String(groq.referenceCalls[0].messages.at(-1)!.content), /\[USE THE CHECKED EXAMPLE\][\s\S]*Result: [\d.]+ A/);
     const message = (res.body.reply as any).message as string;
     const example = parseLesson(message).sections.find(x => x.id === "example")!.body;
-    assert.match(example, /^A [\d.]+ V battery is connected to a \d+ Ω resistor in series with a parallel pair/);
-    assert.match(example, /\n1\. R_parallel = [\s\S]*\n4\. V_parallel = [\d.]+ − [\d.]+·\d+ = [\d.]+ V\n5\. [\s\S]*\n6\. Result: [\d.]+ A$/, "each computed step on its own line");
+    assert.match(example, /^1\. Identify what we know\nA [\d.]+ V battery is connected to a \d+ Ω resistor in series with a parallel pair/);
+    assert.match(example, /\n2\. Find R_parallel\nR_parallel = [\s\S]*\n5\. Find V_parallel\nV_parallel = [\d.]+ − [\d.]+·\d+ = [\d.]+ V\n6\. [\s\S]*\n7\. Result\n[\d.]+ A$/, "a title for each step, the equation on its own line");
     assert.ok(!message.includes("4.29"), "the model's wrong working is gone");
     assert.match(message, /@@idea[\s\S]*@@try\nWhat is the combined resistance/, "the rest of the lesson is untouched");
     assert.deepEqual((res.body as any).accuracy.unverified, []);
@@ -720,4 +720,99 @@ test("a value in the server's own example that equals the student's answer is no
   const leaky = scripted([reply("@@idea\nKirchhoff's current law says the currents into a junction add up to the current out, and the voltage law says the voltages round a loop add up to zero, so the answer is 2 A.\n@@try\nWhat is the total resistance?", { finalAnswer: "2 A" })]);
   const out = await handleTutor({ repo: pgRepo(db), providers: { groq: leaky.provider }, sleep: async () => {} }, v, ask(KIRCHHOFF));
   assert.doesNotMatch((out.body.reply as any).message, /answer is 2 A/);
+});
+
+
+// ---------------- "See how it works", the multiple-choice check, titled steps (14 November 2026) ----------------
+describe("lesson visuals and the multiple-choice check", () => {
+  test("every option is marked by the template: exactly one is right, and the wrong ones are named mistakes", async () => {
+    const { multipleChoice } = await import("../functions/_shared/engine/bank.ts");
+    let offered = 0;
+    for (const t of TEMPLATES) for (let seed = 1; seed <= 30; seed++) {
+      const item = t.generate(seed);
+      const options = multipleChoice(item, Math.random);
+      if (!options) continue;
+      offered++;
+      assert.ok(options.length >= 3 && options.length <= 4, `${t.id} ${seed}`);
+      assert.equal(options.filter(o => t.mark(item, o).verdict === "correct").length, 1, `${t.id} ${seed}: ${options}`);
+      assert.equal(new Set(options.map(o => o.replace(/\s+/g, ""))).size, options.length, "no duplicates");
+    }
+    assert.ok(offered > 600, "most templates offer one");
+    // The Kirchhoff options include the mistake made on the live site.
+    const k = find("ee.series_parallel", q => q.startsWith("A 27 V battery is connected to a 6 Ω resistor") && q.includes("R2 = 4 Ω and R3 = 12 Ω"));
+    const opts = multipleChoice(k, Math.random)!;
+    assert.ok(opts.includes("2.25 A") && opts.includes("4.5 A"), JSON.stringify(opts));
+  });
+
+  test("a lab starts at the worked example's numbers", async () => {
+    const { labFor } = await import("../functions/_shared/engine/labs.ts");
+    const k = find("ee.series_parallel", q => q.startsWith("A 27 V battery is connected to a 6 Ω resistor") && q.includes("R2 = 4 Ω and R3 = 12 Ω"));
+    assert.deepEqual(labFor(k), { kind: "circuit", params: { V: 27, R1: 6, R2: 4, R3: 12 } });
+    assert.deepEqual(labFor(find("calc.power", q => q === "Differentiate f(x) = 3x^2 + 5x + 4")), { kind: "tangent", params: { f: "3x^2 + 5x + 4", df: "6x + 5" } });
+    assert.deepEqual(labFor(find("phys.projectile", q => q.includes("20 m/s at 30°"))), { kind: "projectile", params: { v: 20, angle: 30 } });
+    assert.equal(labFor(find("linalg.det2", () => true)), null, "no lab for this topic");
+  });
+
+  test("an English lesson on a bank topic carries its lab and a checked multiple-choice question, never the answer", async () => {
+    const u = await createUser(db);
+    const m = obedient();
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: m.provider }, sleep: async () => {} }, u, ask(KIRCHHOFF));
+    const body = res.body as any;
+    assert.equal(body.lab.kind, "circuit");
+    const note = m.calls[0].messages.map(x => String(x.content)).join("\n");
+    assert.match(note, /@@see: The app shows an interactive circuit diagram/);
+    assert.match(note, /@@try: ONE short sentence and no question mark/);
+    assert.ok(body.quiz.options.length >= 3);
+    const item = (await db.query<any>("select item from public.session_items where session_id = $1", [body.sessionId])).rows[0].item;
+    assert.equal(item.quiz, true);
+    assert.ok(body.quiz.options.includes(item.answer));
+    assert.ok(!JSON.stringify(body).includes('"answer"'), "the key stays on the server");
+    assert.equal(body.engine.item, null, "an open check doesn't turn the lesson into a practice problem");
+    const saved = (await db.query<any>("select meta from public.tutoring_messages where user_id = $1 and role = 'assistant'", [u])).rows[0].meta;
+    assert.deepEqual(saved.quiz, body.quiz);
+    assert.equal(saved.lab.kind, "circuit");
+  });
+
+  test("answering the check is marked on the server; typed work on the student's own problem is not marked against it", async () => {
+    const u = await createUser(db);
+    const m = obedient();
+    const deps = { repo: pgRepo(db), providers: { groq: m.provider }, sleep: async () => {} };
+    const lesson = await handleTutor(deps, u, ask(KIRCHHOFF));
+    const sessionId = lesson.body.sessionId as string;
+    const item = (await db.query<any>("select item from public.session_items where session_id = $1", [sessionId])).rows[0].item;
+    // Typing about their own circuit: not marked against the check.
+    const own = await handleTutor(deps, u, ask("R_parallel = 2 ohm", { sessionId }));
+    assert.equal((own.body as any).engine.verified, null);
+    const wrongOption = (lesson.body as any).quiz.options.find((o: string) => o !== item.answer);
+    const wrong = await handleTutor(deps, u, { requestId: randomUUID(), action: "quiz", sessionId, message: wrongOption });
+    assert.equal((wrong.body as any).engine.verified, "incorrect");
+    assert.match(String(m.calls.at(-1)!.messages.at(-1)!.content), /\[MULTIPLE-CHOICE CHECK\]/);
+    const right = await handleTutor(deps, u, { requestId: randomUUID(), action: "quiz", sessionId, message: item.answer });
+    assert.equal((right.body as any).engine.verified, "correct");
+    const attempts = (await db.query<any>("select kind, verdict from public.assessment_attempts where user_id = $1 order by id", [u])).rows;
+    assert.deepEqual(attempts, [{ kind: "practice", verdict: "incorrect" }, { kind: "practice", verdict: "correct" }], "practice evidence, not independent");
+    const again = await handleTutor(deps, u, { requestId: randomUUID(), action: "quiz", sessionId, message: item.answer });
+    assert.equal(again.status, 409, "a check answered right is closed");
+  });
+
+  test("not in other languages: the check and the server's example are written in English", async () => {
+    const u = await createUser(db);
+    const m = obedient();
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: m.provider }, sleep: async () => {} }, u, ask(KIRCHHOFF, { language: "French" }));
+    assert.equal((res.body as any).quiz, null);
+    assert.equal((res.body as any).lab.kind, "circuit", "a lab has no language of its own");
+  });
+});
+
+
+test("the worked example and the check are never the student's own problem", async () => {
+  // A learner whose own problem is a bank question: across many lessons, neither the example nor the check repeats it.
+  for (let run = 0; run < 25; run++) {
+    const u = await createUser(db);
+    const m = obedient();
+    const res = await handleTutor({ repo: pgRepo(db), providers: { groq: m.provider }, sleep: async () => {} }, u, ask("Find the derivative of f(x) = 3x^2 + 5x + 4"));
+    const note = m.calls[0].messages.map(x => String(x.content)).find(c => c.includes("[CHECKED EXAMPLE]")) ?? "";
+    assert.doesNotMatch(note, /Problem: Differentiate f\(x\) = 3x\^2 \+ 5x \+ 4$/m);
+    if ((res.body as any).quiz) assert.notEqual((res.body as any).quiz.question, "Differentiate f(x) = 3x^2 + 5x + 4");
+  }
 });
