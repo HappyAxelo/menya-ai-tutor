@@ -199,3 +199,9 @@ All 20 topics, four turns each: 80 real replies (the script waited out 28 "busy"
 | Integration: the server's own worked example ended "F(2) − F(0)" and then "44", with nothing in between. | Every computed step in the server's examples now ends in its value (16 question types). |
 
 Not changed: the AI's own "check" steps are sometimes empty ("which matches the slope of the tangent"); where the server's example is used, the check is the server's.
+
+## 12. Third run, on server version 31 (14 November 2026): stopped by the daily limit
+
+The run stopped after topic 2 because the free Groq tier's daily allowance was used up (the provider asked to wait 23 minutes). The two topics it reached show every part working with the real model: an interactive visual (tangent, area), a four-option multiple-choice check, the server's checked worked example (swapped in where the model ignored it), and the server-written last line. Results: `MENYA5_EVAL_RESULTS_RUN3_PARTIAL.md`.
+
+**The evaluation and the live site share one free allowance.** A full 20-topic run uses most of a day's tokens, and while it is exhausted students also see "Menya is very busy". Run the rest at a quiet time (from the `supabase` folder: `FROM=3 node dev/eval-menya5.ts`, in PowerShell `$env:FROM = "3"` first), or after moving to a paid tier.
